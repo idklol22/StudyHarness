@@ -17,15 +17,24 @@ describe("plugin documents service", () => {
 		assert.equal(info.pageCount, 3);
 	});
 
-	it("renders requested pages to PNG with their extracted text", async () => {
+	it("renders requested pages to JPEG by default, with their extracted text", async () => {
 		const pages = await docs.renderPdfPages({ path: fixture, pages: [1, 3], dpi: 60 });
 		assert.deepEqual(pages.map((p) => p.page), [1, 3]);
 		for (const p of pages) {
-			const png = Buffer.from(p.png, "base64");
-			assert.deepEqual(pngSize(png), { width: p.width, height: p.height });
+			const jpeg = Buffer.from(p.image, "base64");
+			assert.equal(p.mimeType, "image/jpeg");
+			assert.deepEqual([jpeg[0], jpeg[1]], [0xff, 0xd8], "a JPEG");
 			assert.ok(p.width > 50 && p.height > 50);
 			assert.equal(typeof p.text, "string");
 		}
+	});
+
+	it("renders PNG on request, and JPEG is the smaller payload", async () => {
+		const [png] = await docs.renderPdfPages({ path: fixture, pages: [2], dpi: 90, format: "png" });
+		const [jpeg] = await docs.renderPdfPages({ path: fixture, pages: [2], dpi: 90 });
+		assert.equal(png!.mimeType, "image/png");
+		assert.deepEqual(pngSize(Buffer.from(png!.image, "base64")), { width: png!.width, height: png!.height });
+		assert.ok(jpeg!.image.length < png!.image.length, `jpeg ${jpeg!.image.length} < png ${png!.image.length}`);
 	});
 
 	it("refuses bad input instead of guessing", async () => {

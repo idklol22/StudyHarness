@@ -7,12 +7,18 @@
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const study = require('./study.cjs');
-const { extractBatch, mergeDrafts } = require('./ingest.cjs');
+const { extractBatchWithMemory, mergeDrafts } = require('./ingest.cjs');
+const memory = require('./pdf-memory.cjs');
 const { performFigure } = require('./tutor.cjs');
 const { applyAnswer } = require('./state.cjs');
 
 const fail = (m) => { throw new Error(m); };
 const BATCH = 4;
+/** Batches read at the same time (owner: "PDF reading is too slow"): the vision calls dominate. */
+const CONCURRENCY = 4;
+/** Without an explicit range, documents longer than this start with their first pages only. */
+const LONG_DOCUMENT = 150;
+const FIRST_PAGES = 20;
 const result = (text, details) => ({ content: [{ type: 'text', text }], details });
 
 const INSTRUCTIONS = `## Study notebooks (Study plugin)
@@ -22,6 +28,7 @@ Starting:
 - If the learner attaches or names slides / a PDF (a local path ending in .pdf), ask which subject it belongs to if that is not obvious (suggest one), then call study_import_slides with the path. It reads every slide, builds the concepts, initial notes, an initial flashcard set and slide screenshots of meaningful figures. It reports progress; then tell the learner briefly what was built and ask whether they want to be taught or quizzed.
 - If they name a topic ("teach me linear regression") or a paper, call study_notebook with action "open" (origin "topic" or "paper", a short title, the subject). For a paper, research it first with your research/web tools. As you teach, add each concept with study_concept.
 - If a notebook is already attached (study_notebook action "status" tells you), continue it.
+- Long PDFs: every page read is kept in memory (page text, a summary per page range, the contents/index). NEVER read the same pages again: to find something, call study_pdf_lookup (by topic, e.g. "exercises", or exact pages) — it uses the contents page numbers to jump straight there, with the page before and after. For a long document (a book, a long report), read the contents and the parts the learner needs with study_import_slides' page range instead of everything.
 
 While teaching:
 - Teach progressively and ask questions; grade answers with study_grade (right / missing / wrong). Status and revisit dates are computed from grades, never set by you.
@@ -79,40 +86,77 @@ function createStudyTools({ ctx, store, subjects, pages, graphSync, notify }) {
     return deck;
   }
 
-  async function importSlides(chatId, { path: file, subject, title }, signal, onUpdate) {
+  async function importSlides(chatId, { path: file, subject, title, pages: range }, signal, onUpdate) {
     const info = await ctx.documents.pdfInfo(file);
     const fileName = path.basename(info.path);
-    const deck = openNotebook(chatId, { subject, title: title || fileName.replace(/\.pdf$/i, ''), origin: 'slides' });
-    const source = { id: randomUUID(), fileName, path: info.path, pageCount: info.pageCount, addedAt: new Date().toISOString() };
-    deck.sources.push(source);
+    const existing = notebookFor(chatId);
+    const deck = existing && existing.sources.some((s) => s.path === info.path) ? existing
+      : openNotebook(chatId, { subject, title: title || fileName.replace(/\.pdf$/i, ''), origin: 'slides' });
+    // One source (with its page memory) per PDF: importing it again reads only pages not read yet.
+    let source = deck.sources.find((s) => s.path === info.path);
+    if (!source) {
+      source = { id: randomUUID(), fileName, path: info.path, pageCount: info.pageCount, addedAt: new Date().toISOString() };
+      deck.sources.push(source);
+    }
+    memory.ensureMemory(source);
+    const capped = range == null && info.pageCount > LONG_DOCUMENT;
+    const wanted = capped ? memory.parseRange(`1-${FIRST_PAGES}`, info.pageCount) : memory.parseRange(range, info.pageCount);
+    const todo = memory.unread(source, wanted);
+    if (!todo.length) {
+      save(deck);
+      return result(`Pages ${range ?? 'requested'} of ${fileName} were already read — do not read them again. Use study_pdf_lookup to find content in them (it answers from memory).
+
+${memory.formatLookup(fileName, memory.lookup(source, {}))}`, { notebookId: deck.id });
+    }
     deck.pageCount = Math.max(deck.pageCount ?? 0, info.pageCount);
-    study.log(deck, `Reading ${fileName} (${info.pageCount} slides)…`, 'progress');
+    study.log(deck, `Reading ${fileName}: ${todo.length} page${todo.length === 1 ? '' : 's'}${todo.length < info.pageCount ? ` of ${info.pageCount}` : ''}…`, 'progress');
     save(deck);
+    const sourceId = source.id;
     const model = await slideModel(ctx);
-    const drafts = [], pageText = {};
-    for (let start = 1; start <= info.pageCount; start += BATCH) {
-      if (signal?.aborted) fail('Import stopped.');
-      const nums = [];
-      for (let n = start; n < start + BATCH && n <= info.pageCount; n++) nums.push(n);
-      const rendered = await ctx.documents.renderPdfPages({ path: info.path, pages: nums, dpi: 110 });
+    const pageText = {};
+    const batches = [];
+    for (let i = 0; i < todo.length; i += BATCH) batches.push(todo.slice(i, i + BATCH));
+    // Read several batches at once: render (one document open per batch, small JPEGs), then the
+    // vision call. Results keep slide order; progress is reported as each batch finishes.
+    const results = new Array(batches.length);
+    let next = 0, slidesDone = 0;
+    const readBatch = async (nums) => {
+      const rendered = await ctx.documents.renderPdfPages({ path: info.path, pages: nums, dpi: 90, format: 'jpeg' });
       for (const p of rendered) {
-        pages.save(deck.id, p.page, { image: p.png, w: p.width, h: p.height });
+        pages.save(deck.id, p.page, { image: p.image, w: p.width, h: p.height });
         pageText[p.page] = p.text;
       }
-      const found = await extractBatch(ctx.inference, {
+      const read = await extractBatchWithMemory(ctx.inference, {
         model, signal,
-        pages: rendered.map((p) => ({ n: p.page, text: p.text, image: p.png, mime: 'image/png' })),
+        pages: rendered.map((p) => ({ n: p.page, text: p.text, image: p.image, mime: p.mimeType })),
       });
-      drafts.push(...found);
+      // Remember this page range (texts, summary, concepts, contents entries) so it is never reread.
       const latest = study.ensureNotebook(store.get(deck.id));
-      const pct = Math.round((nums.at(-1) / info.pageCount) * 100);
-      const message = `Read slides ${nums[0]}–${nums.at(-1)} of ${info.pageCount} (${pct}%)${found.length ? `: found ${found.map((d) => d.title).join(', ')}` : ''}.`;
-      study.log(latest, message, 'progress');
-      save(latest);
-      onUpdate?.(result(message, { done: nums.at(-1), total: info.pageCount }));
-    }
-    if (!drafts.length) fail('No concepts could be read from these slides.');
+      const src = latest.sources.find((s) => s.id === sourceId);
+      if (src) memory.recordBatch(src, { pages: rendered.map((p) => ({ n: p.page, text: p.text })), summary: read.summary, concepts: read.drafts.map((d) => d.title), toc: read.toc });
+      store.save(latest);
+      return read.drafts;
+    };
+    const worker = async () => {
+      while (next < batches.length) {
+        if (signal?.aborted) fail('Import stopped.');
+        const index = next++;
+        const nums = batches[index];
+        const found = await readBatch(nums);
+        results[index] = found;
+        slidesDone += nums.length;
+        const latest = study.ensureNotebook(store.get(deck.id));
+        const message = `Read slides ${nums[0]}–${nums.at(-1)} (${slidesDone} of ${todo.length}, ${Math.round((slidesDone / todo.length) * 100)}%)${found.length ? `: found ${found.map((d) => d.title).join(', ')}` : ''}.`;
+        study.log(latest, message, 'progress');
+        save(latest);
+        onUpdate?.(result(message, { done: slidesDone, total: todo.length }));
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, batches.length) }, worker));
+    const drafts = results.flat();
     const latest = study.ensureNotebook(store.get(deck.id));
+    const src = latest.sources.find((s) => s.id === sourceId);
+    if (!drafts.length && !(src?.toc?.length)) fail('No concepts could be read from these pages.');
     // Slide numbers are per source; a second deck in one notebook is offset after the first.
     const fresh = mergeDrafts(drafts, pageText);
     let addedConcepts = 0, addedCards = 0, figures = 0;
@@ -129,7 +173,10 @@ function createStudyTools({ ctx, store, subjects, pages, graphSync, notify }) {
     for (const c of latest.concepts) c.links = (c.links ?? []).filter((l) => ids.has(l));
     study.log(latest, `Built the notebook from ${fileName}: ${addedConcepts} concepts, ${addedCards} flashcards, ${figures} slide screenshots.`, 'notebook');
     save(latest, true);
-    return result(`${describe(latest)}\n\nImported ${fileName}: ${addedConcepts} new concepts, ${addedCards} flashcards, ${figures} slide screenshots added to the notes. Tell the learner what was built and ask whether they want to be taught or quizzed.`, { notebookId: latest.id });
+    const remaining = info.pageCount - (src?.read?.length ?? 0);
+    const tocLine = src?.toc?.length ? `\nContents found (${src.toc.length} entries): ${src.toc.slice(0, 25).map((e) => `${e.title} p.${e.page}`).join('; ')}${src.toc.length > 25 ? '; …' : ''}` : '';
+    const more = remaining > 0 ? `\n${remaining} page${remaining === 1 ? '' : 's'} not read yet${capped ? ` (a long document: only the first ${FIRST_PAGES} pages were read — ask the learner which parts they need, then read those with a page range)` : ''}.` : '';
+    return result(`${describe(latest)}\n\nRead ${todo.length} page${todo.length === 1 ? '' : 's'} of ${fileName}: ${addedConcepts} new concepts, ${addedCards} flashcards, ${figures} slide screenshots added to the notes.${tocLine}${more}\nThese pages are now in memory: use study_pdf_lookup instead of rereading them. Tell the learner what was built and ask whether they want to be taught or quizzed.`, { notebookId: latest.id });
   }
 
   const conceptRef = { type: 'string', description: 'Concept id or exact title.' };
@@ -157,8 +204,36 @@ function createStudyTools({ ctx, store, subjects, pages, graphSync, notify }) {
         parameters: { type: 'object', additionalProperties: false, required: ['path'], properties: {
           path: { type: 'string', description: 'Absolute path to a .pdf file (export PowerPoint/Keynote to PDF first).' },
           subject: { type: 'string' }, title: { type: 'string', description: 'Notebook title (defaults to the file name).' },
+          pages: { type: 'string', description: 'Optional page range, e.g. "1-12, 30-34". Default: every page not read yet (long documents: the first 20). Pages already read are never read again.' },
         } },
         execute: async (_id, a, signal, onUpdate) => importSlides(chatId, a, signal, onUpdate),
+      },
+      {
+        name: 'study_pdf_lookup', label: 'Look up in PDF memory',
+        description: 'Find content in an imported PDF WITHOUT rereading it: answers from the stored memory of pages already read (page summaries, page text, the contents/index with page numbers resolved to PDF pages, plus the page before/after). Give a query (e.g. "exercises", "Bellman equation") or exact pages. Pages not read yet are fetched on demand (text only, no model call). Use this before ever reading pages again.',
+        parameters: { type: 'object', additionalProperties: false, properties: {
+          query: { type: 'string' }, pages: { type: 'string', description: 'Exact pages, e.g. "41-43".' },
+          file: { type: 'string', description: 'Which PDF (file name), when the notebook has several.' },
+        } },
+        execute: async (_id, a) => {
+          const d = requireNotebook(chatId);
+          const sources = d.sources.filter((s) => s.path);
+          if (!sources.length) fail('This notebook has no imported PDF yet.');
+          const src = (a.file && sources.find((s) => s.fileName.toLowerCase().includes(String(a.file).toLowerCase()))) || sources.at(-1);
+          memory.ensureMemory(src);
+          const wanted = a.pages ? memory.parseRange(a.pages, src.pageCount) : null;
+          if (wanted?.length > 12) fail('Look up at most 12 exact pages at a time.');
+          let r = memory.lookup(src, wanted ? { pages: wanted } : { query: a.query });
+          if (r.kind === 'pages' && r.missing.length) {
+            // Fetch pages not read yet: text and stored image only (for screenshots), no vision call.
+            const fetched = await ctx.documents.renderPdfPages({ path: src.path, pages: r.missing.slice(0, 8), dpi: 90, format: 'jpeg' });
+            for (const p of fetched) pages.save(d.id, p.page, { image: p.image, w: p.width, h: p.height });
+            for (const p of fetched) src.pages[p.page] = String(p.text ?? '').slice(0, memory.PAGE_TEXT_CAP);
+            save(d);
+            r = memory.lookup(src, { pages: wanted });
+          }
+          return result(memory.formatLookup(src.fileName, r));
+        },
       },
       {
         name: 'study_concept', label: 'Add concept',

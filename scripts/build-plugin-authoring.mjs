@@ -17,6 +17,15 @@ const PROJECT_FILES = [".gitignore", "README.md", "LICENSE", "THIRD-PARTY.md", "
 const PROJECT_DIRECTORIES = ["src", "scripts", "tests", "licenses"];
 export const AUTHORING_ZIP = "learnharness-plugins.zip";
 
+/** True only for a link that redirects somewhere else. Windows cloud-sync placeholders (OneDrive)
+ * are reported as links but resolve to themselves, so they are ordinary files. */
+function redirects(filename) {
+	try {
+		const real = fs.realpathSync.native(filename);
+		const own = path.join(fs.realpathSync.native(path.dirname(filename)), path.basename(filename));
+		return path.normalize(real).toLowerCase() !== path.normalize(own).toLowerCase();
+	} catch { return true; }
+}
 /** Admit every component below the intended source root before dereferencing it.
  * Final-component checks alone miss linked parent directories. */
 function sourcePath(root, source, kind) {
@@ -28,7 +37,7 @@ function sourcePath(root, source, kind) {
 	for (let index = 0; index < components.length; index++) {
 		current = path.join(current, components[index]);
 		const stat = fs.lstatSync(current);
-		if (stat.isSymbolicLink()) throw Error(`Refusing authoring source symlink: ${current}`);
+		if (stat.isSymbolicLink() && redirects(current)) throw Error(`Refusing authoring source symlink: ${current}`);
 		const directory = index < components.length - 1 || kind === "directory";
 		if (directory ? !stat.isDirectory() : !stat.isFile()) throw Error(`Refusing non-${directory ? "directory" : "file"} authoring source: ${current}`);
 	}
@@ -37,7 +46,7 @@ function sourcePath(root, source, kind) {
 function files(directory, prefix = "", root = directory) {
 	return fs.readdirSync(sourcePath(root, directory, "directory"), { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name, "en")).flatMap(entry => {
 		const relative = prefix + entry.name, filename = path.join(directory, entry.name);
-		if (entry.isSymbolicLink()) throw Error(`Refusing authoring symlink: ${filename}`);
+		if (entry.isSymbolicLink() && redirects(filename)) throw Error(`Refusing authoring symlink: ${filename}`);
 		if (entry.isDirectory()) {
 			if (["data", "node_modules", ".git"].includes(entry.name)) throw Error(`Refusing non-authoring directory: ${filename}`);
 			return files(filename, relative + "/", root);

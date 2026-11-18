@@ -27,7 +27,7 @@ function harness(replies = []) {
     },
     documents: {
       pdfInfo: async (p) => ({ path: p, pageCount: 5 }),
-      renderPdfPages: async ({ pages: nums }) => nums.map((n) => ({ page: n, png: PNG, width: 160, height: 90, text: `slide ${n} text` })),
+      renderPdfPages: async ({ pages: nums }) => nums.map((n) => ({ page: n, image: PNG, mimeType: 'image/png', width: 160, height: 90, text: `slide ${n} text` })),
     },
   };
   const touched = [];
@@ -65,13 +65,16 @@ test('importing slides reports progress and builds concepts, flashcards and scre
   const updates = [];
   const out = await h.run('study_import_slides', { path: '/tmp/lecture3.pdf', subject: 'Statistics' }, (u) => updates.push(u.content[0].text));
   assert.match(out, /3 new concepts, 3 flashcards, 1 slide screenshots/);
-  assert.deepEqual(updates.map((u) => u.match(/\((\d+)%\)/)[1]), ['80', '100']);
+  // Batches run in parallel, so they may finish in either order; the last report is always 100%.
+  assert.equal(updates.length, 2);
+  assert.equal(updates.at(-1).match(/, (\d+)%\)/)[1], '100');
   const deck = study.ensureNotebook(h.store.get(h.subjects.notebookForChat('chat_1')));
   assert.equal(deck.title, 'lecture3');
   assert.equal(deck.sources[0].pageCount, 5);
   assert.deepEqual(deck.concepts.map((c) => c.title), ['Slope', 'Intercept', 'Residuals']);
   assert.ok(h.pages.has(deck.id, 4), 'slide images are stored for screenshots');
-  assert.match(deck.activity.map((a) => a.text).join('\n'), /Read slides 1–4 of 5 \(80%\): found Slope, Intercept/);
+  assert.match(deck.activity.map((a) => a.text).join('\n'), /Read slides 1–4 \(\d of 5, \d+%\): found Slope, Intercept/);
+  assert.deepEqual(deck.concepts.map((c) => c.slides[0]), [1, 3, 5], 'concepts stay in slide order even though batches ran in parallel');
 });
 
 test('figures go into the notes and can be shown in chat; practice queues and rates cards', async () => {
@@ -86,4 +89,18 @@ test('figures go into the notes and can be shown in chat; practice queues and ra
   const deck = study.ensureNotebook(h.store.get(h.subjects.notebookForChat('chat_1')));
   assert.equal(deck.cards[0].reviews.length, 1);
   assert.equal(deck.concepts[0].figures.length, 1);
+});
+
+test('page memory: a second import reads nothing again; lookups answer from memory and fetch unread pages without a model call', async () => {
+  const h = harness([reply({ concepts: [concept('Slope', [1, 2])], pages_summary: 'Slopes and fitting.', toc: [] }), reply({ concepts: [], pages_summary: 'Residual plots.' })]);
+  await h.run('study_import_slides', { path: '/tmp/l.pdf', pages: '1-4' });
+  const again = await h.run('study_import_slides', { path: '/tmp/l.pdf', pages: '1-4' });
+  assert.match(again, /already read — do not read them again/);
+  assert.match(await h.run('study_pdf_lookup', { query: 'slopes' }), /pages 1–4: Slopes and fitting/);
+  const lookup = await h.run('study_pdf_lookup', { pages: '5' });
+  assert.match(lookup, /page 5 ---\nslide 5 text/, 'an unread page is fetched (text + image), not sent to the model');
+  const deck = study.ensureNotebook(h.store.get(h.subjects.notebookForChat('chat_1')));
+  assert.equal(deck.sources.length, 1, 'one source per PDF, reused');
+  assert.deepEqual(deck.sources[0].read, [1, 2, 3, 4]);
+  assert.ok(h.pages.has(deck.id, 5));
 });

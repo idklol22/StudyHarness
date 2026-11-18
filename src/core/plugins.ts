@@ -111,10 +111,11 @@ export interface PluginGraphImportError extends Error {
 export interface PluginGraphService {
 	importNotes(input: PluginGraphImportInput): Promise<PluginGraphImportResult>;
 }
-/** One rendered PDF page: a PNG image (base64, no data: prefix) and the page's extracted text. */
+/** One rendered PDF page: an image (base64, no data: prefix) and the page's extracted text. */
 export interface PluginRenderedPage {
 	page: number;
-	png: string;
+	image: string;
+	mimeType: "image/jpeg" | "image/png";
 	width: number;
 	height: number;
 	/** Text extracted from the PDF page itself (Markdown-ish), not model output; may be empty. */
@@ -128,9 +129,10 @@ export const PLUGIN_RENDER_MAX_PAGES = 8;
 export interface PluginDocumentService {
 	/** Page count of a local PDF. Throws when the path is not readable under the file-access rules. */
 	pdfInfo(path: string): Promise<{ path: string; pageCount: number }>;
-	/** Render up to {@link PLUGIN_RENDER_MAX_PAGES} pages (1-based) to PNG, with their text.
-	 * `dpi` 50–200, default 110; very large pages are scaled down to stay within memory bounds. */
-	renderPdfPages(input: { path: string; pages: number[]; dpi?: number }): Promise<PluginRenderedPage[]>;
+	/** Render up to {@link PLUGIN_RENDER_MAX_PAGES} pages (1-based) with their text, opening the
+	 * document once per call. `format` defaults to JPEG (small, fast to send to a model; PNG for
+	 * lossless), `dpi` 50–200 defaults to 90; very large pages are scaled down within memory bounds. */
+	renderPdfPages(input: { path: string; pages: number[]; dpi?: number; format?: "jpeg" | "png" }): Promise<PluginRenderedPage[]>;
 }
 /** Host owns credentials and transport; plugins configure generation only. */
 export type PluginInferenceOptions = Pick<SimpleStreamOptions,

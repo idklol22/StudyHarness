@@ -17,7 +17,10 @@ Return ONLY a JSON object: {"concepts":[{
   "qa": [{"q": question, "a": answer}] (up to 2 questions answerable cold),
   "figures": [{"slide": n, "crop": [x,y,w,h] as 0-1 fractions of the slide (omit for the whole slide), "caption": short}] (WHENEVER one of the concept's slides shows a figure, diagram, chart, plot, table or worked visual that helps understand it: these screenshots go straight into the learner's notes automatically. Skip logos, decorative pictures and slides that are only text. At most 2 per concept; give a generous crop with a small margin),
   "links": [titles of other concepts this one connects to]
-}]}
+}],
+"pages_summary": 1-3 sentences on what these pages cover as a whole (it is kept as a memory of this page range, so the pages need not be read again),
+"toc": [{"title": entry, "page": the page number printed next to it}] (ONLY if one of these pages is a table of contents or index; otherwise [])
+}
 Order concepts so prerequisites come first. "math" fields are bare LaTeX: no $ signs and no \( \) delimiters.
 Never invent content that is not on the slides. If a slide is unreadable, omit it rather than guess.`;
 
@@ -70,7 +73,17 @@ function userMessage(pages, extra) {
   return { role: 'user', content, timestamp: Date.now() };
 }
 
-async function extractBatch(inference, { model, pages, extra, signal }) {
+/** The page-range memory parts of a reply: a short summary and any table-of-contents entries. */
+function validateMemory(value) {
+  const summary = typeof value?.pages_summary === 'string' ? value.pages_summary.trim().slice(0, 600) : '';
+  const toc = Array.isArray(value?.toc) ? value.toc
+    .filter(e => e && typeof e.title === 'string' && e.title.trim() && Number.isInteger(e.page) && e.page > 0)
+    .slice(0, 200).map(e => ({ title: e.title.trim().slice(0, 160), page: e.page })) : [];
+  return { summary, toc };
+}
+
+/** Concepts plus the page-range memory (summary, table of contents) for one batch. */
+async function extractBatchWithMemory(inference, { model, pages, extra, signal }) {
   const allowed = pages.map(p => p.n);
   let feedback = '', lastError;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -80,10 +93,14 @@ async function extractBatch(inference, { model, pages, extra, signal }) {
     });
     if (reply.stopReason === 'error' || reply.stopReason === 'aborted') fail(reply.errorMessage || `Model call ${reply.stopReason}.`);
     const text = reply.content.filter(c => c.type === 'text').map(c => c.text).join('');
-    try { return validateConcepts(parseJson(text), allowed); }
+    try { const value = parseJson(text); return { drafts: validateConcepts(value, allowed), ...validateMemory(value) }; }
     catch (e) { lastError = e; feedback = `Your previous reply was rejected: ${e.message} Return corrected JSON only.`; }
   }
   throw new Error(`Could not read slides ${allowed[0]}–${allowed.at(-1)}: ${lastError.message}`);
+}
+
+async function extractBatch(inference, options) {
+  return (await extractBatchWithMemory(inference, options)).drafts;
 }
 
 const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'concept';
@@ -115,4 +132,4 @@ function mergeDrafts(drafts, pageText) {
   }));
 }
 
-module.exports = { extractBatch, mergeDrafts, validateConcepts, parseJson, SYSTEM };
+module.exports = { extractBatch, extractBatchWithMemory, validateMemory, mergeDrafts, validateConcepts, parseJson, SYSTEM };

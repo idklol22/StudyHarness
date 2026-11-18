@@ -700,6 +700,7 @@ export interface PluginDocumentService {
         path: string;
         pages: number[];
         dpi?: number;
+        format?: "jpeg" | "png";
     }): Promise<PluginRenderedPage[]>;
 }
 ```
@@ -730,20 +731,22 @@ pdfInfo(path: string): Promise<{
 
 ### PluginDocumentService renderPdfPages
 
-Render up to  pages (1-based) to PNG, with their text.
-`dpi` 50–200, default 110; very large pages are scaled down to stay within memory bounds.
+Render up to  pages (1-based) with their text, opening the
+document once per call. `format` defaults to JPEG (small, fast to send to a model; PNG for
+lossless), `dpi` 50–200 defaults to 90; very large pages are scaled down within memory bounds.
 
 ```ts
 renderPdfPages(input: {
     path: string;
     pages: number[];
     dpi?: number;
+    format?: "jpeg" | "png";
 }): Promise<PluginRenderedPage[]>;
 ```
 
 | Parameter | Type |
 | --- | --- |
-| `input` | `{         path: string;         pages: number[];         dpi?: number;     }` |
+| `input` | `{         path: string;         pages: number[];         dpi?: number;         format?: "jpeg" \| "png";     }` |
 
 **Returns:** `Promise<PluginRenderedPage[]>`.
 
@@ -2035,12 +2038,13 @@ pathname: string;
 
 Public SDK type, exported as `PluginRenderedPage`. Import with `import type`; the SDK has no runtime exports.
 
-One rendered PDF page: a PNG image (base64, no data: prefix) and the page's extracted text.
+One rendered PDF page: an image (base64, no data: prefix) and the page's extracted text.
 
 ```ts
 export interface PluginRenderedPage {
     page: number;
-    png: string;
+    image: string;
+    mimeType: "image/jpeg" | "image/png";
     width: number;
     height: number;
     text: string;
@@ -2050,7 +2054,8 @@ export interface PluginRenderedPage {
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
 - [page](#pluginrenderedpage-page)
-- [png](#pluginrenderedpage-png)
+- [image](#pluginrenderedpage-image)
+- [mimeType](#pluginrenderedpage-mimetype)
 - [width](#pluginrenderedpage-width)
 - [height](#pluginrenderedpage-height)
 - [text](#pluginrenderedpage-text)
@@ -2061,10 +2066,16 @@ export interface PluginRenderedPage {
 page: number;
 ```
 
-### PluginRenderedPage png
+### PluginRenderedPage image
 
 ```ts
-png: string;
+image: string;
+```
+
+### PluginRenderedPage mimeType
+
+```ts
+mimeType: "image/jpeg" | "image/png";
 ```
 
 ### PluginRenderedPage width
