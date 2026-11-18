@@ -2091,8 +2091,8 @@ text: string;
 
 Public SDK type, exported as `PluginSessionPanel`. Import with `import type`; the SDK has no runtime exports.
 
-A plugin pane docked to the RIGHT of a session's conversation (Study redesign, owner
-2026-11-18: "the live notebook sits next to the conversation"). The host owns the pane chrome
+A plugin pane docked to the RIGHT of a session's conversation, for live companion content
+such as a study notebook that updates while the learner is taught. The host owns the pane chrome
 (open/close toggle in the session top bar, resizable width, one tab per registered panel);
 the plugin mounts only the body. Switching sessions, closing the pane or disabling the plugin
 aborts the mount signal.
