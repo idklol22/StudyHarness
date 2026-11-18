@@ -19,6 +19,8 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { fuzzyScore } from "@/src/core";
 import { useServerEvent, useServerResync } from "@/components/server-events";
+import { SubjectTree, useLibrary } from "@/components/study/subject-tree";
+import { displayOrder, groupChats } from "@/components/study/group-chats";
 import type { ChatListItem } from "@/src/core";
 import { kbdEventForAction } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
@@ -408,17 +410,21 @@ function SessionsSidebar() {
 	/* FUZZY (owner round 8, 2026-10-05): subsequence match ranked by
 	 * fuzzyScore — prefix beats word-boundary beats scattered. Empty query
 	 * keeps the natural list order (scores are all 0, sort is stable). */
+	const { library, refresh: refreshLibrary } = useLibrary();
+	useServerEvent("sources-changed", refreshLibrary);
+	// The Subjects tree's display order IS the list order (so the keyboard walk follows what is on screen).
+	const grouped = useMemo(() => (chats ? groupChats(library, chats) : null), [library, chats]);
 	const shown = useMemo(() => {
 		const q = query.trim();
 		const list = chats;
 		if (!list) return list;
-		if (!q) return list;
+		if (!q) return grouped ? displayOrder(grouped) : list;
 		return list
 			.map((c) => ({ c, score: fuzzyScore(q, c.title) }))
 			.filter((r): r is { c: (typeof list)[number]; score: number } => r.score !== null)
 			.sort((a, b) => b.score - a.score)
 			.map((r) => r.c);
-	}, [chats, query]);
+	}, [chats, query, grouped]);
 
 	const refreshInFlightRef = useRef(false);
 	const refresh = useCallback(async () => {
@@ -748,28 +754,40 @@ function SessionsSidebar() {
 							{query.trim() ? "No sessions match." : "No sessions yet."}
 						</div>
 					) : (
-						shown.map((c, i) =>
-							renamingId === c.id ? (
-								<RenameRow
-									key={c.id}
-									chat={c}
-									onCommit={(next) => void commitRename(c.id, next)}
-									onCancel={() => setRenamingId(null)}
+						(() => {
+							const row = (c: (typeof shown)[number], i: number) =>
+								renamingId === c.id ? (
+									<RenameRow
+										key={c.id}
+										chat={c}
+										onCommit={(next) => void commitRename(c.id, next)}
+										onCancel={() => setRenamingId(null)}
+									/>
+								) : (
+									<SessionRow
+										key={c.id}
+										chat={c}
+										active={pathname === `/chat/${c.id}`}
+										kbdSelected={i === kbdIndex}
+										onOpen={() => {
+											setKbdIndex(null);
+											router.push(`/chat/${c.id}`);
+										}}
+										onContextMenu={(e) => openContext(e, c)}
+									/>
+								);
+							// Searching: a flat ranked list. Otherwise: the Subject → Topic → chats tree.
+							if (query.trim() || !grouped) return shown.map(row);
+							const index = new Map(shown.map((c, i) => [c.id, i]));
+							return (
+								<SubjectTree
+									grouped={grouped}
+									pathname={pathname}
+									onChanged={refreshLibrary}
+									renderChat={(c) => row(c, index.get(c.id) ?? -1)}
 								/>
-							) : (
-								<SessionRow
-									key={c.id}
-									chat={c}
-									active={pathname === `/chat/${c.id}`}
-									kbdSelected={i === kbdIndex}
-									onOpen={() => {
-										setKbdIndex(null);
-										router.push(`/chat/${c.id}`);
-									}}
-									onContextMenu={(e) => openContext(e, c)}
-								/>
-							),
-						)
+							);
+						})()
 					)}
 				</div>
 

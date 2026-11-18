@@ -1,7 +1,10 @@
+import type { ChatPlacement } from "@/src/core/study/model";
 import { clearOpeningPrompt, OPENING_PROMPT_FAILURE, stashOpeningPrompt } from "./opening-prompt";
 
 interface SessionCreation {
 	title: string;
+	/** Where the chat lives in the Study library and how it starts (validated by the server). */
+	placement?: ChatPlacement;
 	kind?: "practice";
 	graphContext?: { propositions: readonly { id: string; name: string; statement: string }[] };
 }

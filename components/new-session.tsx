@@ -17,6 +17,8 @@ import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter } from "@/components/start-session";
+import { StudyPlacementPicker, useStudyPlacement } from "@/components/study/placement-picker";
+import type { ChatPlacement } from "@/src/core/study/model";
 import type { ChatSettings, GraphSnapshot } from "@/src/core";
 
 /** The draft's pick set (owner round 10): the SAME shape the home pick
@@ -50,6 +52,7 @@ export async function startDraftSession(
 	picks?: readonly DraftPick[],
 	starter = new SessionStarter(),
 	settingsIdentity?: string,
+	placement?: ChatPlacement,
 ): Promise<string | null> {
 	const t = text.trim();
 	if (!t) return null;
@@ -59,8 +62,8 @@ export async function startDraftSession(
 	// [id] name: statement lines, target validation's truth set).
 	return starter.start(
 		mode === "practice"
-			? { title: t, kind: "practice", ...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}) }
-			: { title: t },
+			? { title: t, kind: "practice", ...(placement ? { placement } : {}), ...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}) }
+			: { title: t, ...(placement ? { placement } : {}) },
 		fetchLike,
 		settingsIdentity,
 	);
@@ -83,6 +86,7 @@ export function DraftShell({
 	onOpenPicker,
 	onClearPicks,
 	overlay,
+	placementPicker,
 }: {
 	busy: boolean;
 	text: string;
@@ -110,6 +114,8 @@ export function DraftShell({
 	 *  the graph view (the overlay fills its column, never the sidebar).
 	 *  Passed as a node so the pick state stays in NewSession. */
 	overlay?: ReactNode;
+	/** The subject/topic + start-mode picker (Study overhaul), above the composer. */
+	placementPicker?: ReactNode;
 }) {
 	const controller = useOptionalInteractionLayers();
 	const pathname = usePathname();
@@ -182,7 +188,7 @@ export function DraftShell({
 									description={
 										mode === "practice"
 											? "Pick nodes from your knowledge graph, describe what you want to practice, or bring your own problem."
-											: "The teacher will open by probing what you already know."
+											: "Choose a subject, say how to start, and tell the teacher what to teach."
 									}
 								/>
 							</ConversationContent>
@@ -190,6 +196,7 @@ export function DraftShell({
 						<div className="h-24 bg-gradient-to-t from-background via-background/85 to-transparent" />
 						<div className="bg-background pb-4">
 							<div className={DOCK}>
+								<div className="pointer-events-auto">{placementPicker}</div>
 								<ComposerActions
 									picker={(picks.length > 0 || mode === "practice") && (
 										<NodePickerControl count={picks.length} onOpen={onOpenPicker} onClear={onClearPicks} />
@@ -289,10 +296,14 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 	// the learner sends the draft themselves.
 	const { catalog, configured, zeroKeys } = useModelSetup(initialConfigured);
 	const [setupOpen, setSetupOpen] = useState(false);
+	// Where the chat lives and how it starts (Study overhaul): asked every time.
+	const placement = useStudyPlacement(mode === "practice");
+	const [showMissing, setShowMissing] = useState(false);
 
 	const send = useCallback(() => {
 		const draft = textRef.current.trim();
 		if (!draft || startingRef.current) return;
+		if (!placement.placement) { setShowMissing(true); return; }
 		if (!configured) {
 			setSetupOpen(true);
 			return;
@@ -316,7 +327,7 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 		setBusy(true);
 		setStartError(false);
 		void startDraftSession(draft, fetch, mode === "practice" ? "practice" : undefined, mode === "practice" ? picksRef.current : undefined,
-			starterRef.current, JSON.stringify(catalog?.slots.strong))
+			starterRef.current, JSON.stringify(catalog?.slots.strong), placement.placement)
 			.then((target) => {
 				if (target) router.push(target);
 				else { startingRef.current = false; setBusy(false); }
@@ -326,7 +337,7 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				setBusy(false);
 				setStartError(true);
 			});
-	}, [router, configured, zeroKeys, catalog, mode]);
+	}, [router, configured, zeroKeys, catalog, mode, placement.placement]);
 
 	return (
 		<>
@@ -340,6 +351,7 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				picks={picks}
 				onOpenPicker={openPicker}
 				onClearPicks={() => applyPicks([])}
+				placementPicker={<StudyPlacementPicker state={placement} practice={mode === "practice"} showMissing={showMissing} />}
 				overlay={
 					// THE PICKER (owner round 10b): hosted INSIDE the content
 					// column — absolute inset-0 resolves to the column's relative
