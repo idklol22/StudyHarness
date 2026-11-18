@@ -15,7 +15,7 @@ function fixture(t: TestContext) {
 	const directory = path.join(root, "plugins");
 	fs.mkdirSync(directory);
 	const host = createPluginHost({ directory, appVersion: "0.4.1", createServices: () => ({
-		learning: {} as PluginLearningData, inference: {} as PluginInference,
+		learning: {} as PluginLearningData, graph: {} as never, documents: {} as never, inference: {} as PluginInference,
 		agents: { dispose: async () => {} } as PluginAgentService,
 		workers: { dispose: async () => {} } as PluginWorkerService,
 		createBackgroundTool() { throw new Error("Unexpected background tool"); },

@@ -34,7 +34,7 @@ test("actual Rich code blocks backend appends enabled-family instructions to eve
   fs.copyFileSync(path.join(source, "src/styles.css"), path.join(dist, "styles.css"));
   fs.writeFileSync(path.join(dist, "manifest.json"), JSON.stringify(manifest));
   const host = createPluginHost({ directory, appVersion: manifest.minAppVersion, createServices: () => ({
-    learning: {} as PluginLearningData, inference: {} as PluginInference,
+    learning: {} as PluginLearningData, graph: {} as never, documents: {} as never, inference: {} as PluginInference,
     agents: { dispose: async () => {} } as PluginAgentService,
     workers: { dispose: async () => {} } as PluginWorkerService,
     createBackgroundTool() { throw new Error("Unexpected background tool"); },

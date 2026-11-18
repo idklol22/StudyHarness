@@ -92,6 +92,7 @@ a plugin.
 | Display a controlled hierarchy | `ctx.ui.mountTree`; [tree contract](plugin-tree-contract.md) |
 | Convert an uploaded PDF/text file | Frontend `ctx.documents.toMarkdown` below |
 | Read saved learning records | Backend `ctx.learning` below |
+| Add text to the knowledge graph | Backend `ctx.graph.importNotes` below |
 | Call models, run conversations or bounded tasks | Backend `ctx.inference`, `ctx.agents`, `ctx.workers` below |
 
 Feature contracts define lifecycle and acceptance rules; this guide is the entry point.
@@ -526,6 +527,23 @@ writes for important plugin-owned state under `ctx.dataDirectory`.
 Read transcripts for learner answers/thinking/mistakes: the graph is extracted from
 teacher prose, not a complete learner-response record. Cross-file reads are not
 transactional. Write derived feature data to plugin state, never core learning files.
+
+### Adding to the knowledge graph
+
+`ctx.graph.importNotes({name, text})` feeds text through the same extraction pipeline as an imported
+notes file (extractor, auditor, deterministic merger) and resolves with `{nodes, chains}` once the run
+finishes. It is the only graph write a plugin has, and it carries text, never learner ratings: the
+graph stores ideas and their connections, so do not send mastery, scores or "I got this wrong" data.
+Send objective content (statements, formulas, corrected misconceptions).
+
+- The graph source is namespaced as `<plugin name>/<name>`; repeated calls under one name extend the
+  same source. `name` is 1–200 printable characters; `text` is nonblank, at most 2 MiB of UTF-8.
+- It runs model calls with the configured extraction models and **can incur cost**. Batch changes and
+  avoid overlapping calls for one name.
+- Failures are `Error`s with `code`: `"busy"` (that source is already importing: retry later),
+  `"partial"` (some content merged first), `"aborted"`, `"failed"` or `"not-configured"`
+  (no extraction model or key). Earlier graph writes and billed usage remain.
+- Calls after the plugin is disabled reject. Imports already running are not cancelled.
 
 ## Existing agents and content renderers
 

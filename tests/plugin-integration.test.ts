@@ -165,7 +165,7 @@ test("external native backend composes host, inference, persistent managed input
 			const agents = createPluginAgentService({ store: createPluginAgentRecordStore(path.join(directory, "agents")), engineFor: adapter.engineFor, onUsage: adapter.onUsage, signal,
 				onChange: () => { if (!signal.aborted) { agentChanges++; notify({ pluginId: manifest.id, topic: "agents-changed" }); } },
 			});
-			return { learning, inference: adapter.inference, agents, workers: { dispose: async () => {} } as PluginWorkerService,
+			return { learning, graph: {} as never, documents: {} as never, inference: adapter.inference, agents, workers: { dispose: async () => {} } as PluginWorkerService,
 				createBackgroundTool() { throw new Error("Unexpected background tool in agent integration fixture"); } };
 		},
 	});

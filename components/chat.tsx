@@ -65,6 +65,7 @@ import {
 } from "@/src/core";
 import { PlanBlock, PlanPopup, latestTree } from "@/components/plan-block";
 import { PlanMarginalia, planExists } from "@/components/plan-window";
+import { PluginSessionPanels, SessionPanelToggle } from "@/components/plugin-session-panels";
 import { MermaidOverlay, SessionMermaidContext, type SessionImage } from "@/components/session-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
 import { ArrowRightIcon, DumbbellIcon, MessageCircleQuestionIcon, WaypointsIcon } from "lucide-react";
@@ -1739,6 +1740,7 @@ export function Chat({
 						<PhaseChip phase={phases.at(-1) ?? "probe"} />
 					)}
 					<PluginSessionTopBarActions readContext={actionContext} captureContext={captureActionContext} refreshRef={refreshPluginActions} />
+					<SessionPanelToggle />
 				</TopBar>
 
 				<SessionFind scopeRef={sessionFindScopeRef} scrollContextRef={scrollContextRef} />
@@ -2167,6 +2169,8 @@ export function Chat({
 						/>
 					</SideThreadPanel>
 				)}
+
+				<PluginSessionPanels sessionId={chatId} sessionKind={kind === "practice" ? "practice" : "teaching"} />
 
 				{sideThread.state?.mode === "popover" && (
 					<SideThreadPopover

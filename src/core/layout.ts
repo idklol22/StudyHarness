@@ -24,6 +24,7 @@
 
 import {
 	forceSimulation,
+	forceCollide,
 	forceLink,
 	forceManyBody,
 	forceX,
@@ -226,6 +227,13 @@ export const LINK_DISTANCE = 40;
 const IMP_ID_PREFIX = "arg_";
 const impLinkId = (v: string | number | { id: string }): string =>
 	typeof v === "object" ? v.id : String(v);
+/** Collision radius (world units): no two nodes may rest closer than 2x this.
+ *  Sized for the disc PLUS its label gutter, so overlap is prevented by the
+ *  physics itself rather than by the repulsion sliders. */
+export const COLLIDE_RADIUS = 9;
+/** Repulsion reach (world units). Unbounded 1/d charge pushes far-apart
+ *  components ever farther — the source of the stretched, elongated maps. */
+export const CHARGE_DISTANCE_MAX = 260;
 export const CHARGE_STRENGTH = -240; // 2026-09-17: −120 → −240 (user: repulsion default too weak); the default is shared with render-settings (gm-centered in CHARGE_RANGE).
 /** Per-tick anchor re-blend: fraction of an anchored node's displacement
  *  from its previous position that SURVIVES each tick. 0.85 = gentle
@@ -234,6 +242,8 @@ export const CHARGE_STRENGTH = -240; // 2026-09-17: −120 → −240 (user: rep
  *  cannot be overpowered by d3's long-range link springs the way a force-
  *  space anchor can (forceLink is a Hooke spring: strength*(d-L)*alpha). */
 const ANCHOR_RETENTION = 0.85;
+/** Seed scatter for a new node placed beside its neighbor (world units). */
+const SEED_JITTER = 24;
 /** Gravity strengths. d3 manyBody repulsion falls off as 1/d, so two
  *  20-node blobs at distance d push with ~n1*n2*|charge|/d; cluster
  *  spacing settles where that equals g*d*n/2 — g=0.03 lands clusters
@@ -290,10 +300,25 @@ export function createGraphSimulation(
 				.strength(
 					(l) =>
 						(linkStrength * 1) /
-						Math.min(degree.get((l.source as LayoutNode).id) ?? 1, degree.get((l.target as LayoutNode).id) ?? 1),
+						Math.sqrt(
+							Math.min(degree.get((l.source as LayoutNode).id) ?? 1, degree.get((l.target as LayoutNode).id) ?? 1),
+						),
 				),
 		)
-		.force("charge", forceManyBody<LayoutNode>().strength(options.chargeStrength ?? CHARGE_STRENGTH))
+		.force(
+			"charge",
+			forceManyBody<LayoutNode>()
+				.strength(options.chargeStrength ?? CHARGE_STRENGTH)
+				.distanceMax(CHARGE_DISTANCE_MAX),
+		)
+		// Hard non-overlap guarantee (imp junction nodes sit tight by design,
+		// so they collide at half radius).
+		.force(
+			"collide",
+			forceCollide<LayoutNode>((n) => (n.id.startsWith(IMP_ID_PREFIX) ? COLLIDE_RADIUS / 2 : COLLIDE_RADIUS))
+				.strength(0.9)
+				.iterations(2),
+		)
 		.alphaDecay(options.alphaDecay ?? 0.0228)
 		.velocityDecay(options.velocityDecay ?? 0.4)
 		.stop();
@@ -606,54 +631,94 @@ export function incrementalLayout(
 	else if (hasCore) rimRadius = coreRadius * 1.15; // no connected anchors yet: bbox fallback
 	rimRadius += 4;
 
-	// Seed every node.
-	const simNodes: LayoutNode[] = nodes.map((node) => {
-		const rand = seededRandom(node.id);
-		const anchor = anchors.get(node.id);
-		let x: number;
-		let y: number;
-		if (anchor) {
-			// Warm start: resume from the previous rest position.
-			x = anchor.x;
-			y = anchor.y;
-		} else {
-			// New node: seed near its positioned neighbors (the cluster it
-			// arrived with), else on the rim outside the core, else scatter.
-			let sx = 0;
-			let sy = 0;
-			let found = 0;
-			for (const nbr of adjacency.get(node.id) ?? []) {
-				const na = anchors.get(nbr);
-				if (na) {
-					sx += na.x;
-					sy += na.y;
-					found++;
-				}
-			}
-			if (found > 0) {
-				x = sx / found + (rand() - 0.5) * 8;
-				y = sy / found + (rand() - 0.5) * 8;
-			} else if (hasCore) {
-				const angle = rand() * Math.PI * 2;
-				const radius = rimRadius + rand() * 8;
-				x = cx + Math.cos(angle) * radius;
-				y = cy + Math.sin(angle) * radius;
-				// An orphan's intended rest spot IS the rim seed: anchor it
-				// there so gravity cannot sink it into the core. (A later
-				// batch linking it to the graph pulls it in naturally —
-				// but then it also has a previous position, and its anchor
-				// becomes that previous position, exactly like any node.)
-				anchors.set(node.id, { x, y });
-			} else {
-				// Bootstrap: the classic seeded scatter.
-				x = (rand() - 0.5) * 100;
-				y = (rand() - 0.5) * 100;
+	// Seed every node. NEW nodes are seeded COMPONENT-WISE (BFS from the
+	// positioned frontier): a new node starts next to an already-seeded
+	// neighbor, so a freshly arrived structure lands as ONE tight blob.
+	// (The old per-node rim scatter gave every member of a brand-new,
+	// not-yet-positioned structure its own random rim angle — and anchored
+	// it there — so its edges were stretched across the whole map.)
+	const seedPos = new Map<string, Position>(); // new-node seeds
+	const jitter = (id: string, amp: number): { dx: number; dy: number } => {
+		const rand = seededRandom(`jit:${id}`);
+		return { dx: (rand() - 0.5) * amp, dy: (rand() - 0.5) * amp };
+	};
+	const isNew = (id: string): boolean => !anchors.has(id);
+	const pending = nodes.filter((n) => isNew(n.id));
+	const seeded = new Set<string>();
+	// Frontier: new nodes with a positioned neighbor.
+	let frontier: string[] = [];
+	for (const node of pending) {
+		let sx = 0;
+		let sy = 0;
+		let found = 0;
+		for (const nbr of adjacency.get(node.id) ?? []) {
+			const na = anchors.get(nbr);
+			if (na) {
+				sx += na.x;
+				sy += na.y;
+				found++;
 			}
 		}
+		if (found > 0) {
+			const j = jitter(node.id, SEED_JITTER);
+			seedPos.set(node.id, { x: sx / found + j.dx, y: sy / found + j.dy });
+			seeded.add(node.id);
+			frontier.push(node.id);
+		}
+	}
+	const spread = (frontierIds: string[]): void => {
+		while (frontierIds.length > 0) {
+			const next: string[] = [];
+			for (const id of frontierIds) {
+				const from = seedPos.get(id)!;
+				for (const nbr of adjacency.get(id) ?? []) {
+					if (seeded.has(nbr) || !isNew(nbr)) continue;
+					const j = jitter(nbr, SEED_JITTER);
+					seedPos.set(nbr, { x: from.x + j.dx, y: from.y + j.dy });
+					seeded.add(nbr);
+					next.push(nbr);
+				}
+			}
+			frontierIds = next;
+		}
+	};
+	spread(frontier);
+	// Remaining new nodes form components with NO positioned member: each
+	// component gets one rim point (angle from its smallest id) and is
+	// spread from there. Singletons (true orphans) are anchored on the rim.
+	for (const node of pending) {
+		if (seeded.has(node.id)) continue;
+		const rand = seededRandom(node.id);
+		const hasEdges = (adjacency.get(node.id)?.length ?? 0) > 0;
+		let x: number;
+		let y: number;
+		if (hasCore) {
+			const angle = rand() * Math.PI * 2;
+			const radius = rimRadius + rand() * 8;
+			x = cx + Math.cos(angle) * radius;
+			y = cy + Math.sin(angle) * radius;
+			// An orphan's intended rest spot IS the rim seed: anchor it so
+			// gravity cannot sink it into the core.
+			if (!hasEdges) anchors.set(node.id, { x, y });
+		} else {
+			// Bootstrap: the classic seeded scatter (per component root).
+			x = (rand() - 0.5) * 100;
+			y = (rand() - 0.5) * 100;
+		}
+		seedPos.set(node.id, { x, y });
+		seeded.add(node.id);
+		spread([node.id]);
+	}
+
+	const simNodes: LayoutNode[] = nodes.map((node) => {
+		const anchor = anchors.get(node.id);
+		const seed = seedPos.get(node.id);
+		let x = anchor && !seed ? anchor.x : (seed?.x ?? 0);
+		const y0 = anchor && !seed ? anchor.y : (seed?.y ?? 0);
 		// d3 is fine with coincident seeds (no division), but nudge exact
 		// overlaps of a brand-new node onto its only neighbor anyway.
-		if (x === 0 && y === 0) x = 0.5;
-		return { id: node.id, x, y };
+		if (x === 0 && y0 === 0) x = 0.5;
+		return { id: node.id, x, y: y0 };
 	});
 
 	const sim = createGraphSimulation(simNodes, edges, {

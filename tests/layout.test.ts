@@ -425,7 +425,7 @@ describe("depthAnchor force", () => {
 		// Node "old" was previously placed at y=300 (off-level). With
 		// vertical anchoring a re-settle must move it to the baseline
 		// while preserving (roughly) its x arrangement.
-		const previous = new Map([["old", { x: 250, y: 300 }], ["peer", { x: 260, y: 290 }]]);
+		const previous = new Map([["old", { x: 250, y: 300 }], ["peer", { x: 300, y: 290 }]]);
 		const next = incrementalLayout(
 			[{ id: "old" }, { id: "peer" }, { id: "child" }],
 			[

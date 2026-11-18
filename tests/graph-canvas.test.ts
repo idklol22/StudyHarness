@@ -12,14 +12,14 @@
 import assert from "node:assert/strict";
 import { describe, it, it as test } from "node:test";
 import {
-	applyClusterLabels,
 	arrowGeometry,
 	isImpNodeId,
-	boxBlurRound,
 	fitTransform,
 	labelAlpha,
 	pickNearest,
-	wrapRegionLabel,
+	nodeRadius,
+	dimAlpha,
+	withAlpha,
 	zoomRatioOf,
 	LABELS_FADE_RATIO,
 } from "../components/graph-canvas.ts";
@@ -228,37 +228,6 @@ describe("sanitizeRegionTuning (dev number inputs)", () => {
 	});
 });
 
-describe("boxBlurRound (premultiplied region blur)", () => {
-	test("spreads a single opaque px into its neighborhood and conserves sum", () => {
-		// 5x5 RGBA, one white opaque pixel at (2,2)
-		const w = 5, h = 5;
-		const a = new Float32Array(w * h * 4);
-		const center = (2 * w + 2) * 4;
-		a[center] = 255; a[center + 1] = 255; a[center + 2] = 255; a[center + 3] = 255;
-		const tmp = new Float32Array(a.length);
-		const b = new Float32Array(a.length);
-		boxBlurRound(a, tmp, b, w, h, 1);
-		// Alpha conservation: total alpha unchanged.
-		let sumA = 0;
-		for (let i = 3; i < b.length; i += 4) sumA += b[i]!;
-		assert.ok(Math.abs(sumA - 255) < 1e-3, `alpha sum ${sumA}`);
-		// The center dimmed, the 8 neighbors picked some up.
-		assert.ok(b[center + 3]! < 255 && b[center + 3]! > 0);
-		const up = ((1 * w) + 2) * 4 + 3;
-		assert.ok(b[up]! > 0, "neighbor got alpha");
-		// Far corner (4,4) untouched.
-		assert.equal(b[(4 * 5 + 4) * 4 + 3], 0);
-	});
-
-	test("radius 0 is a plain copy", () => {
-		const a = new Float32Array([1, 2, 3, 4, 5, 6, 7, 8]);
-		const tmp = new Float32Array(8);
-		const b = new Float32Array(8);
-		boxBlurRound(a, tmp, b, 1, 2, 0);
-		assert.deepEqual([...b], [1, 2, 3, 4, 5, 6, 7, 8]);
-	});
-});
-
 describe("sanitizePhysicsTuning (physics controls)", () => {
 	test("defaults survive untouched; partial input keeps the rest", () => {
 		assert.deepEqual(sanitizePhysicsTuning(undefined), DEFAULT_PHYSICS_TUNING);
@@ -285,132 +254,20 @@ describe("sanitizePhysicsTuning (physics controls)", () => {
 	});
 });
 
-
-
-describe("wrapRegionLabel (wave 7: session names / file paths)", () => {
-	// A fake measure: chars are 5px wide, spaces 4px — enough to drive
-	// wrap decisions deterministically.
-	const measure = (s: string) => s.length * 5;
-	const W = 20; // 4 chars per line
-
-	it("fits → single line, untouched", () => {
-		assert.deepEqual(wrapRegionLabel("Plato", 100, 3, measure), ["Plato"]);
+describe("Obsidian look helpers (Study redesign, 2026-11-18)", () => {
+	test("nodeRadius: lone ideas are slightly smaller, hubs grow with sqrt(links), capped", () => {
+		assert.equal(nodeRadius(10, 0), 8);
+		assert.ok(nodeRadius(10, 4) > nodeRadius(10, 1));
+		assert.equal(nodeRadius(10, 10_000), 26);
+		assert.equal(nodeRadius(10, -3), 8);
 	});
-
-	it("wraps words, no cap hit", () => {
-		// W=20 at 5px/char = 3 chars a line: every word lands alone, four
-		// lines, cap 4 never reached, no ellipsis.
-		assert.deepEqual(wrapRegionLabel("aaa bbb ccc ddd", W, 4, measure), [
-			"aaa",
-			"bbb",
-			"ccc",
-			"ddd",
-		]);
+	test("dimAlpha: full strength at rest, dims the rest of the graph while hovering", () => {
+		assert.equal(dimAlpha(0), 1);
+		assert.ok(Math.abs(dimAlpha(1) - 0.18) < 1e-9);
+		assert.equal(dimAlpha(5), dimAlpha(1));
 	});
-
-	it("caps at maxLines with an ellipsis on the last line", () => {
-		const lines = wrapRegionLabel("aaaa bbbb cccc dddd eeee", W, 2, measure);
-		assert.equal(lines.length, 2);
-		assert.ok(lines[1]!.endsWith("…"), "last line ellipsized");
-		for (const line of lines) assert.ok(measure(line) <= W || line.length <= 2, "each line fits");
-	});
-
-	it("char-splits an unbroken path longer than the width (the notes case)", () => {
-		const path = "/users/amos/notes/physics/lecture-notes.md";
-		const lines = wrapRegionLabel(path, W, 3, measure);
-		assert.equal(lines.length, 3);
-		// every kept line fits the width; the last carries the ellipsis
-		assert.ok(lines[2]!.endsWith("…"), "long path capped with ellipsis");
-		assert.ok(measure(lines[0]!) <= W, "first chunk fits");
-		assert.ok(measure(lines[1]!) <= W, "second chunk fits");
-	});
-
-	it("a remainder that FITS the width rides as a plain last line (no false ellipsis)", () => {
-		// W=25 at 5px/char = 5 chars a line: "aa bb" fits exactly, the
-		// tail "cc dd" fits too — two plain lines, cap never binds.
-		assert.deepEqual(wrapRegionLabel("aa bb cc dd", 25, 3, measure), ["aa bb", "cc dd"]);
-	});
-
-	it("the ellipsis itself never exceeds the width", () => {
-		const lines = wrapRegionLabel("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", W, 2, measure);
-		assert.ok(measure(lines[1]!) <= W, "ellipsized tail fits");
-	});
-});
-
-
-describe("applyClusterLabels (the label-only rename channel)", () => {
-	const measure = (s: string) => s.length * 5;
-	const W = 220;
-	const MAXL = 3;
-
-	const fixture = () => ({
-		clusters: [
-			{ id: "chat_a", label: "Old title" },
-			{ id: "chat_b", label: null },
-			{ id: "seedplan", label: "Orbital mechanics" },
-		],
-		regionMeta: [
-			{ id: "chat_a", label: "Old title", lines: ["Old title"], cx: 0, cy: 0, hue: 10 },
-			{ id: "chat_b", label: null, lines: null, cx: 1, cy: 1, hue: 20 },
-			{ id: "seedplan", label: "Orbital mechanics", lines: ["Orbital mechanics"], cx: 2, cy: 2, hue: 30 },
-		],
-	});
-
-	it("patches the matching cluster and re-wraps its region meta", () => {
-		const f = fixture();
-		// 5px/char and W=220: a 45-char title just overflows one line
-		// ("...for the" is 40 chars, appending " graph" reads 46).
-		const longTitle = "A much longer new session title for the graph";
-		const changed = applyClusterLabels(
-			f.clusters, f.regionMeta, new Map([["chat_a", longTitle]]),
-			W, MAXL, measure,
-		);
-		assert.equal(changed, true);
-		assert.equal(f.clusters[0]!.label, longTitle);
-		assert.deepEqual(f.regionMeta[0]!.lines, ["A much longer new session title for the", "graph"]);
-		// untouched entries stay byte-identical
-		assert.equal(f.clusters[1]!.label, null);
-		assert.equal(f.clusters[2]!.label, "Orbital mechanics");
-		assert.deepEqual(f.regionMeta[2]!.lines, ["Orbital mechanics"]);
-	});
-
-	it("hull silence: a null-label cluster never gains a label", () => {
-		const f = fixture();
-		const changed = applyClusterLabels(
-			f.clusters, f.regionMeta, new Map([["chat_b", "Resurrected?"]]),
-			W, MAXL, measure,
-		);
-		assert.equal(changed, false);
-		assert.equal(f.clusters[1]!.label, null);
-		assert.equal(f.regionMeta[1]!.lines, null);
-	});
-
-	it("a label already matching is a no-op (no redraw)", () => {
-		const f = fixture();
-		const changed = applyClusterLabels(
-			f.clusters, f.regionMeta, new Map([["seedplan", "Orbital mechanics"]]),
-			W, MAXL, measure,
-		);
-		assert.equal(changed, false);
-	});
-
-	it("an explicit null clears a labeled cluster's lines", () => {
-		const f = fixture();
-		const changed = applyClusterLabels(
-			f.clusters, f.regionMeta, new Map([["chat_a", null]]),
-			W, MAXL, measure,
-		);
-		assert.equal(changed, true);
-		assert.equal(f.clusters[0]!.label, null);
-		assert.equal(f.regionMeta[0]!.lines, null);
-	});
-
-	it("unknown ids in the map change nothing", () => {
-		const f = fixture();
-		const changed = applyClusterLabels(
-			f.clusters, f.regionMeta, new Map([["chat_ghost", "Nope"]]),
-			W, MAXL, measure,
-		);
-		assert.equal(changed, false);
+	test("withAlpha: hex and hsl() group colors", () => {
+		assert.equal(withAlpha("#ff8000", 0.5), "rgba(255, 128, 0, 0.5)");
+		assert.equal(withAlpha("hsl(210, 62%, 60%)", 0.3), "hsla(210, 62%, 60%, 0.3)");
 	});
 });

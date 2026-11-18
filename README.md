@@ -39,6 +39,8 @@ The agent can also research questions in the background, create visual explanati
 
 What you are taught accumulates as propositions and reasoning chains: individual claims and the premises that lead to them. The graph shows this structure, with links back to the source sessions. You can also import notes.
 
+The knowledge graph opens in 3D: drag to orbit, scroll to zoom, hover to light up a node and its neighbours, click for details. A 2D/3D toggle (and Fit) sits in the toolbar, and the 2D view is unchanged. Plugins such as Living Notes can add what you learn to the graph through the same extraction pipeline as imported notes.
+
 Future teaching sessions can read the graph instead of starting from scratch. Practice sessions can draw their material from it. It stores the ideas and their connections, not ratings of your ability.
 
 ![LearnHarness knowledge graph](docs/assets/knowledge-graph.png)

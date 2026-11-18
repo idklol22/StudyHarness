@@ -10,7 +10,7 @@ import type { PluginQuestionVariant } from "../core/plugin-questions.ts";
 import type { NativePluginQuestionDefinition } from "../agent/plugin-question-tools.ts";
 import { preparePluginProblemType, createPluginProblemParameters, type NativePluginProblemDefinition } from "../core/plugin-problems.ts";
 import type { NativePluginProblemContribution } from "../agent/plugin-problem-tools.ts";
-import type { PluginAgentKind, PluginBackendContext, PluginBackendModule, PluginCleanup, PluginFrontendContext, PluginInfo, PluginInference, PluginInstructions, PluginLearningData, PluginManifest, PluginNotification, PluginToolContext, PluginTools } from "../core/plugins.ts";
+import type { PluginAgentKind, PluginBackendContext, PluginBackendModule, PluginCleanup, PluginDocumentService, PluginFrontendContext, PluginGraphService, PluginInfo, PluginInference, PluginInstructions, PluginLearningData, PluginManifest, PluginNotification, PluginToolContext, PluginTools } from "../core/plugins.ts";
 import type { PluginAgentService } from "../core/plugin-agents.ts";
 import type { PluginWorkerService } from "../core/plugin-workers.ts";
 import type { ServerEvent } from "../core/events.ts";
@@ -40,7 +40,7 @@ export interface PluginHostDependencies {
 	core?: { directory: string; dataDirectory: string; ids: readonly string[] };
 	appVersion: string;
 	createServices(info: { manifest: PluginManifest; directory: string; dataDirectory: string; signal: AbortSignal; cleanup: (fn: PluginCleanup) => void }): {
-		learning: PluginLearningData; inference: PluginInference; agents: PluginAgentService; workers: PluginWorkerService;
+		learning: PluginLearningData; graph: PluginGraphService; documents: PluginDocumentService; inference: PluginInference; agents: PluginAgentService; workers: PluginWorkerService;
 		createBackgroundTool: PluginBackendContext["createBackgroundTool"];
 	};
 	/** One process-wide pure converter; no backend services are needed for uploads. */
@@ -247,6 +247,11 @@ export function createPluginHost(deps: PluginHostDependencies) {
 				cleanup(() => services.workers.dispose());
 				const ctx: PluginBackendContext = {
 					manifest, directory: pkg.directory, dataDirectory, signal: activation.controller.signal, cleanup, ...services,
+					graph: { importNotes(input) { requireLive(); return services.graph.importNotes(input); } },
+					documents: {
+						pdfInfo(path) { requireLive(); return services.documents.pdfInfo(path); },
+						renderPdfPages(input) { requireLive(); return services.documents.renderPdfPages(input); },
+					},
 					createBackgroundTool(context, definition) { requireLive(); return services.createBackgroundTool(context, definition); },
 					registerInstructions(contribution: PluginInstructions) {
 						requireLive();

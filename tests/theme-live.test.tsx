@@ -56,7 +56,7 @@ it("same-mode theme/override changes feed new paint to the mounted graph without
 	} });
 	const feeds: CanvasData[] = [], renderers: GraphCanvasRenderer[] = [];
 	t.mock.method(GraphCanvasRenderer.prototype, "setData", function (this: GraphCanvasRenderer, data: CanvasData) { feeds.push(data); renderers.push(this); });
-	for (const method of ["setSettings", "setVisible", "setRegionTuning", "setPhysicsTuning"] as const) t.mock.method(GraphCanvasRenderer.prototype, method, () => {});
+	for (const method of ["setSettings", "setVisible", "setPhysicsTuning"] as const) t.mock.method(GraphCanvasRenderer.prototype, method, () => {});
 	const { createRoot } = await import("react-dom/client");
 	const root = createRoot(document.getElementById("root")!);
 	let live!: ReturnType<typeof useAppearance>;

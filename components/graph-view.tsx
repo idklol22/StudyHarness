@@ -68,10 +68,12 @@ import { NotesImportControl, NotesImportErrors, NotesImportNotices, useNotesImpo
 import { PluginGraphActions } from "@/components/plugin-chrome";
 import { SettingsSlider as SettingSlider } from "@/components/settings/controls";
 import Link from "next/link";
-import { FileTextIcon, ListTreeIcon, Loader2Icon, SearchIcon, SettingsIcon, WaypointsIcon } from "lucide-react";
+import { CircleDotIcon, FileTextIcon, ListTreeIcon, Loader2Icon, LocateFixedIcon, LockIcon, MaximizeIcon, Rotate3dIcon, SearchIcon, SettingsIcon, WaypointsIcon } from "lucide-react";
 import { incrementalLayout, propositionSessionHref, type GraphCostSummary, type GraphNode, type GraphSnapshot } from "@/src/core";
 import { planCostLabel } from "@/components/usage-format";
-import { CLUSTER_LIGHTNESS, GraphCanvasRenderer, type GraphRenderSettings } from "./graph-canvas.ts";
+import { CLUSTER_LIGHTNESS, GraphCanvasRenderer, type GraphRenderSettings, type RendererCallbacks } from "./graph-canvas.ts";
+import { Graph3DRenderer, type Camera3DState } from "./graph-3d.ts";
+import { clusterHue } from "./cluster-geometry.ts";
 import { useAppearance } from "@/components/settings/appearance";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
 import { INTERACTION_LAYER_Z_BASE } from "@/components/host-dialog";
@@ -85,9 +87,7 @@ import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { Hint } from "@/components/ui/hint";
 import {
-	ARROW_LENGTH_LADDER,
 	CHARGE_RANGE,
-	CLUSTER_LABEL_SIZE_LADDER,
 	CLUSTER_PULL_RANGE,
 	DEPTH_BASE_RADIUS_RANGE,
 	DEPTH_SPACING_RANGE,
@@ -100,13 +100,9 @@ import {
 	LINK_DISTANCE_RANGE,
 	LINK_STRENGTH_RANGE,
 	NODE_SIZE_LADDER,
-	REGION_BITMAP_OPTIONS,
-	REGION_BLUR_LADDER,
 	fromLadderPosition,
 	snapToLadder,
 	toLadderPosition,
-	REGION_DILATION_LADDER,
-	REGION_EDGE_ALPHA_LADDER,
 	VELOCITY_DECAY_RANGE,
 	fromOffSliderPosition,
 	fromSliderPosition,
@@ -123,6 +119,68 @@ const NODE_COLOR_TOKEN = "--primary";
 /** Per-device graph camera persistence (zoom+pan view state). v1 in the
  *  key: the stored shape is the renderer's d3 transform {k, x, y}. */
 const CAMERA_STORAGE_KEY = "lh.graph.camera.v1";
+/** Source groups the learner hid via the legend (per-device view state). */
+const HIDDEN_GROUPS_STORAGE_KEY = "lh.graph.hidden-groups.v1";
+/** The globe camera (position + orbit target): per-device view state, like the 2D camera. */
+const CAMERA3D_STORAGE_KEY = "lh.graph.camera3d.v1";
+/** Whether the learner locked the 3D graph's idle rotation (per-device view state). */
+const ROTATION_LOCK_STORAGE_KEY = "lh.graph.rotation-locked.v1";
+/** Whether the 3D graph shows the Knowledge centre and its spokes (per-device view state). */
+const CENTRE_STORAGE_KEY = "lh.graph.centre.v1";
+/** What the view needs from either renderer. The knowledge graph is the 3D globe (owner,
+ *  2026-11-18); the 2D canvas is the fallback when WebGL is unavailable. The globe adds
+ *  setSelected (its highlight ring follows the open card) and live topic-label renames. */
+type GraphRenderer = Pick<GraphCanvasRenderer, "setData" | "setSettings" | "setVisible" | "setPhysicsTuning" | "fit" | "destroy"> & {
+	setSelected?: (id: string | null) => void;
+	setClusterLabels?: (labels: ReadonlyMap<string, string | null>) => void;
+	setRotationLocked?: (locked: boolean) => void;
+	setCentreVisible?: (on: boolean) => void;
+};
+
+/** One legend row: a source group (session, imported file, Study notebook). */
+export interface GraphGroup {
+	id: string;
+	label: string;
+	hue: number;
+	count: number;
+}
+
+/** Legend rows from the snapshot's clusters, in the renderer's coloring
+ *  order (a node takes the FIRST cluster that lists it). Live renames
+ *  override labels without a refetch. Pure; exported for tests. */
+export function graphGroups(
+	clusters: readonly { id: string; label: string | null; members: readonly string[] }[],
+	labelOverrides: ReadonlyMap<string, string> = new Map(),
+): GraphGroup[] {
+	const seen = new Set<string>();
+	const groups: GraphGroup[] = [];
+	for (const c of clusters) {
+		let count = 0;
+		for (const id of c.members) if (!seen.has(id)) { seen.add(id); count++; }
+		if (count === 0) continue;
+		groups.push({ id: c.id, label: labelOverrides.get(c.id) ?? c.label ?? "Untitled", hue: clusterHue(c.id), count });
+	}
+	return groups;
+}
+
+/** Node ids hidden by the legend: a node follows the group that colors it
+ *  (its first cluster), so the legend count and what disappears agree. Pure. */
+export function hiddenByGroups(
+	clusters: readonly { id: string; members: readonly string[] }[],
+	hidden: ReadonlySet<string>,
+): Set<string> {
+	const out = new Set<string>();
+	if (hidden.size === 0) return out;
+	const seen = new Set<string>();
+	for (const c of clusters) {
+		for (const id of c.members) {
+			if (seen.has(id)) continue;
+			seen.add(id);
+			if (hidden.has(c.id)) out.add(id);
+		}
+	}
+	return out;
+}
 
 // ---- Render settings (the settings-panel controls) ------------------------
 //
@@ -416,9 +474,11 @@ function GraphCostPanel({ costs }: { costs: GraphCostSummary }) {
 function GraphSettingsControl({
 	settings,
 	changeSettings,
+	physics = true,
 }: {
 	settings: GraphRenderSettings;
 	changeSettings: (update: (cur: RenderSettings) => RenderSettings) => void;
+	physics?: boolean;
 }) {
 	const [open, setOpen] = useState(false);
 	// Click anywhere outside (or Escape) closes the panel (2026-09-17) —
@@ -426,7 +486,6 @@ function GraphSettingsControl({
 	const rootRef = useRef<HTMLDivElement>(null);
 	const panelRef = useRef<HTMLDivElement>(null);
 	const popupLayer = usePopoverDismiss(rootRef, open, () => setOpen(false), { layerRootRef: panelRef });
-	const regionTuning = settings.regions;
 	const physicsTuning = settings.physics;
 	return (
 		<div ref={rootRef} className="relative">
@@ -485,16 +544,6 @@ function GraphSettingsControl({
 									changeSettings((cur) => ({ ...cur, edgeWidth: fromLadderPosition(p, EDGE_WIDTH_LADDER) }))}
 							/>
 							<SettingSlider
-								label="Arrowhead size"
-								min={0}
-								max={100}
-								step={10}
-								value={toLadderPosition(settings.arrowLength, ARROW_LENGTH_LADDER)}
-								display={sizeDisplay(settings.arrowLength)}
-								onChange={(p) =>
-									changeSettings((cur) => ({ ...cur, arrowLength: fromLadderPosition(p, ARROW_LENGTH_LADDER) }))}
-							/>
-							<SettingSlider
 								label="Label size"
 								min={0}
 								max={100}
@@ -515,124 +564,6 @@ function GraphSettingsControl({
 								onChange={(p) =>
 									changeSettings((cur) => ({ ...cur, labelZoom: fromLadderPosition(p, LABEL_ZOOM_LADDER) }))}
 							/>
-							{/* Regions: the blurred cluster tints. Sliders + a fixed-set
-						    dropdown for the bitmap resolution (it's a discrete
-						    choice, not a free number). Server-persisted like the
-						    sizes; every range end was sweep-validated on the real
-						    graph. The enable switch is a COMPUTE switch: off skips
-						    the whole build (splat/blur/readback/blit), not just
-						    the paint. */}
-						<div className="mt-1.5 flex flex-col gap-1.5 border-t pt-1.5">
-							<span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-								Regions
-							</span>
-							<label className="flex cursor-pointer items-center justify-between text-[11px] text-muted-foreground">
-								<span>Background colors</span>
-								<input
-									type="checkbox"
-									checked={settings.regions.enabled}
-									onChange={(e) =>
-										changeSettings((cur) => ({
-											...cur,
-											regions: { ...cur.regions, enabled: e.target.checked },
-										}))}
-										className="accent-primary"
-								/>
-							</label>
-							<SettingSlider
-								label="Dilation"
-								disabled={!regionTuning.enabled}
-								min={0}
-								max={100}
-								step={10}
-								value={toLadderPosition(regionTuning.dilation, REGION_DILATION_LADDER)}
-								display={sizeDisplay(regionTuning.dilation)}
-								onChange={(p) =>
-									changeSettings((cur) => ({
-										...cur,
-										regions: { ...cur.regions, dilation: fromLadderPosition(p, REGION_DILATION_LADDER) },
-									}))}
-							/>
-							<SettingSlider
-								label="Blur"
-								disabled={!regionTuning.enabled}
-								min={0}
-								max={100}
-								step={10}
-								value={toLadderPosition(regionTuning.blur, REGION_BLUR_LADDER)}
-								display={sizeDisplay(regionTuning.blur)}
-								onChange={(p) =>
-									changeSettings((cur) => ({
-										...cur,
-										regions: { ...cur.regions, blur: fromLadderPosition(p, REGION_BLUR_LADDER) },
-									}))
-								}
-							/>
-							<SettingSlider
-								label="Edge alpha"
-								disabled={!regionTuning.enabled}
-								min={0}
-								max={100}
-								step={10}
-								value={toLadderPosition(regionTuning.edgeAlpha, REGION_EDGE_ALPHA_LADDER)}
-								display={sizeDisplay(regionTuning.edgeAlpha)}
-								onChange={(p) =>
-									changeSettings((cur) => ({
-										...cur,
-										regions: { ...cur.regions, edgeAlpha: fromLadderPosition(p, REGION_EDGE_ALPHA_LADDER) },
-									}))}
-							/>
-							<label
-								className={`flex items-center justify-between gap-2 text-[11px] text-muted-foreground${!regionTuning.enabled ? " opacity-40" : ""}`}
-							>
-								<span>Bitmap resolution</span>
-								<select
-									disabled={!regionTuning.enabled}
-									className="rounded-md border bg-background px-1.5 py-0.5 text-xs tabular-nums text-foreground"
-									value={regionTuning.bitmap}
-									onChange={(e) =>
-										changeSettings((cur) => ({
-											...cur,
-											regions: { ...cur.regions, bitmap: Number(e.target.value) },
-										}))
-									}
-								>
-									{REGION_BITMAP_OPTIONS.map((o) => (
-										<option key={o} value={o}>
-											{o}
-										</option>
-									))}
-								</select>
-							</label>
-							{/* Cluster labels moved here 2026-09-16 (user: cluster
-							    stuff lives in the regions section). Decoupled from
-							    the Background colors switch above — labels follow
-							    their own clusterLabels toggle. Size is screen px
-							    (constant at any zoom, unlike node labels). */}
-							<label className="flex cursor-pointer items-center justify-between text-[11px] text-muted-foreground">
-								<span>Cluster labels</span>
-								<input
-									type="checkbox"
-									checked={settings.clusterLabels}
-									onChange={(e) => changeSettings((cur) => ({ ...cur, clusterLabels: e.target.checked }))}
-									className="accent-primary"
-								/>
-							</label>
-							<SettingSlider
-								label="Cluster label size"
-								disabled={!settings.clusterLabels}
-								min={0}
-								max={100}
-								step={10}
-								value={toLadderPosition(settings.clusterLabelSize, CLUSTER_LABEL_SIZE_LADDER)}
-								display={sizeDisplay(settings.clusterLabelSize)}
-								onChange={(p) =>
-									changeSettings((cur) => ({
-										...cur,
-										clusterLabelSize: fromLadderPosition(p, CLUSTER_LABEL_SIZE_LADDER),
-									}))}
-							/>
-						</div>
 						{/* Physics: the live sim's forces. Every value feeds the SAME
 						    engine the server settle runs (createGraphSimulation);
 						    changing one rebuilds the sim from the current positions —
@@ -642,8 +573,9 @@ function GraphSettingsControl({
 						    no explosion, no non-settle. Repulsion is displayed as
 						    the negative it is; cluster pull's far left = off.
 						    Order (user 2026-09-17): general forces first; depth
-						    anchor + its gray-out-able controls last. */}
-						<div className="mt-1.5 flex flex-col gap-1.5 border-t pt-1.5">
+						    anchor + its gray-out-able controls last. The 2D layout only:
+						    the globe has its own fixed forces. */}
+						{physics && <div className="mt-1.5 flex flex-col gap-1.5 border-t pt-1.5">
 							<span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
 								Physics
 							</span>
@@ -788,7 +720,7 @@ function GraphSettingsControl({
 										physics: { ...cur.physics, depthBaseRadius: fromSliderPosition(p, DEPTH_BASE_RADIUS_RANGE.min, DEPTH_BASE_RADIUS_RANGE.max) },
 									}))}
 							/>
-						</div>
+						</div>}
 					</div>
 				</div>
 			)}
@@ -815,6 +747,13 @@ export function GraphChromeRow({
 	settings,
 	changeSettings,
 	onOpenChains,
+	onFit,
+	physics = true,
+	rotationLocked,
+	onToggleRotation,
+	recenter = false,
+	centreShown,
+	onToggleCentre,
 }: {
 	isEmpty: boolean;
 	query: string;
@@ -830,6 +769,18 @@ export function GraphChromeRow({
 	/** Opens the chain table overlay (the chains-overlay plan,
 	 *  2026-09-29). */
 	onOpenChains: () => void;
+	/** Re-frame the whole graph. */
+	onFit?: () => void;
+	/** Show the physics controls (the 2D layout only — the 3D graph has its own fixed forces). */
+	physics?: boolean;
+	/** The 3D graph's idle rotation lock; the toggle shows only when a handler is given. */
+	rotationLocked?: boolean;
+	onToggleRotation?: () => void;
+	/** The 3D graph: Fit means "Recenter on Knowledge" (back to the centre, everything framed). */
+	recenter?: boolean;
+	/** The 3D graph's Knowledge centre toggle; shows only when a handler is given. */
+	centreShown?: boolean;
+	onToggleCentre?: () => void;
 }) {
 	return (
 		<>
@@ -874,6 +825,51 @@ export function GraphChromeRow({
 						</button>
 					</Hint>
 				</div>
+			{/* Fit: re-frame the whole graph (the graph is 2D only — Study
+			    redesign, owner 2026-11-18). */}
+			{!isEmpty && onFit && (
+				<div className="graph-chrome-fade-in flex shrink-0 items-center gap-0.5 rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
+					{onToggleCentre && (
+						<Hint label={centreShown ? "Hide the Knowledge centre (topics float free)" : "Show the Knowledge centre"} side="bottom">
+							<button
+								type="button"
+								onClick={onToggleCentre}
+								aria-pressed={!!centreShown}
+								aria-label={centreShown ? "Hide the Knowledge centre" : "Show the Knowledge centre"}
+								data-testid="graph-centre-toggle"
+								className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors hover:bg-accent ${centreShown ? "bg-accent text-foreground" : "text-muted-foreground"}`}
+							>
+								<CircleDotIcon className="size-3.5" />
+							</button>
+						</Hint>
+					)}
+					{onToggleRotation && (
+						<Hint label={rotationLocked ? "Rotation locked — click to let the graph rotate" : "Rotating — click to lock rotation"} side="bottom">
+							<button
+								type="button"
+								onClick={onToggleRotation}
+								aria-pressed={!!rotationLocked}
+								aria-label={rotationLocked ? "Unlock rotation" : "Lock rotation"}
+								data-testid="graph-rotation-lock"
+								className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors hover:bg-accent ${rotationLocked ? "bg-accent text-foreground" : "text-muted-foreground"}`}
+							>
+								{rotationLocked ? <LockIcon className="size-3.5" /> : <Rotate3dIcon className="size-3.5" />}
+							</button>
+						</Hint>
+					)}
+					<Hint label={recenter ? "Recenter on Knowledge (F)" : "Fit the whole graph"} side="bottom">
+						<button
+							type="button"
+							onClick={onFit}
+							aria-label={recenter ? "Recenter on Knowledge" : "Fit the whole graph"}
+							data-testid="graph-fit"
+							className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent"
+						>
+							{recenter ? <LocateFixedIcon className="size-3.5" /> : <MaximizeIcon className="size-3.5" />}
+						</button>
+					</Hint>
+				</div>
+			)}
 			{/* Import notes — its own container (36px, header band); ALWAYS
 			    rendered (the empty-graph ruling above — the entry point). */}
 			<NotesImportControl importing={importing} onImportFiles={onImportFiles} />
@@ -884,10 +880,92 @@ export function GraphChromeRow({
 				// is a plain shrink-0 flex child — the panel itself positions
 				// within GraphSettingsControl's own relative root, unaffected.
 				<div className="graph-chrome-fade-in shrink-0">
-					<GraphSettingsControl settings={settings} changeSettings={changeSettings} />
+					<GraphSettingsControl settings={settings} changeSettings={changeSettings} physics={physics} />
 				</div>
 			)}
 		</>
+	);
+}
+
+/** The groups legend (Obsidian's colored groups): one row per source —
+ *  chat session, imported file or Study notebook — in its node color with
+ *  its node count. Clicking a row hides/shows that group. Collapsible;
+ *  sits top-left under the sidebar toggle, clear of the chrome row and
+ *  the composer. Exported pure for render pins. */
+export function GraphLegend({
+	groups,
+	hidden,
+	onToggle,
+	onShowAll,
+	onHideAll,
+	lightness,
+}: {
+	groups: readonly GraphGroup[];
+	hidden: ReadonlySet<string>;
+	onToggle: (id: string) => void;
+	onShowAll?: () => void;
+	onHideAll?: () => void;
+	lightness: number;
+}) {
+	const [open, setOpen] = useState(true);
+	return (
+		<div
+			data-testid="graph-legend"
+			className="lh-no-drag graph-chrome-fade-in absolute left-3 top-14 z-10 flex max-h-[45vh] w-60 max-w-[calc(100%-1.5rem)] flex-col rounded-xl border bg-card/85 p-1.5 text-xs shadow-lg backdrop-blur"
+		>
+			<button
+				type="button"
+				aria-expanded={open}
+				onClick={() => setOpen((o) => !o)}
+				className="flex items-center justify-between rounded-lg px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:bg-accent"
+			>
+				<span>Groups</span>
+				<span className="tabular-nums">{groups.length}</span>
+			</button>
+			{open && (onShowAll || onHideAll) && (
+				<div className="mt-1 flex gap-1 px-1">
+					{onShowAll && (
+						<button type="button" data-testid="graph-groups-all" onClick={onShowAll} disabled={hidden.size === 0}
+							className="flex-1 rounded-md border px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40">
+							All
+						</button>
+					)}
+					{onHideAll && (
+						<button type="button" data-testid="graph-groups-none" onClick={onHideAll} disabled={hidden.size >= groups.length}
+							className="flex-1 rounded-md border px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40">
+							None
+						</button>
+					)}
+				</div>
+			)}
+			{open && (
+				<ul className="mt-1 flex flex-col gap-0.5 overflow-y-auto">
+					{groups.map((g) => {
+						const off = hidden.has(g.id);
+						return (
+							<li key={g.id}>
+								<button
+									type="button"
+									aria-pressed={!off}
+									title={off ? `Show ${g.label}` : `Hide ${g.label}`}
+									data-testid={`graph-group-${g.id}`}
+									onClick={() => onToggle(g.id)}
+									className={`flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors hover:bg-accent ${off ? "opacity-45" : ""}`}
+								>
+									<span
+										aria-hidden="true"
+										className="size-2.5 shrink-0 rounded-full"
+										style={{ background: off ? "transparent" : `hsl(${g.hue}, 62%, ${lightness}%)`, boxShadow: `inset 0 0 0 1.5px hsl(${g.hue}, 62%, ${lightness}%)` }}
+									/>
+									<span className={`min-w-0 flex-1 truncate ${off ? "text-muted-foreground line-through" : "text-foreground"}`}>{g.label}</span>
+									<span className="shrink-0 tabular-nums text-muted-foreground">{g.count}</span>
+								</button>
+							</li>
+						);
+					})}
+				</ul>
+			)}
+		</div>
 	);
 }
 
@@ -985,7 +1063,6 @@ export function GraphView({
 	const [settings, setSettings] = useState<GraphRenderSettings>(DEFAULT_RENDER_SETTINGS);
 	// The two nested sections, unpacked for the renderer feed effects
 	// below (same names the old session state had).
-	const regionTuning = settings.regions;
 	const physicsTuning = settings.physics;
 	const settingsRef = useRef(settings);
 	settingsRef.current = settings;
@@ -1040,19 +1117,69 @@ export function GraphView({
 	// The renderer instance lives across snapshot refetches and settings
 	// changes (its camera is never reset by either); `posRef` carries the
 	// frozen layout out of the layout effect.
-	const rendererRef = useRef<GraphCanvasRenderer | null>(null);
+	const rendererRef = useRef<GraphRenderer | null>(null);
+	// The globe needs WebGL; when it is unavailable (or the context is lost) the view
+	// falls back to the 2D graph and says why.
+	const [gl3dProblem, setGl3dProblem] = useState<string | null>(null);
+	const is3d = gl3dProblem === null;
+	const [rotationLocked, setRotationLocked] = useState(false);
+	useEffect(() => {
+		try { setRotationLocked(localStorage.getItem(ROTATION_LOCK_STORAGE_KEY) === "1"); } catch { /* default: rotating */ }
+	}, []);
+	const [centreShown, setCentreShown] = useState(true);
+	useEffect(() => {
+		try { setCentreShown(localStorage.getItem(CENTRE_STORAGE_KEY) !== "0"); } catch { /* default: shown */ }
+	}, []);
+	const toggleCentre = () => setCentreShown((cur) => {
+		const next = !cur;
+		try { localStorage.setItem(CENTRE_STORAGE_KEY, next ? "1" : "0"); } catch { /* best-effort */ }
+		return next;
+	});
+	const toggleRotation = () => setRotationLocked((cur) => {
+		const next = !cur;
+		try { localStorage.setItem(ROTATION_LOCK_STORAGE_KEY, next ? "1" : "0"); } catch { /* best-effort */ }
+		return next;
+	});
 	const posRef = useRef<Map<string, { x: number; y: number }> | null>(null);
 
-	// The id set that survives the current search — consumed by the
-	// visibility feed and the "no matches" hint.
+	// Source groups hidden from the legend (per-device view state). Loaded
+	// after mount so SSR and the first client render agree.
+	const [hiddenGroups, setHiddenGroups] = useState<ReadonlySet<string>>(new Set());
+	useEffect(() => {
+		try {
+			const raw = JSON.parse(localStorage.getItem(HIDDEN_GROUPS_STORAGE_KEY) ?? "[]") as unknown;
+			if (Array.isArray(raw)) setHiddenGroups(new Set(raw.filter((v): v is string => typeof v === "string")));
+		} catch { /* corrupt entry: show everything */ }
+	}, []);
+	const setGroupsHidden = (ids: readonly string[]) => {
+		const next = new Set(ids);
+		try { localStorage.setItem(HIDDEN_GROUPS_STORAGE_KEY, JSON.stringify([...next])); } catch { /* best-effort */ }
+		setHiddenGroups(next);
+	};
+	const toggleGroup = (id: string) => {
+		setHiddenGroups((cur) => {
+			const next = new Set(cur);
+			if (next.has(id)) next.delete(id); else next.add(id);
+			try { localStorage.setItem(HIDDEN_GROUPS_STORAGE_KEY, JSON.stringify([...next])); } catch { /* best-effort */ }
+			return next;
+		});
+	};
+	// Live renames relabel legend rows without a refetch.
+	const [groupLabels, setGroupLabels] = useState<ReadonlyMap<string, string>>(new Map());
+	const groups = useMemo(() => (snapshot ? graphGroups(snapshot.clusters, groupLabels) : []), [snapshot, groupLabels]);
+
+	// The id set that survives the current search AND the legend — consumed
+	// by the visibility feed and the "no matches" hint.
+	const groupHidden = useMemo(() => (snapshot ? hiddenByGroups(snapshot.clusters, hiddenGroups) : new Set<string>()), [snapshot, hiddenGroups]);
 	const visibleIds = useMemo(() => {
 		const set = new Set<string>();
 		if (snapshot)
 			for (const node of snapshot.nodes) {
-				if (isNodeVisible(node, query)) set.add(node.id);
+				if (!groupHidden.has(node.id) && isNodeVisible(node, query)) set.add(node.id);
 			}
 		return set;
-	}, [snapshot, query]);
+	}, [snapshot, query, groupHidden]);
+	const filtering = query.trim() !== "" || groupHidden.size > 0;
 
 	// Fetch the derived graph. Re-runs when a background pipeline run
 	// finishes (refreshTick) — its merges just landed in the ledger.
@@ -1203,24 +1330,28 @@ export function GraphView({
 	   position ledger can't assert itself and a pending drag commit
 	   survives. The sessions map (the detail card's provenance line)
 	   patches in place; a tick bump re-renders the view so an open
-	   detail card reads the fresh title. Unlabeled clusters keep their
-	   hull-only silence — the null-label guard lives in the channel
-	   (applyClusterLabels): a rename can't reach a gone record. */
+	   detail card reads the fresh title. The legend label is a separate
+	   override map (graphGroups) — the renderer itself draws no group
+	   labels since the Obsidian redesign (owner 2026-11-18). */
 	const [, setLabelTick] = useState(0);
 	useEffect(() => {
+		const relabel = (id: string, title: string) =>
+			setGroupLabels((cur) => new Map(cur).set(id, title));
 		const onRenamed = (e: Event) => {
 			const { id, title } = (e as CustomEvent<{ id?: string; title?: string }>).detail ?? {};
 			if (typeof id !== "string" || typeof title !== "string" || id === "" || title === "") return;
 			const snap = snapshotRef.current;
 			if (snap != null) renameSessionsPatch(snap, id, title);
-			rendererRef.current?.setClusterLabels(new Map([[id, title]]));
+			relabel(id, title);
+			rendererRef.current?.setClusterLabels?.(new Map([[id, title]]));
 			setLabelTick((t) => t + 1);
 		};
 		const onSourceRenamed = (event: Event) => {
 			const { id, title } = (event as CustomEvent<{ id?: string; title?: string }>).detail ?? {};
 			if (typeof id !== "string" || typeof title !== "string") return;
-			// Label-only channel: never rebuild geometry or rewrite fileSources.
-			rendererRef.current?.setClusterLabels(new Map([[id, title]]));
+			// Label-only: never rebuild geometry or rewrite fileSources.
+			relabel(id, title);
+			rendererRef.current?.setClusterLabels?.(new Map([[id, title]]));
 		};
 		window.addEventListener("lh:chat-renamed", onRenamed);
 		window.addEventListener("lh:source-renamed", onSourceRenamed);
@@ -1328,9 +1459,7 @@ export function GraphView({
 				}
 			}, 250);
 		};
-		const renderer = new GraphCanvasRenderer(
-			canvas,
-			{
+		const callbacks: RendererCallbacks = {
 				onSelect: (nodeId, pos) => {
 					const snap = snapshotRef.current;
 					const node = snap?.nodes.find((n) => n.id === nodeId);
@@ -1373,9 +1502,30 @@ export function GraphView({
 						body: JSON.stringify(positions),
 					}).catch((err) => console.error("[graph] positions commit failed", err));
 				},
-			},
-			initialCamera,
-		);
+		};
+		let renderer: GraphRenderer;
+		let camera3dTimer: ReturnType<typeof setTimeout> | null = null;
+		if (gl3dProblem === null) {
+			let camera3d: Camera3DState | null = null;
+			try {
+				const stored = JSON.parse(localStorage.getItem(CAMERA3D_STORAGE_KEY) ?? "null") as Camera3DState | null;
+				if (stored && Array.isArray(stored.position) && Array.isArray(stored.target)) camera3d = stored;
+			} catch { /* corrupt entry: the globe frames itself */ }
+			try {
+				renderer = new Graph3DRenderer(canvas, {
+					...callbacks,
+					onCamera3D: (state) => {
+						if (camera3dTimer) clearTimeout(camera3dTimer);
+						camera3dTimer = setTimeout(() => { try { localStorage.setItem(CAMERA3D_STORAGE_KEY, JSON.stringify(state)); } catch { /* best-effort */ } }, 250);
+					},
+					onUnavailable: (reason) => setGl3dProblem(reason),
+				}, camera3d);
+			} catch (error) {
+				// No WebGL (or it failed to start): fall back to the 2D graph and say why.
+				setGl3dProblem(error instanceof Error ? error.message : "WebGL is not available");
+				return;
+			}
+		} else renderer = new GraphCanvasRenderer(canvas, callbacks, initialCamera);
 		rendererRef.current = renderer;
 		return () => {
 			rendererRef.current = null;
@@ -1390,9 +1540,10 @@ export function GraphView({
 					// best-effort
 				}
 			}
+			if (camera3dTimer) clearTimeout(camera3dTimer);
 			renderer.destroy();
 		};
-	}, [isEmpty]);
+	}, [isEmpty, gl3dProblem]);
 
 	// Feed #1 — data: positions + edges + clusters + resolved colors. Runs
 	// after the layout effect (same commit, declaration order) and after
@@ -1425,37 +1576,43 @@ export function GraphView({
 			// Match the app typography (Geist via the body's stack).
 			fontFamily: getComputedStyle(document.body).fontFamily,
 		});
-	}, [snapshot, isEmpty, resolvedMode, colors]);
+	}, [snapshot, isEmpty, resolvedMode, colors, gl3dProblem]);
 
 	// Feed #2 — settings: just marks the frame dirty. No rebuild, no
 	// re-layout, no camera touch (the whole point of the new renderer).
 	const deferredSettings = useDeferredValue(settings);
 	useEffect(() => {
 		rendererRef.current?.setSettings(deferredSettings);
-	}, [deferredSettings, isEmpty]);
+	}, [deferredSettings, isEmpty, gl3dProblem]);
 
 	// Feed #3 — visibility: hidden nodes drop out of rendering, picking,
 	// hover, AND labels; edges drop when either endpoint is hidden.
 	useEffect(() => {
-		rendererRef.current?.setVisible(query.trim() ? visibleIds : null);
+		rendererRef.current?.setVisible(filtering ? visibleIds : null);
 		// The open detail card cannot outlive its node's visibility.
 		setSelected((sel) => (sel && visibleIds.has(sel.node.id) ? sel : null));
-	}, [visibleIds, query]);
+	}, [visibleIds, filtering, isEmpty, gl3dProblem]);
 
-	// Feed #4 — region tuning. `isEmpty` in the deps (same as Feed #2):
-	// the settings fetch resolves BEFORE the snapshot creates the renderer,
-	// so the load-time run hits a null renderer and would never re-fire —
-	// the renderer would silently keep the default tuning forever.
-	useEffect(() => {
-		rendererRef.current?.setRegionTuning(regionTuning);
-	}, [regionTuning, isEmpty]);
-
-	// Feed #5 — physics tuning: rebuilds the live sim in place (drag pins
-	// survive; a mid-settle change re-anneals, the honest response). Same
-	// isEmpty dep as Feed #4 — see there.
+	// Feed #4 — physics tuning: rebuilds the live sim in place (drag pins
+	// survive; a mid-settle change re-anneals, the honest response).
+	// `isEmpty` in the deps (same as Feed #2): the settings fetch resolves
+	// BEFORE the snapshot creates the renderer, so the load-time run hits a
+	// null renderer and would never re-fire.
 	useEffect(() => {
 		rendererRef.current?.setPhysicsTuning(physicsTuning);
-	}, [physicsTuning, isEmpty]);
+	}, [physicsTuning, isEmpty, gl3dProblem]);
+
+	useEffect(() => {
+		rendererRef.current?.setRotationLocked?.(rotationLocked);
+	}, [rotationLocked, isEmpty, gl3dProblem]);
+	useEffect(() => {
+		rendererRef.current?.setCentreVisible?.(centreShown);
+	}, [centreShown, isEmpty, gl3dProblem, snapshot]);
+
+	// The 3D graph keeps its own highlight ring: mirror the open card (and its closing) into it.
+	useEffect(() => {
+		rendererRef.current?.setSelected?.(selected?.node.id ?? null);
+	}, [selected, gl3dProblem]);
 
 	// Position the detail card: below the clicked node, flipped above near
 	// the bottom edge, clamped horizontally. Measure before paint, then keep
@@ -1483,9 +1640,9 @@ export function GraphView({
 				</div>
 			) : (
 				<div ref={containerRef} className="relative h-full w-full">
-					{/* THE single canvas: every layer (hulls, edges, nodes, both
-					    label systems, hover) draws into it, once per frame. */}
-					<canvas ref={canvasRef} className="block h-full w-full touch-none" />
+					{/* THE single canvas: every layer (edges, nodes, labels,
+					    hover) draws into it, once per frame. */}
+					<canvas key={is3d ? "globe" : "flat"} ref={canvasRef} className="block h-full w-full touch-none outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset" />
 					{/* The context menu's anchor: a zero-size point at the
 					    right-click position (canvas-relative == container-relative,
 					    the canvas fills this div). */}
@@ -1545,6 +1702,17 @@ export function GraphView({
 
 			<PluginGraphActions />
 
+			{!isEmpty && groups.length > 0 && (
+				<GraphLegend
+					groups={groups}
+					hidden={hiddenGroups}
+					onToggle={toggleGroup}
+					onShowAll={() => setGroupsHidden([])}
+					onHideAll={() => setGroupsHidden(groups.map((g) => g.id))}
+					lightness={CLUSTER_LIGHTNESS[resolvedMode].ring}
+				/>
+			)}
+
 			{/* Legend + filters: search box and per-state toggle rows. */}
 			{/* Top-right controls — separate floating containers (owner,
 			    graph-view round 2). Row order (2026-09-17): search,
@@ -1592,10 +1760,22 @@ export function GraphView({
 					settings={settings}
 					changeSettings={changeSettings}
 					onOpenChains={() => setChainsOpen(true)}
+					onFit={() => rendererRef.current?.fit()}
+					physics={!is3d}
+					rotationLocked={rotationLocked}
+					onToggleRotation={is3d ? toggleRotation : undefined}
+					recenter={is3d}
+					centreShown={centreShown}
+					onToggleCentre={is3d ? toggleCentre : undefined}
 				/>
 			</div>
 
 			<NotesImportErrors errors={notesImport.errors} />
+			{gl3dProblem !== null && !isEmpty && (
+				<div role="status" data-testid="graph-3d-unavailable" className="max-w-xs rounded-xl border bg-card/85 px-3 py-2 text-xs text-muted-foreground shadow-lg backdrop-blur">
+					The 3D globe isn&apos;t available on this device, so the 2D graph is shown. ({gl3dProblem})
+				</div>
+			)}
 			<NotesImportNotices notices={notesImport.notices} />
 			{/* Top-right tail (owner, 2026-09-20): the pipeline cost number —
 			    just a number, hover-highlighted, dropdown breakdown — then

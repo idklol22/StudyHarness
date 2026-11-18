@@ -26,7 +26,7 @@ function fixture(t: TestContext) {
 		directory, appVersion: "0.3.7",
 		createServices() {
 			servicesCreated++;
-			return { learning: { directory: root, history } as unknown as PluginLearningData, inference: {} as PluginInference,
+			return { learning: { directory: root, history } as unknown as PluginLearningData, graph: {} as never, documents: {} as never, inference: {} as PluginInference,
 				agents: { dispose: async () => { history.push("agents"); } } as PluginAgentService,
 				workers: { dispose: async () => { history.push("workers"); } } as PluginWorkerService,
 				createBackgroundTool() { throw new Error("Unexpected background tool in host fixture"); } };
@@ -463,4 +463,28 @@ test("document conversion preserves ordinary conversion errors and host disposal
 	const rejected = assert.rejects(f.host.convertDocument("example", documentRequest()), status(503));
 	await f.host.dispose(); assert.equal(captured.aborted, true);
 	pending.resolve(documentResult); await rejected;
+});
+
+test("backend context exposes the graph service, and a disabled activation can no longer reach it", async t => {
+	const f = fixture(t);
+	const imports: unknown[] = [];
+	f.deps.createServices = () => ({
+		learning: {} as PluginLearningData, inference: {} as PluginInference,
+		graph: { importNotes: async (input: unknown) => { imports.push(input); return { nodes: 2, chains: 1 }; } }, documents: {} as never,
+		agents: { dispose: async () => {} } as PluginAgentService, workers: { dispose: async () => {} } as PluginWorkerService,
+		createBackgroundTool() { throw new Error("unused"); },
+	});
+	const host = createPluginHost(f.deps); t.after(() => host.dispose());
+	const dir = path.join(f.directory, "grapher", "dist"); fs.mkdirSync(dir, { recursive: true });
+	fs.writeFileSync(path.join(dir, "manifest.json"), JSON.stringify({ apiVersion: 1, id: "grapher", name: "Grapher", version: "1.0.0", minAppVersion: "0.3.0", backend: "backend.cjs" }));
+	fs.writeFileSync(path.join(dir, "backend.cjs"), "let kept; exports.activate = ctx => { kept = ctx; ctx.handle('add', input => ctx.graph.importNotes(input)); ctx.handle('late', () => kept.graph.importNotes({ name: 'x', text: 'y' })); };");
+	await host.initialize(); await host.setEnabled("grapher", true);
+	assert.deepEqual(await host.call("grapher", "add", { name: "Deck", text: "A fact." }), { nodes: 2, chains: 1 });
+	assert.deepEqual(imports, [{ name: "Deck", text: "A fact." }]);
+	// A context captured by the plugin must not keep working after the plugin is disabled.
+	const kept = await host.call("grapher", "add", { name: "Again", text: "More." });
+	assert.equal((kept as { nodes: number }).nodes, 2);
+	await host.setEnabled("grapher", false);
+	await assert.rejects(host.call("grapher", "add", { name: "Late", text: "No." }), status(409));
+	assert.equal(imports.length, 2, "nothing is imported after disable");
 });

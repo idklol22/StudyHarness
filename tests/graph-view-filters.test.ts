@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { displayCostTotals, isNodeVisible } from "../components/graph-view.tsx";
+import { displayCostTotals, graphGroups, hiddenByGroups, isNodeVisible } from "../components/graph-view.tsx";
 
 const node = {
 	name: "Money multiplier",
@@ -65,5 +65,25 @@ describe("displayCostTotals (naming-free cost fold)", () => {
 
 	it("unpriced counts fold the same two stages", () => {
 		assert.equal(displayCostTotals(costs).unpricedRuns, 1);
+	});
+});
+
+describe("graph groups (Obsidian legend, Study redesign 2026-11-18)", () => {
+	const clusters = [
+		{ id: "chat_a", label: "Lecture 3", members: ["n1", "n2", "n3"] },
+		{ id: "src_b", label: null, members: ["n3", "n4"] },
+		{ id: "chat_c", label: "Empty after dedupe", members: ["n1"] },
+	];
+	it("counts each node once, under the first group that lists it (its color)", () => {
+		const groups = graphGroups(clusters);
+		assert.deepEqual(groups.map((g) => [g.id, g.label, g.count]), [["chat_a", "Lecture 3", 3], ["src_b", "Untitled", 1]]);
+	});
+	it("live renames override labels", () => {
+		assert.equal(graphGroups(clusters, new Map([["chat_a", "Renamed"]]))[0]?.label, "Renamed");
+	});
+	it("hiding a group hides exactly the nodes it colors", () => {
+		assert.deepEqual([...hiddenByGroups(clusters, new Set(["src_b"]))], ["n4"]);
+		assert.deepEqual([...hiddenByGroups(clusters, new Set(["chat_a"]))].sort(), ["n1", "n2", "n3"]);
+		assert.equal(hiddenByGroups(clusters, new Set()).size, 0);
 	});
 });

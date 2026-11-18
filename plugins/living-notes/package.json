@@ -1,0 +1,15 @@
+{
+  "name": "@learnharness/living-notes",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Active-recall tutor over slide PDFs with living handwritten-style notes.",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node scripts/make-assets.mjs && node --test tests/*.test.cjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

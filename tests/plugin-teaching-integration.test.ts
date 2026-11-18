@@ -63,7 +63,7 @@ test("external teaching example composes native tools, validated workers, separa
 		});
 		service = createPluginWorkerService({ store: createPluginTaskRecordStore(path.join(info.dataDirectory, "tasks")), engineFor: inference.engineFor, onUsage: inference.onUsage, signal: info.signal });
 		return {
-			learning: { directory: data } as PluginLearningData, inference: inference.inference,
+			learning: { directory: data } as PluginLearningData, graph: {} as never, documents: {} as never, inference: inference.inference,
 			agents: { dispose: async () => {} } as PluginAgentService, workers: service,
 			createBackgroundTool: (context, definition) => createPluginBackgroundTool({
 				pluginId: info.manifest.id, context, definition, workers: service, signal: info.signal, isActive: () => !info.signal.aborted,

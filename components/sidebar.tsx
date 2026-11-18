@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode, ThemeMode } from "@/src/core";
-import { DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -396,47 +396,21 @@ export function RenameRow({ chat, onCommit, onCancel }: { chat: ChatListItem; on
 	);
 }
 
-/** The three-way kind filter (practice sessions, owner 2026-10-04):
- *  Teaching / All / Practice — a client-side filter over the same
- *  snapshot, persisted in localStorage, defaulting to All. */
-export type SessionKindFilter = "teach" | "all" | "practice";
-const KIND_FILTER_KEY = "lh:session-kind-filter";
-
 function SessionsSidebar() {
 	const interactions = useInteractionLayers();
 	const { open, toggle } = useSidebar();
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
 	const [query, setQuery] = useState("");
-	const [kindFilter, setKindFilter] = useState<SessionKindFilter>("all");
-	useEffect(() => {
-		const stored = window.localStorage.getItem(KIND_FILTER_KEY);
-		if (stored === "teach" || stored === "all" || stored === "practice") setKindFilter(stored);
-	}, []);
-	const setFilter = useCallback((f: SessionKindFilter) => {
-		setKindFilter(f);
-		window.localStorage.setItem(KIND_FILTER_KEY, f);
-	}, []);
 	const pathname = usePathname();
 	const router = useRouter();
 	const { open: openSettings } = useSettingsDialog();
-
-	/* New session (owner, 2026-09-13): NO POST — the button opens the
-	   sessionless draft view; the session is created only when the first
-	   message is sent (and that message becomes its title). Search: a
-	   client-side filter over the poll snapshot — no server round trip. */
-	const newSession = useCallback(() => {
-		router.push("/chat/new");
-	}, [router]);
 
 	/* FUZZY (owner round 8, 2026-10-05): subsequence match ranked by
 	 * fuzzyScore — prefix beats word-boundary beats scattered. Empty query
 	 * keeps the natural list order (scores are all 0, sort is stable). */
 	const shown = useMemo(() => {
 		const q = query.trim();
-		let list = chats;
-		if (list && kindFilter !== "all") {
-			list = list.filter((c) => (c.kind ?? "teach") === kindFilter);
-		}
+		const list = chats;
 		if (!list) return list;
 		if (!q) return list;
 		return list
@@ -444,7 +418,7 @@ function SessionsSidebar() {
 			.filter((r): r is { c: (typeof list)[number]; score: number } => r.score !== null)
 			.sort((a, b) => b.score - a.score)
 			.map((r) => r.c);
-	}, [chats, query, kindFilter]);
+	}, [chats, query]);
 
 	const refreshInFlightRef = useRef(false);
 	const refresh = useCallback(async () => {
@@ -698,31 +672,10 @@ function SessionsSidebar() {
 					</Hint>
 				</div>
 
-				{/* Core doors always lead explicit plugin sidebar placements. */}
-				<PluginSidebarActions>
-					<button
-						type="button"
-						data-testid="new-session"
-						title="Teaching"
-						onClick={() => void newSession()}
-						className="flex min-w-0 w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-					>
-						<PlusIcon className="size-3 shrink-0" />
-						<span className="min-w-0 truncate">Teaching</span>
-						<span className="sr-only">create a new teaching session</span>
-					</button>
-					<button
-						type="button"
-						data-testid="new-session-practice"
-						title="Practice"
-						onClick={() => router.push("/chat/new?mode=practice")}
-						className="flex min-w-0 w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-					>
-						<DumbbellIcon className="size-3 shrink-0" />
-						<span className="min-w-0 truncate">Practice</span>
-						<span className="sr-only">create a new practice session</span>
-					</button>
-				</PluginSidebarActions>
+				{/* Study redesign (owner, 2026-11-18): no core Teaching / Practice
+				    doors — a chat starts from Home (Teach | Practice switch there),
+				    and the Study plugin places its Subjects door here. */}
+				<PluginSidebarActions />
 
 				<div className="mx-3 mb-2 flex items-center gap-2">
 					<span className="text-xs uppercase tracking-widest text-muted-foreground/70">Sessions</span>
@@ -785,32 +738,6 @@ function SessionsSidebar() {
 						<SearchIcon className="pointer-events-none absolute left-1.5 top-1/2 size-3 -translate-y-1/2 text-muted-foreground/70" />
 					</span>
 					</Hint>
-				</div>
-
-				{/* The three-way filter, HEADING THE LIST (owner round 8b,
-				    2026-10-05 — moved below the search): it scopes what the
-				    list shows, so it sits directly above it as a caption row;
-				    search stays the top muscle-memory target. Order: Teaching /
-				    Practice / All — the real modes first, "All" as the escape
-				    hatch on the right, mirroring the create-buttons above.
-				    Persisted client-side. */}
-				<div className="mx-3 flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="session-kind-filter">
-					{(["teach", "practice", "all"] as const).map((f) => (
-						<button
-							key={f}
-							type="button"
-							data-testid={`kind-filter-${f}`}
-							onClick={() => setFilter(f)}
-							className={cn(
-								"flex-1 rounded-sm px-2 py-1 text-[11px] uppercase tracking-wider transition-colors",
-								kindFilter === f
-									? "bg-accent text-foreground"
-									: "text-muted-foreground hover:text-foreground",
-							)}
-						>
-							{f === "teach" ? "Teaching" : f === "all" ? "All" : "Practice"}
-						</button>
-					))}
 				</div>
 
 				<div ref={listRef} className="flex-1 overflow-y-auto p-2">

@@ -83,6 +83,55 @@ export interface PluginLearningData {
 	 * Host validation/version guards apply; unknown file names throw. */
 	readGraphFile<K extends keyof PluginGraphFileData>(name: K): PluginGraphFileData[K];
 }
+/** Maximum text accepted by one PluginGraphService.importNotes call (UTF-8 bytes). */
+export const PLUGIN_GRAPH_IMPORT_MAX_BYTES = 2 * 1024 * 1024;
+export interface PluginGraphImportInput {
+	/** Stable source name, 1-200 characters. Its identity is derived from the plugin and this
+	 * name, so repeated imports under one name extend the same graph source. */
+	name: string;
+	/** Raw notes text, nonblank, at most {@link PLUGIN_GRAPH_IMPORT_MAX_BYTES} bytes of UTF-8. */
+	text: string;
+}
+export interface PluginGraphImportResult {
+	/** Propositions and reasoning chains merged by this run. */
+	nodes: number;
+	chains: number;
+}
+/** Failure from {@link PluginGraphService.importNotes}. `code` is "busy" when the same source
+ * is already being imported (retry later), "aborted" or "failed" otherwise, or "partial" when
+ * some content was merged before the failure. Earlier graph writes and billed usage remain. */
+export interface PluginGraphImportError extends Error {
+	code: "busy" | "partial" | "aborted" | "failed" | "not-configured";
+}
+/** Feed text into the host's knowledge-graph extraction pipeline, exactly like an imported
+ * notes file. This is the ONLY graph write a plugin has: the pipeline (extractor, auditor,
+ * deterministic merger) decides what becomes propositions and chains, and the graph stores no
+ * ratings of the learner. Runs model calls with the configured extraction models and can incur
+ * cost. Resolves after the run finishes; a plugin should not call it concurrently for one name. */
+export interface PluginGraphService {
+	importNotes(input: PluginGraphImportInput): Promise<PluginGraphImportResult>;
+}
+/** One rendered PDF page: a PNG image (base64, no data: prefix) and the page's extracted text. */
+export interface PluginRenderedPage {
+	page: number;
+	png: string;
+	width: number;
+	height: number;
+	/** Text extracted from the PDF page itself (Markdown-ish), not model output; may be empty. */
+	text: string;
+}
+/** Maximum pages one {@link PluginDocumentService.renderPdfPages} call renders. */
+export const PLUGIN_RENDER_MAX_PAGES = 8;
+/** Read a local PDF the learner pointed at, under the SAME rules as the agent's read tools
+ * (sensitive-location denials and the optional allowed-folders boundary in Settings → Agent →
+ * Tools). Rendering is native (pdfjs + Skia), in process, no browser and no model cost. */
+export interface PluginDocumentService {
+	/** Page count of a local PDF. Throws when the path is not readable under the file-access rules. */
+	pdfInfo(path: string): Promise<{ path: string; pageCount: number }>;
+	/** Render up to {@link PLUGIN_RENDER_MAX_PAGES} pages (1-based) to PNG, with their text.
+	 * `dpi` 50–200, default 110; very large pages are scaled down to stay within memory bounds. */
+	renderPdfPages(input: { path: string; pages: number[]; dpi?: number }): Promise<PluginRenderedPage[]>;
+}
 /** Host owns credentials and transport; plugins configure generation only. */
 export type PluginInferenceOptions = Pick<SimpleStreamOptions,
 	| "temperature" | "maxTokens" | "cacheRetention" | "reasoning" | "thinkingBudgets" | "toolChoice"
@@ -147,6 +196,12 @@ export interface PluginBackendContext {
 	cleanup(dispose: PluginCleanup): void;
 	/** Read-only native learning records; not a programmable core-data write API. */
 	learning: PluginLearningData;
+	/** Add notes to the knowledge graph through the host's extraction pipeline; can incur cost.
+	 * The only graph write a plugin has, and it carries text, never learner ratings. */
+	graph: PluginGraphService;
+	/** Local PDF page counts and native page rendering (slides → images + text), under the
+	 * agent's file-access rules. */
+	documents: PluginDocumentService;
 	/** Host-authenticated raw model requests, scoped to activation; can incur cost. */
 	inference: PluginInference;
 	/** Persistent plugin conversations, not native data/chats sessions. */
@@ -202,6 +257,21 @@ export interface PluginView {
 	 * replacement or disable aborts this mount signal. Return sync/async cleanup
 	 * and scope child UI to this signal, not merely to the longer activation. */
 	mount(container: HTMLElement, signal: AbortSignal): void | PluginCleanup | Promise<void | PluginCleanup>;
+}
+/** The session a {@link PluginSessionPanel} is mounted beside. */
+export interface PluginSessionPanelContext {
+	sessionId: string;
+	sessionKind: "teaching" | "practice";
+}
+/** A plugin pane docked to the RIGHT of a session's conversation (Study redesign, owner
+ * 2026-11-18: "the live notebook sits next to the conversation"). The host owns the pane chrome
+ * (open/close toggle in the session top bar, resizable width, one tab per registered panel);
+ * the plugin mounts only the body. Switching sessions, closing the pane or disabling the plugin
+ * aborts the mount signal. */
+export interface PluginSessionPanel {
+	id: string;
+	name: string;
+	mount(container: HTMLElement, session: PluginSessionPanelContext, signal: AbortSignal): void | PluginCleanup | Promise<void | PluginCleanup>;
 }
 export type * from "./plugin-view-context.ts";
 export type { PluginActionShortcut, PluginShortcutViewScope } from "./plugin-shortcuts.ts";
@@ -284,6 +354,9 @@ export interface PluginFrontendContext {
 	/** Register a plugin-owned body view with host chrome. Invalid/duplicate IDs
 	 * throw; returned unregister removes the view without deleting plugin data. */
 	registerView(view: PluginView): () => void;
+	/** Register a pane shown beside session conversations (see {@link PluginSessionPanel}).
+	 * Invalid/duplicate IDs throw; returned unregister removes the pane without deleting data. */
+	registerSessionPanel(panel: PluginSessionPanel): () => void;
 	/** Register an invokable action and optional shortcut, but no button placement.
 	 * Invalid/duplicate registrations throw. Returns unregister; shortcut scope and
 	 * default are captured here, not changed by refreshActions. */

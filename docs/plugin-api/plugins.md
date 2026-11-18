@@ -16,6 +16,10 @@
 - [PluginFrontendContext](#pluginfrontendcontext)
 - [PluginFrontendModule](#pluginfrontendmodule)
 - [PluginGraphFileData](#plugingraphfiledata)
+- [PluginGraphImportError](#plugingraphimporterror)
+- [PluginGraphImportInput](#plugingraphimportinput)
+- [PluginGraphImportResult](#plugingraphimportresult)
+- [PluginGraphService](#plugingraphservice)
 - [PluginInference](#plugininference)
 - [PluginInferenceOptions](#plugininferenceoptions)
 - [PluginInferenceRequest](#plugininferencerequest)
@@ -256,6 +260,7 @@ export interface PluginBackendContext {
     readonly signal: AbortSignal;
     cleanup(dispose: PluginCleanup): void;
     learning: PluginLearningData;
+    graph: PluginGraphService;
     inference: PluginInference;
     agents: PluginAgentService;
     workers: PluginWorkerService;
@@ -272,7 +277,7 @@ export interface PluginBackendContext {
 }
 ```
 
-**Related types:** [PluginAgentService](plugin-agents.md#pluginagentservice), [PluginBackgroundTool](plugin-workers.md#pluginbackgroundtool), [PluginCleanup](plugins.md#plugincleanup), [PluginInference](plugins.md#plugininference), [PluginInstructions](plugins.md#plugininstructions), [PluginLearningData](plugins.md#pluginlearningdata), [PluginManifest](plugins.md#pluginmanifest), [PluginProblemTypeDefinition](plugin-problems.md#pluginproblemtypedefinition), [PluginQuestionTypeDefinition](plugin-questions.md#pluginquestiontypedefinition), [PluginToolContext](plugins.md#plugintoolcontext), [PluginTools](plugins.md#plugintools), [PluginWorkerService](plugin-workers.md#pluginworkerservice), [ServerEvent](events.md#serverevent).
+**Related types:** [PluginAgentService](plugin-agents.md#pluginagentservice), [PluginBackgroundTool](plugin-workers.md#pluginbackgroundtool), [PluginCleanup](plugins.md#plugincleanup), [PluginGraphService](plugins.md#plugingraphservice), [PluginInference](plugins.md#plugininference), [PluginInstructions](plugins.md#plugininstructions), [PluginLearningData](plugins.md#pluginlearningdata), [PluginManifest](plugins.md#pluginmanifest), [PluginProblemTypeDefinition](plugin-problems.md#pluginproblemtypedefinition), [PluginQuestionTypeDefinition](plugin-questions.md#pluginquestiontypedefinition), [PluginToolContext](plugins.md#plugintoolcontext), [PluginTools](plugins.md#plugintools), [PluginWorkerService](plugin-workers.md#pluginworkerservice), [ServerEvent](events.md#serverevent).
 
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
@@ -282,6 +287,7 @@ export interface PluginBackendContext {
 - [signal](#pluginbackendcontext-signal)
 - [cleanup](#pluginbackendcontext-cleanup)
 - [learning](#pluginbackendcontext-learning)
+- [graph](#pluginbackendcontext-graph)
 - [inference](#pluginbackendcontext-inference)
 - [agents](#pluginbackendcontext-agents)
 - [workers](#pluginbackendcontext-workers)
@@ -347,6 +353,15 @@ Read-only native learning records; not a programmable core-data write API.
 
 ```ts
 learning: PluginLearningData;
+```
+
+### PluginBackendContext graph
+
+Add notes to the knowledge graph through the host's extraction pipeline; can incur cost.
+The only graph write a plugin has, and it carries text, never learner ratings.
+
+```ts
+graph: PluginGraphService;
 ```
 
 ### PluginBackendContext inference
@@ -1247,6 +1262,127 @@ Raw versioned metadata rather than a second plugin-specific schema.
 ```ts
 "format.json": unknown;
 ```
+
+## PluginGraphImportError
+
+Public SDK type, exported as `PluginGraphImportError`. Import with `import type`; the SDK has no runtime exports.
+
+Failure from . `code` is "busy" when the same source
+is already being imported (retry later), "aborted" or "failed" otherwise, or "partial" when
+some content was merged before the failure. Earlier graph writes and billed usage remain.
+
+```ts
+export interface PluginGraphImportError extends Error {
+    code: "busy" | "partial" | "aborted" | "failed" | "not-configured";
+}
+```
+
+**Member index** (including nested object members; inherited members are defined in the linked base types):
+
+- [code](#plugingraphimporterror-code)
+
+### PluginGraphImportError code
+
+```ts
+code: "busy" | "partial" | "aborted" | "failed" | "not-configured";
+```
+
+## PluginGraphImportInput
+
+Public SDK type, exported as `PluginGraphImportInput`. Import with `import type`; the SDK has no runtime exports.
+
+```ts
+export interface PluginGraphImportInput {
+    name: string;
+    text: string;
+}
+```
+
+**Member index** (including nested object members; inherited members are defined in the linked base types):
+
+- [name](#plugingraphimportinput-name)
+- [text](#plugingraphimportinput-text)
+
+### PluginGraphImportInput name
+
+Stable source name, 1-200 characters. Its identity is derived from the plugin and this
+name, so repeated imports under one name extend the same graph source.
+
+```ts
+name: string;
+```
+
+### PluginGraphImportInput text
+
+Raw notes text, nonblank, at most  bytes of UTF-8.
+
+```ts
+text: string;
+```
+
+## PluginGraphImportResult
+
+Public SDK type, exported as `PluginGraphImportResult`. Import with `import type`; the SDK has no runtime exports.
+
+```ts
+export interface PluginGraphImportResult {
+    nodes: number;
+    chains: number;
+}
+```
+
+**Member index** (including nested object members; inherited members are defined in the linked base types):
+
+- [nodes](#plugingraphimportresult-nodes)
+- [chains](#plugingraphimportresult-chains)
+
+### PluginGraphImportResult nodes
+
+Propositions and reasoning chains merged by this run.
+
+```ts
+nodes: number;
+```
+
+### PluginGraphImportResult chains
+
+```ts
+chains: number;
+```
+
+## PluginGraphService
+
+Public SDK type, exported as `PluginGraphService`. Import with `import type`; the SDK has no runtime exports.
+
+Feed text into the host's knowledge-graph extraction pipeline, exactly like an imported
+notes file. This is the ONLY graph write a plugin has: the pipeline (extractor, auditor,
+deterministic merger) decides what becomes propositions and chains, and the graph stores no
+ratings of the learner. Runs model calls with the configured extraction models and can incur
+cost. Resolves after the run finishes; a plugin should not call it concurrently for one name.
+
+```ts
+export interface PluginGraphService {
+    importNotes(input: PluginGraphImportInput): Promise<PluginGraphImportResult>;
+}
+```
+
+**Related types:** [PluginGraphImportInput](plugins.md#plugingraphimportinput), [PluginGraphImportResult](plugins.md#plugingraphimportresult).
+
+**Member index** (including nested object members; inherited members are defined in the linked base types):
+
+- [importNotes](#plugingraphservice-importnotes)
+
+### PluginGraphService importNotes
+
+```ts
+importNotes(input: PluginGraphImportInput): Promise<PluginGraphImportResult>;
+```
+
+| Parameter | Type |
+| --- | --- |
+| `input` | `PluginGraphImportInput` |
+
+**Returns:** `Promise<PluginGraphImportResult>`.
 
 ## PluginInference
 

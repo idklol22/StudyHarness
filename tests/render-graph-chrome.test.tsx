@@ -16,7 +16,7 @@ import { describe, it } from "node:test";
 import { createElement } from "react";
 import { parseHTML } from "linkedom";
 import { renderWithInteractionLayers as renderToStaticMarkup } from "./interaction-layer-render.tsx";
-import { GraphChromeRow, GraphView, NodeCardText, observeNodeCardPosition } from "../components/graph-view.tsx";
+import { GraphChromeRow, GraphLegend, GraphView, NodeCardText, observeNodeCardPosition } from "../components/graph-view.tsx";
 import type { GraphRenderSettings } from "../components/graph-canvas.ts";
 import { ServerEventsProvider } from "../components/server-events.tsx";
 
@@ -196,5 +196,39 @@ describe("node detail card placement", () => {
 			if (previous === undefined) Reflect.deleteProperty(globalThis, "ResizeObserver");
 			else globalThis.ResizeObserver = previous;
 		}
+	});
+});
+
+describe("GraphChromeRow: 2D only (Study redesign, owner 2026-11-18)", () => {
+	const render = (extra: Record<string, unknown>) => renderToStaticMarkup(createElement(GraphChromeRow, { ...PROPS, isEmpty: false, ...extra }));
+
+	it("offers Fit and no 2D / 3D switch", () => {
+		const html = render({ onFit: () => {} });
+		assert.ok(html.includes('data-testid="graph-fit"'));
+		assert.ok(!html.includes("graph-view-3d") && !html.includes('role="radiogroup"'));
+	});
+
+	it("offers the rotation lock only for the 3D graph, reflecting its state", () => {
+		assert.ok(!render({ onFit: () => {} }).includes("graph-rotation-lock"));
+		const locked = render({ onFit: () => {}, onToggleRotation: () => {}, rotationLocked: true });
+		assert.match(locked, /aria-pressed="true"[^>]*data-testid="graph-rotation-lock"|data-testid="graph-rotation-lock"[^>]*aria-pressed="true"/);
+		assert.ok(render({ onFit: () => {}, onToggleRotation: () => {}, rotationLocked: false }).includes('aria-label="Lock rotation"'));
+	});
+
+	it("has no Fit on an empty graph (no dead controls)", () => {
+		assert.ok(!renderToStaticMarkup(createElement(GraphChromeRow, { ...PROPS, isEmpty: true, onFit: () => {} })).includes("graph-fit"));
+	});
+});
+
+describe("GraphLegend (Obsidian colored groups)", () => {
+	const groups = [
+		{ id: "chat_a", label: "Lecture 3", hue: 200, count: 12 },
+		{ id: "src_b", label: "notes.pdf", hue: 40, count: 3 },
+	];
+	it("lists every group with its count; hidden groups read as off", () => {
+		const html = renderToStaticMarkup(createElement(GraphLegend, { groups, hidden: new Set(["src_b"]), onToggle: () => {}, lightness: 60 }));
+		assert.ok(html.includes("Lecture 3") && html.includes("notes.pdf"));
+		assert.match(html, /aria-pressed="true"[^>]*data-testid="graph-group-chat_a"|data-testid="graph-group-chat_a"[^>]*aria-pressed="true"/);
+		assert.match(html, /aria-pressed="false"[^>]*data-testid="graph-group-src_b"|data-testid="graph-group-src_b"[^>]*aria-pressed="false"/);
 	});
 });

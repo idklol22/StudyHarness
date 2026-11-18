@@ -2,6 +2,7 @@ import type {
 	PluginAction, PluginCleanup, PluginFrontendContext, PluginFrontendModule, PluginInfo,
 	PluginNotification, PluginView, ServerEvent, PluginCodeBlockRenderer, PluginToolRenderer,
 	PluginActionContext, PluginActionPlacement, PluginSettingsRegistration, PluginPageActionContext, PluginActionShortcut,
+	PluginSessionPanel,
 } from "@/src/core";
 
 import { preparePluginShortcut, copyPluginSubmissionTarget, preparePluginSubmissionInterceptor, type PluginSubmissionInterceptor, type PluginSubmissionTarget } from "../src/core/index.ts";
@@ -21,6 +22,8 @@ export interface FrontendPlugin {
 	phase: "disabled" | "loading" | "active" | "error";
 	error?: string;
 	views: PluginView[];
+	/** Panes beside session conversations (registerSessionPanel). */
+	sessionPanels?: PluginSessionPanel[];
 	actions: PluginAction[];
 	shortcuts?: readonly { actionId: string; shortcut: PluginActionShortcut }[];
 	placements: PluginActionPlacement[];
@@ -50,6 +53,7 @@ interface Lifecycle {
 	tasks: Set<Promise<void>>;
 	teardown?: Promise<void>;
 	views: Map<string, PluginView>;
+	sessionPanels: Map<string, PluginSessionPanel>;
 	actions: Map<string, PluginAction>;
 	shortcuts: Map<string, PluginActionShortcut>;
 	placements: Map<string, PluginActionPlacement>;
@@ -149,7 +153,7 @@ export class PluginFrontendManager {
 			const life = this.lives.get(info.id);
 			return {
 				info, phase: life?.phase ?? (info.enabled ? (info.status === "error" ? "error" : "active") : "disabled"),
-				error: life?.error ?? this.cleanupErrors.get(info.id) ?? info.error, views: [...(life?.views.values() ?? [])],
+				error: life?.error ?? this.cleanupErrors.get(info.id) ?? info.error, views: [...(life?.views.values() ?? [])], sessionPanels: [...(life?.sessionPanels.values() ?? [])],
 				actions: [...(life?.actions.values() ?? [])], shortcuts: [...(life?.shortcuts ?? [])].map(([actionId, shortcut]) => ({ actionId, shortcut })), placements: [...(life?.placements.values() ?? [])],
 				actionBusy: [...(life?.actionBusy ?? [])], settings: life?.settings, busy: this.pending.has(info.id),
 			};
@@ -252,7 +256,7 @@ export class PluginFrontendManager {
 			const life: Lifecycle = {
 				id: info.id, revision: info.revision, controller: new AbortController(), cleanups: new Set(),
 				activation: Promise.resolve(), tasks: new Set(),
-				views: new Map(), actions: new Map(), shortcuts: new Map(), placements: new Map(), actionBusy: new Set(), codeBlocks: new Map(), toolRenderers: new Map(), questionRenderers: new Map(), problemRenderers: new Map(), submissionInterceptors: new Map(),
+				views: new Map(), sessionPanels: new Map(), actions: new Map(), shortcuts: new Map(), placements: new Map(), actionBusy: new Set(), codeBlocks: new Map(), toolRenderers: new Map(), questionRenderers: new Map(), problemRenderers: new Map(), submissionInterceptors: new Map(),
 				notifications: new Set(), events: new Set(), resyncs: new Set(), phase: "loading",
 			};
 			this.cleanupErrors.delete(info.id);
@@ -270,13 +274,13 @@ export class PluginFrontendManager {
 	}
 	private async activate(info: PluginInfo, life: Lifecycle) {
 		const manifest = info.manifest!;
-		const register = <T extends PluginView | PluginAction>(map: Map<string, T>, item: T, callback: "mount" | "run") => {
+		const register = <T extends PluginView | PluginAction | PluginSessionPanel>(map: Map<string, T>, item: T, callback: "mount" | "run") => {
 			if (!this.current(life)) return () => {};
 			if (!item || typeof item.id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(item.id)) {
 				throw new Error("Plugin registration id must be a route-safe string of 1–128 characters, starting with a letter or number");
 			}
 			if (typeof item.name !== "string" || !item.name.trim()) throw new Error("Plugin registration name must be a nonempty string");
-			const handler = callback === "mount" ? (item as PluginView).mount : (item as PluginAction).run;
+			const handler = callback === "mount" ? (item as PluginView | PluginSessionPanel).mount : (item as PluginAction).run;
 			if (typeof handler !== "function") throw new Error(`Plugin registration ${callback} must be a function`);
 			if (callback === "run") {
 				const action = item as PluginAction;
@@ -360,6 +364,7 @@ export class PluginFrontendManager {
 			manifest, signal: life.controller.signal,
 			cleanup: cleanup => { this.addCleanup(life, cleanup); },
 			registerView: view => register(life.views, view, "mount"),
+			registerSessionPanel: panel => register(life.sessionPanels, panel, "mount"),
 			registerAction: action => register(life.actions, action, "run"),
 			placeAction: placement => {
 				if (!this.current(life)) return () => {};

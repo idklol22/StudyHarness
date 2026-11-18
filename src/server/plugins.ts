@@ -11,6 +11,8 @@ import { createPluginTaskRecordStore, readPluginTaskRecord, recoverPluginTaskRec
 import corePluginIds from "../../core-plugins.json";
 import { assertGraphFormat } from "../store/graph-format.ts";
 import { createPluginLearningData } from "./plugin-learning.ts";
+import { createPluginGraphService } from "./plugin-graph.ts";
+import { createPluginDocumentService } from "./plugin-pdf-pages.ts";
 import { createPluginInference } from "./plugin-inference.ts";
 import { createPluginBackgroundTool, recoverPluginBackgroundJob } from "./plugin-background-tools.ts";
 import { registerPluginWorkerActivity } from "./plugin-worker-activity.ts";
@@ -71,7 +73,13 @@ function runtime(): Runtime {
 				engineFor: inference.engineFor, onUsage: inference.onUsage, signal,
 				onChange: workerActivity,
 			});
-			return { learning, inference: inference.inference, agents, workers,
+			const graph = createPluginGraphService({
+				pluginId: manifest.id, pluginName: manifest.name, signal,
+				// Lazy: chat-handler imports this module, so a static import would be circular.
+				importNotes: async input => (await import("./chat-handler.ts")).extraction.importNotes(input),
+			});
+			const documents = createPluginDocumentService();
+			return { learning, graph, documents, inference: inference.inference, agents, workers,
 				createBackgroundTool(context, definition) {
 					return createPluginBackgroundTool({
 						pluginId: manifest.id, context, definition, workers, signal, jobStore: stores.jobStore,
