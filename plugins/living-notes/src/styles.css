@@ -82,3 +82,5 @@
 .ln-root .ln-activity .k-progress { color: var(--primary, #2563eb); }
 .ln-root .ln-activity .ln-new { background: #a855f714; box-shadow: none; }
 @media (prefers-reduced-motion: reduce) { .ln-root .ln-note { transition: none; } }
+.ln-chat-fig { max-width: 560px; margin: 4px 0; }
+.ln-chat-fig .ln-fig-frame { margin-top: 6px; }

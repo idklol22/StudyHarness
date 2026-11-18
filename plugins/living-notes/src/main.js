@@ -253,6 +253,28 @@ export function activate(ctx) {
     return () => { alive = false; child?.abort(); offN(); offR(); container.replaceChildren(); container.classList.remove('ln-root', 'ln-library'); };
   } });
 
+  // Slide screenshots the tutor shows in the chat (study_figure with show=true) render as the
+  // actual slide crop in the transcript, not just the tool's text.
+  ctx.registerToolRenderer({ toolName: 'study_figure', mount(container, tool) {
+    const d = tool.output ?? tool.result?.details;
+    container.classList.add('ln-root');
+    if (tool.state !== 'output-available' || !d?.notebookId || !Number.isInteger(d.slide)) {
+      el('p', container, { cls: 'ln-muted', text: tool.state === 'output-error' ? `Could not add the screenshot: ${tool.errorText ?? 'error'}` : 'Adding a slide screenshot to your notes…' });
+      return;
+    }
+    const wrap = el('div', container, { cls: 'ln-chat-fig' });
+    el('p', wrap, { cls: 'ln-muted', text: `Added slide ${d.slide} to your notes${d.caption ? ` — ${d.caption}` : ''}.` });
+    void ctx.call('slide-images', { id: d.notebookId, slides: [d.slide] }).then((imgs) => {
+      if (tool.signal.aborted || !imgs[d.slide]) return;
+      const img = imgs[d.slide], [x, y, w, h] = Array.isArray(d.crop) ? d.crop : [0, 0, 1, 1];
+      const frame = el('div', wrap, { cls: 'ln-fig-frame' });
+      frame.style.aspectRatio = String((w * img.w) / (h * img.h));
+      const pic = el('img', frame, { attrs: { src: img.src, alt: d.caption || `Slide ${d.slide}` } });
+      pic.style.width = `${100 / w}%`; pic.style.left = `${(-x / w) * 100}%`; pic.style.top = `${(-y / h) * 100}%`;
+    }).catch(() => {});
+    return () => container.replaceChildren();
+  } });
+
   ctx.registerAction({ id: 'open', name: 'Subjects', run: () => ctx.app.openView('subjects') });
   ctx.placeAction({ id: 'sidebar-open', actionId: 'open', location: 'sidebar' });
 }
