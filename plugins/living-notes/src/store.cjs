@@ -19,7 +19,8 @@ function validateDeck(deck) {
     if (!c || typeof c.id !== 'string' || !c.id || seen.has(c.id)) fail('Concept ids must be unique non-empty strings.');
     seen.add(c.id);
     if (!STATUSES.includes(c.status)) fail(`Concept "${c.title}" has an invalid status.`);
-    if (!Array.isArray(c.slides) || !c.slides.length) fail(`Concept "${c.title}" must cite slides.`);
+    // Slide notebooks cite slides; topic and paper notebooks (Study) have none.
+    if (!Array.isArray(c.slides)) fail(`Concept "${c.title}" needs a slides list.`);
     for (const k of ['right', 'missed', 'wrong', 'steps', 'qa', 'links', 'history']) if (!Array.isArray(c[k])) fail(`Concept "${c.title}" is missing ${k}.`);
   }
   return deck;

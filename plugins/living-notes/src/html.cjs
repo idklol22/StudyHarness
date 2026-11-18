@@ -54,12 +54,12 @@ function render(markdown) {
   while (i < lines.length) {
     const line = lines[i];
     let m;
-    if ((m = line.match(/^:::(revisit|mistake|technique|qa|discussion)\s*$/))) {
+    if ((m = line.match(/^:::(revisit|mistake|technique|qa|discussion|crucial|exam|pitfall|tip)\s*$/))) {
       closeList();
       const body = []; i++;
       while (i < lines.length && lines[i].trim() !== ':::') body.push(lines[i++]);
       i++;
-      const label = { revisit: 'revisit ↩', mistake: 'my mistake', technique: 'technique', qa: 'cold Q&A', discussion: 'from our chat' }[m[1]];
+      const label = { revisit: 'revisit ↩', mistake: 'my mistake', technique: 'technique', qa: 'cold Q&A', discussion: 'from our chat', crucial: 'crucial ★', exam: 'likely exam ✎', pitfall: 'common mistake !', tip: 'tip' }[m[1]];
       out.push(`<aside class="box ${m[1]}"><span class="tag">${label}</span>${render(body.join('\n'))}</aside>`);
       continue;
     }
@@ -83,7 +83,7 @@ function render(markdown) {
         else if (l.includes(' > ')) { const [a, b] = l.split(' > '); map.tree.push([a.trim(), b.trim()]); }
       }
       i++;
-      out.push(`<svg class="${kind === 'graph' ? 'graph3d' : 'mindmap'}" data-map="${esc(JSON.stringify(map))}" xmlns="http://www.w3.org/2000/svg"></svg>`);
+      out.push(`<svg class="${kind === 'graph' ? 'graph2d' : 'mindmap'}" data-map="${esc(JSON.stringify(map))}" xmlns="http://www.w3.org/2000/svg"></svg>`);
       continue;
     }
     if ((m = line.match(/^(#{1,3})\s+(.*)$/))) {
@@ -150,8 +150,12 @@ h3.s-shaky{background:linear-gradient(transparent 60%,#ffe14d88 60%);display:inl
 .shot .frame{position:relative;overflow:hidden;border:2.5px solid #1f2a44;border-radius:6px 10px 7px 9px;box-shadow:4px 4px 0 #1f2a4422;background:#fff}
 .shot img{position:absolute;display:block;max-width:none}
 .shot figcaption{font-size:.8em;color:#5f6b86;margin-top:.2em}
-.graph3d{display:block;margin:.6em auto;width:100%;height:auto;break-inside:avoid}
-.graph3d text{font-family:"Hand",cursive;fill:#1f2a44;paint-order:stroke;stroke:#fdfbf4;stroke-width:3.5px;stroke-linejoin:round}
+.box.crucial{background:#f3e8ff;border-color:#9333ea}.box.crucial .tag{color:#7e22ce;background:#f3e8ff}
+.box.exam{background:#fee2e2;border-color:#dc2626;box-shadow:5px 5px 0 #dc262633}.box.exam .tag{color:#b91c1c;background:#fee2e2}
+.box.pitfall{background:#ffedd5;border-color:#ea580c}.box.pitfall .tag{color:#c2410c;background:#ffedd5}
+.box.tip{background:#dcfce7;border-color:#16a34a}.box.tip .tag{color:#15803d;background:#dcfce7}
+.graph2d{display:block;margin:.6em auto;width:100%;height:auto;break-inside:avoid}
+.graph2d text{font-family:"Hand",cursive;fill:#1f2a44;paint-order:stroke;stroke:#fdfbf4;stroke-width:3.5px;stroke-linejoin:round}
 .mindmap{display:block;margin:.6em auto;max-width:100%;height:auto;break-inside:avoid}
 .mindmap text{font-family:"Hand",cursive;font-size:15px;fill:#1f2a44}
 .map-big{break-before:page;break-after:page}

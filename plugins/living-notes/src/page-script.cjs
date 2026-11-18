@@ -1,8 +1,7 @@
 'use strict';
 // Runs inside the notes page (headless Chrome): draws mind maps with rough.js, then jitters letters.
 // Kept as a raw string so it can be embedded in the generated HTML. No backticks or dollar-braces inside.
-const { graphKit } = require('./graph-kit.cjs');
-module.exports = 'const kit = (' + graphKit.toString() + ')();\n' + String.raw`
+module.exports = String.raw`
 (async function(){
   try{ await document.fonts.load('16px Hand'); await document.fonts.load('700 16px Hand'); }catch(e){}
   const COLORS={new:['#e5e7eb','#6b7280'],shaky:['#fecaca','#b91c1c'],ok:['#fde68a','#a16207'],solid:['#bbf7d0','#15803d']};
@@ -48,66 +47,43 @@ module.exports = 'const kit = (' + graphKit.toString() + ')();\n' + String.raw`
         t.setAttribute('x',d.x+d.w/2);t.setAttribute('y',d.y+6+19*(i+1)-3);t.setAttribute('text-anchor','middle');
         if(depth.get(n)===0)t.setAttribute('font-weight','700');svg.appendChild(t);});}
   }
-  // 3D graph: force layout in 3D, camera angle chosen to minimise overlapping edges and labels.
-  for(const svg of document.querySelectorAll('svg.graph3d')){
-    const m=JSON.parse(svg.dataset.map),W=760,H=720;
-    const topics=new Set(m.tree.filter(e=>e[0]===m.root).map(e=>e[1]));
-    const groupOf=new Map();for(const [p,c] of m.tree){if(topics.has(p))groupOf.set(c,p);}
-    const names=[...new Set([m.root,...m.tree.flat()])];
-    const kindOf=n=>n===m.root?'root':topics.has(n)?'topic':'leaf';
-    const nodes=names.map(n=>({id:n,kind:kindOf(n),group:kindOf(n)==='leaf'?(groupOf.get(n)||n):n}));
-    const edges=[...m.tree.map(e=>({a:e[0],b:e[1],kind:'tree'})),...m.cross.map(e=>({a:e[0],b:e[1],kind:'cross'}))];
-    const label=n=>{const max=kindOf(n)==='leaf'?28:32;return n.length>max?n.slice(0,max-1)+'…':n;};
-    const labelW={};for(const n of names){measure.font=(kindOf(n)==='leaf'?'':'700 ')+'14px Hand';labelW[n]=measure.measureText(label(n)).width+8;}
-    const {pos,view}=kit.arrange(nodes,edges,labelW,{W,H});
-    const proj=kit.project(pos,{yaw:view.yaw,pitch:view.pitch,zoom:.95,W,H});
-    svg.setAttribute('viewBox','0 0 '+W+' '+H);
-    const rc=rough.svg(svg),ns='http://www.w3.org/2000/svg';
-    const zs=names.map(n=>proj[n].z),zmin=Math.min(...zs),zmax=Math.max(...zs)||1;
-    const depth=z=>(zmax===zmin?1:.3+.7*(z-zmin)/(zmax-zmin));
-    // faint orbit ring (the "equator" of the sphere) for a sense of depth
-    const ring=[];for(let k=0;k<=64;k++){const a=k/64*Math.PI*2;const p=kit.project({r:[Math.cos(a),0,Math.sin(a)]},{yaw:view.yaw,pitch:view.pitch,zoom:.95,W,H}).r;ring.push(p.x.toFixed(1)+','+p.y.toFixed(1));}
-    const pl=document.createElementNS(ns,'polyline');pl.setAttribute('points',ring.join(' '));pl.setAttribute('fill','none');pl.setAttribute('stroke','#1c6b8a');pl.setAttribute('stroke-width','1');pl.setAttribute('stroke-dasharray','2 6');pl.setAttribute('opacity','.35');svg.appendChild(pl);
-    const cx=names.reduce((t,n)=>t+proj[n].x,0)/names.length;
-    const order=[...names].sort((a,b)=>proj[a].z-proj[b].z);
-    for(const e of [...edges].sort((a,b)=>(proj[a.a].z+proj[a.b].z)-(proj[b.a].z+proj[b.b].z))){
-      const p=proj[e.a],q=proj[e.b];if(!p||!q)continue;
-      const g=rc.line(p.x,p.y,q.x,q.y,{stroke:e.kind==='cross'?'#9a4a12':'#1c6b8a',strokeWidth:e.kind==='cross'?1.2:1.6,roughness:.9,seed:11,strokeLineDash:e.kind==='cross'?[5,4]:undefined});
-      g.setAttribute('opacity',(depth((p.z+q.z)/2)*(e.kind==='cross'?.75:.9)).toFixed(2));svg.appendChild(g);}
+  // 2D map of ideas (owner, 2026-11-18): the same radial layout as the app's map. Notebook in the
+  // centre, topics on the inner ring (arcs sized by their concepts), concepts on the outer ring.
+  for(const svg of document.querySelectorAll('svg.graph2d')){
+    const m=JSON.parse(svg.dataset.map),ns='http://www.w3.org/2000/svg',rc=rough.svg(svg);
+    const topics=m.tree.filter(e=>e[0]===m.root).map(e=>e[1]);
+    const kids=new Map(topics.map(t=>[t,m.tree.filter(e=>e[0]===t).map(e=>e[1])]));
+    const total=Math.max(1,[...kids.values()].reduce((s,l)=>s+l.length,0));
+    const S=150,pos={};pos[m.root]={x:0,y:0,kind:'root'};
+    let ang=-Math.PI/2;
+    for(const t of topics){const list=kids.get(t),arc=2*Math.PI*Math.max(1,list.length)/total,mid=ang+arc/2;
+      pos[t]={x:Math.cos(mid)*S,y:Math.sin(mid)*S,kind:'topic'};
+      list.forEach((c,i)=>{const a=list.length===1?mid:ang+arc*(i+.5)/list.length,r=(list.length>3&&i%2?2.55:2.05)*S;pos[c]={x:Math.cos(a)*r,y:Math.sin(a)*r,kind:'leaf'};});
+      ang+=arc;}
     const COL={new:['#e5e7eb','#6b7280'],shaky:['#fecaca','#b91c1c'],ok:['#fde68a','#a16207'],solid:['#bbf7d0','#15803d']};
+    for(const [p,c] of m.tree){const a=pos[p],q=pos[c];if(!a||!q)continue;svg.appendChild(rc.line(a.x,a.y,q.x,q.y,{stroke:'#1c6b8a',strokeWidth:1.5,roughness:.9,seed:11}));}
+    for(const [p,c] of m.cross){const a=pos[p],q=pos[c];if(!a||!q||p===c)continue;
+      const mx=(a.x+q.x)*.32,my=(a.y+q.y)*.32,path=document.createElementNS(ns,'path');
+      path.setAttribute('d','M'+a.x+' '+a.y+' Q'+mx+' '+my+' '+q.x+' '+q.y);path.setAttribute('fill','none');path.setAttribute('stroke','#9a4a12');
+      path.setAttribute('stroke-width','1.2');path.setAttribute('stroke-dasharray','5 4');path.setAttribute('opacity','.7');svg.appendChild(path);}
     let sd=5;
-    for(const n of order){const p=proj[n],k=kindOf(n),st=m.status[n];
-      const cols=st?COL[st]:(k==='root'?['#e9d5ff','#7a2e8e']:['#dbeafe','#1c6b8a']);
-      const r=(k==='root'?15:k==='topic'?10:6.5)*p.s;
-      const dot=rc.circle(p.x,p.y,r*2,{stroke:cols[1],fill:cols[0],fillStyle:'solid',strokeWidth:1.8,roughness:1,seed:sd++});
-      dot.setAttribute('opacity',depth(p.z).toFixed(2));svg.appendChild(dot);
-      }
-    // Labels: split left/right of the centre, then push apart vertically so none overlap; short leader lines when displaced.
-    const lab={};for(const n of names){const p=proj[n];lab[n]={n,right:p.x>=cx,y:p.y,h:kindOf(n)==='leaf'?15:18};}
-    for(const side of [true,false]){
-      const g=names.filter(n=>lab[n].right===side).sort((x,y)=>lab[x].y-lab[y].y);
-      for(let i=1;i<g.length;i++){const need=lab[g[i-1]].y+(lab[g[i-1]].h+lab[g[i]].h)/2;if(lab[g[i]].y<need)lab[g[i]].y=need;}
-      const over=Math.max(0,(g.length?lab[g[g.length-1]].y:0)-(H-34));
-      if(over>0)for(const n of g)lab[n].y-=over; // keep the stack inside the page
-    }
-    for(const n of order){const p=proj[n],k=kindOf(n),L=lab[n];
-      const r=(k==='root'?15:k==='topic'?10:6.5)*p.s,right=L.right,tx=p.x+(right?r+6:-r-6);
-      if(Math.abs(L.y-p.y)>7){const ln=rc.line(p.x+(right?r:-r),p.y,tx,L.y-4,{stroke:'#8a93a8',strokeWidth:.8,roughness:.4,seed:3});ln.setAttribute('opacity','.6');svg.appendChild(ln);}
-      const t=document.createElementNS(ns,'text');t.textContent=label(n);
-      t.setAttribute('x',tx);t.setAttribute('y',L.y+1);t.setAttribute('text-anchor',right?'start':'end');
-      t.setAttribute('font-size',((k==='leaf'?13.5:15)*(.9+.1*p.s)).toFixed(1));if(k!=='leaf')t.setAttribute('font-weight','700');
-      t.setAttribute('opacity',Math.min(1,.6+depth(p.z)*.45).toFixed(2));svg.appendChild(t);}
-    // legend, just below the lowest drawn element
-    const legendY=Math.max(...names.map(n=>Math.max(lab[n].y,proj[n].y)))+40;
+    for(const [n,p] of Object.entries(pos)){const st=m.status[n],cols=st?COL[st]:(p.kind==='root'?['#e9d5ff','#7a2e8e']:['#dbeafe','#1c6b8a']);
+      const r=p.kind==='root'?15:p.kind==='topic'?10:6.5;
+      svg.appendChild(rc.circle(p.x,p.y,r*2,{stroke:cols[1],fill:cols[0],fillStyle:'solid',strokeWidth:1.8,roughness:1,seed:sd++}));
+      const t=document.createElementNS(ns,'text'),lbl=n.length>30?n.slice(0,29)+'…':n;t.textContent=lbl;
+      const right=p.x>4,left=p.x<-4;
+      t.setAttribute('x',p.x+(right?r+5:left?-r-5:0));t.setAttribute('y',p.kind==='root'?p.y-r-8:p.y+4);
+      t.setAttribute('text-anchor',right?'start':left?'end':'middle');
+      t.setAttribute('font-size',p.kind==='leaf'?'13':'15');if(p.kind!=='leaf')t.setAttribute('font-weight','700');svg.appendChild(t);}
+    const bb0=svg.getBBox(),legendY=bb0.y+bb0.height+28;
     [['new','not started'],['shaky','shaky'],['ok','ok'],['solid','solid']].forEach(([k,txt],i)=>{
-      const x=20+i*110,y=legendY;svg.appendChild(rc.circle(x,y,12,{stroke:COL[k][1],fill:COL[k][0],fillStyle:'solid',roughness:.8,seed:2}));
-      const t=document.createElementNS(ns,'text');t.textContent=txt;t.setAttribute('x',x+12);t.setAttribute('y',y+5);t.setAttribute('font-size','13');svg.appendChild(t);});
-    // Fit the viewBox to what was actually drawn so nothing is clipped and no space is wasted.
+      const x=bb0.x+10+i*110;svg.appendChild(rc.circle(x,legendY,12,{stroke:COL[k][1],fill:COL[k][0],fillStyle:'solid',roughness:.8,seed:2}));
+      const t=document.createElementNS(ns,'text');t.textContent=txt;t.setAttribute('x',x+12);t.setAttribute('y',legendY+5);t.setAttribute('font-size','13');svg.appendChild(t);});
     const bb=svg.getBBox();svg.setAttribute('viewBox',[bb.x-14,bb.y-14,bb.width+28,bb.height+28].join(' '));
   }
   // Seeded jitter so the same notes always look the same.
   let seed=1234567;const rnd=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};
-  const skip=n=>n.closest&&n.closest('.katex,.mindmap,.graph3d,.badge');
+  const skip=n=>n.closest&&n.closest('.katex,.mindmap,.graph2d,.badge');
   const w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);const nodes=[];
   while(w.nextNode()){const n=w.currentNode;if(n.nodeValue.trim()&&!skip(n.parentElement))nodes.push(n);}
   for(const n of nodes){const f=document.createDocumentFragment();

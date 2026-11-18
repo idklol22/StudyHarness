@@ -1,32 +1,32 @@
-# Living Notes
+# Study
 
-A Core LearnHarness plugin. Upload a slide PDF and be taught by being questioned. Notes are rebuilt from what you showed you do and don't know, and export as a handwritten-style PDF.
+A Core LearnHarness plugin (id `living-notes`, kept so existing decks and data carry over). Study happens **in chat**: start a Teach or Practice chat on Home and attach slides or a PDF, name a topic ("teach me linear regression"), or name a paper. The chat agents get Study tools and build a **notebook** for it, filed under a **subject**, and keep it up to date while they teach or quiz you.
 
-- **Slides → concepts.** The browser renders each slide to an image; the Vision model reads equations, figures and text into concepts, each linked to slide numbers. Grading source text comes from the PDF itself, never from the model.
-- **Tutor.** A managed agent runs pre-question → teach → recall → cross-question → grade. Maths asks you to write the next step; science asks for a prediction first.
-- **Learner state.** Per concept: status (new / shaky / ok / solid), what you got right, missed and wrong (in your words), technique, revisit date, slide refs. Statuses are decided by code (`src/state.cjs`), not the model: a hint-free right answer gives `ok`; `solid` needs a correct answer in a *later* session; a wrong answer is `shaky`. A grade with `confidence: "unsure"` records nothing.
-- **Revisit dates.** 1 / 3 / 7 / 14 day gaps, compressed to land before your exam date.
-- **Notes.** Solid concepts compress to a line; shaky ones expand with a worked example, diagram and a highlighted revisit box; mistakes log, technique boxes, cold Q&A.
-- **PDF.** Markdown → HTML (Caveat handwriting font, dotted paper, KaTeX maths, rough.js diagrams, seeded per-letter jitter) → printed with system Chrome, Edge or Chromium (override with `LIVING_NOTES_BROWSER`).
+## What you see
 
-Limits: PDF only (export PPTX to PDF first); no OCR beyond what the vision model reads; the "maths needs steps" rule is tutor-prompt doctrine, not a code gate; handwriting is a font with jitter, not a forgery.
+- **Notebook pane beside the chat** (toggle in the session top bar, drag its left edge to resize). Tabs:
+  - **Notes** — a 2D **map of ideas** (notebook → topics → concepts, coloured by how well you know each), then every concept with its summary, **callouts** (Revisit this · Crucial · Likely exam material · Common mistake · Tip), **slide screenshots** of the figures that matter, worked steps, your mistakes and the points clarified in the chat. Recently changed items highlight.
+  - **Cards** — the notebook's flashcards by topic.
+  - **Activity** — what the agent is doing, live: "Read slides 5–8 of 32 (25%): found …", "Added 3 flashcards", "Marked … as likely exam material".
+  - **PDF** — export the notes as handwritten-style PDF (same 2D map).
+- **Subjects** (sidebar). Every subject lists its **notes** (notebooks), the **slides** they came from, and its **flashcards** by topic: tick topics (or all) and study them in **Due** (spaced repetition, FSRS-6), **Progressive** (weakest topic first, ordered from your past ratings) or **All** mode. Reveal with Space, rate 1–4.
+
+## What the agent does
+
+- **Slides / PDF**: `study_import_slides` renders every slide natively (no browser), reads it with your vision model in batches of four, and builds concepts, initial notes, an initial flashcard set and **slide screenshots automatically** wherever a figure, diagram, chart or table helps. Progress streams to the chat and the Activity tab.
+- **Topic / paper**: `study_notebook` opens a notebook; concepts are added as they are taught (`study_concept`). Papers are researched with the app's own research/web tools first.
+- **While teaching**: grades answers (`study_grade`; status and revisit dates are computed by code, never set by the model), grows the notes (`study_note`), keeps flashcards in step (`study_cards` add / edit / remove), and adds or shows slide screenshots (`study_figure`).
+- **Practice**: `study_practice_next` (due / progressive / all, by topic) and `study_practice_rate` (1 again … 4 easy).
+
+Rules: **notes are never deleted** — the agent adds clarifications and callouts, and an edited summary keeps its previous wording in the concept's history. Flashcards may be removed. Everything learned is added to the app's Knowledge graph (only objective content: never status, scores or dates).
+
+## Data
+
+`<learning data>/core-plugin-data/living-notes/`: `decks/deck-<id>.json` (one notebook each: concepts, notes, callouts, flashcards with their FSRS schedules, activity), `pages/<id>/` (stored slide images for screenshots), `subjects.json` (subjects, which subject each notebook belongs to, which notebook each chat uses). Decks from older versions load unchanged and are filed under **Unsorted**.
+
+Host requirements: backend `ctx.documents` (PDF page rendering under the agent's file-access rules), `registerTools` / `registerInstructions`, and frontend `registerSessionPanel`. PDF only (export PowerPoint/Keynote to PDF first); no OCR beyond what the vision model reads.
 
 ```sh
 npm run build   # also regenerates .generated/assets.cjs (fonts, KaTeX CSS, rough.js inlined)
 npm test
 ```
-
-## Maps and screenshots
-
-- **Map of ideas** is a 3D force-directed graph (like Obsidian's graph view). In the PDF it is drawn from the camera angle with the fewest crossing edges and overlapping labels, with depth shading, and labels spread apart with short leader lines. In the app, **3D map** opens a live version: drag to rotate, scroll to zoom, hover to highlight a concept's neighbours, click a concept to jump to it, double-click to reset.
-- **Slide screenshots.** Slide images are stored when you upload a PDF. The model proposes figures (whole slide or a crop) only where a diagram or plot cannot be written as text or LaTeX; you can add or remove any with **Add slide screenshot** on a concept, or ask the tutor. Decks uploaded before this feature need re-uploading to store slide images. PowerPoint files: export to PDF first.
-
-## Knowledge graph sync
-
-What you study here is added to the app's Knowledge graph automatically, through `ctx.graph.importNotes` (the same extraction pipeline as an imported notes file).
-
-- **When:** after each graded answer or note update, batched over about 15 seconds so a burst of answers is one extraction. The deck shows the state (waiting, syncing, up to date, failed) and has an **Update graph now** button, which also retries a failure.
-- **What:** only concepts you have been asked about or discussed, and only when their content changed. The text is objective: the concept summary, formulas, corrected misconceptions, clarifications from the chat, Q&A.
-- **What is never sent:** status (new/shaky/ok/solid), scores, dates or "I got this wrong". The graph stores ideas and connections, not ratings of you.
-- **Cost:** each sync is an extraction run with your configured extraction models. If none is configured the deck says so instead of failing silently.
-- Older versions of LearnHarness without `ctx.graph` simply skip the sync.

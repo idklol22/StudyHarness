@@ -13,6 +13,7 @@
 - [PluginCleanup](#plugincleanup)
 - [PluginCodeBlockProps](#plugincodeblockprops)
 - [PluginCodeBlockRenderer](#plugincodeblockrenderer)
+- [PluginDocumentService](#plugindocumentservice)
 - [PluginFrontendContext](#pluginfrontendcontext)
 - [PluginFrontendModule](#pluginfrontendmodule)
 - [PluginGraphFileData](#plugingraphfiledata)
@@ -29,6 +30,9 @@
 - [PluginManifest](#pluginmanifest)
 - [PluginNotification](#pluginnotification)
 - [PluginPageActionContext](#pluginpageactioncontext)
+- [PluginRenderedPage](#pluginrenderedpage)
+- [PluginSessionPanel](#pluginsessionpanel)
+- [PluginSessionPanelContext](#pluginsessionpanelcontext)
 - [PluginSettingsRegistration](#pluginsettingsregistration)
 - [PluginToolContext](#plugintoolcontext)
 - [PluginToolRenderer](#plugintoolrenderer)
@@ -261,6 +265,7 @@ export interface PluginBackendContext {
     cleanup(dispose: PluginCleanup): void;
     learning: PluginLearningData;
     graph: PluginGraphService;
+    documents: PluginDocumentService;
     inference: PluginInference;
     agents: PluginAgentService;
     workers: PluginWorkerService;
@@ -277,7 +282,7 @@ export interface PluginBackendContext {
 }
 ```
 
-**Related types:** [PluginAgentService](plugin-agents.md#pluginagentservice), [PluginBackgroundTool](plugin-workers.md#pluginbackgroundtool), [PluginCleanup](plugins.md#plugincleanup), [PluginGraphService](plugins.md#plugingraphservice), [PluginInference](plugins.md#plugininference), [PluginInstructions](plugins.md#plugininstructions), [PluginLearningData](plugins.md#pluginlearningdata), [PluginManifest](plugins.md#pluginmanifest), [PluginProblemTypeDefinition](plugin-problems.md#pluginproblemtypedefinition), [PluginQuestionTypeDefinition](plugin-questions.md#pluginquestiontypedefinition), [PluginToolContext](plugins.md#plugintoolcontext), [PluginTools](plugins.md#plugintools), [PluginWorkerService](plugin-workers.md#pluginworkerservice), [ServerEvent](events.md#serverevent).
+**Related types:** [PluginAgentService](plugin-agents.md#pluginagentservice), [PluginBackgroundTool](plugin-workers.md#pluginbackgroundtool), [PluginCleanup](plugins.md#plugincleanup), [PluginDocumentService](plugins.md#plugindocumentservice), [PluginGraphService](plugins.md#plugingraphservice), [PluginInference](plugins.md#plugininference), [PluginInstructions](plugins.md#plugininstructions), [PluginLearningData](plugins.md#pluginlearningdata), [PluginManifest](plugins.md#pluginmanifest), [PluginProblemTypeDefinition](plugin-problems.md#pluginproblemtypedefinition), [PluginQuestionTypeDefinition](plugin-questions.md#pluginquestiontypedefinition), [PluginToolContext](plugins.md#plugintoolcontext), [PluginTools](plugins.md#plugintools), [PluginWorkerService](plugin-workers.md#pluginworkerservice), [ServerEvent](events.md#serverevent).
 
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
@@ -288,6 +293,7 @@ export interface PluginBackendContext {
 - [cleanup](#pluginbackendcontext-cleanup)
 - [learning](#pluginbackendcontext-learning)
 - [graph](#pluginbackendcontext-graph)
+- [documents](#pluginbackendcontext-documents)
 - [inference](#pluginbackendcontext-inference)
 - [agents](#pluginbackendcontext-agents)
 - [workers](#pluginbackendcontext-workers)
@@ -362,6 +368,15 @@ The only graph write a plugin has, and it carries text, never learner ratings.
 
 ```ts
 graph: PluginGraphService;
+```
+
+### PluginBackendContext documents
+
+Local PDF page counts and native page rendering (slides → images + text), under the
+agent's file-access rules.
+
+```ts
+documents: PluginDocumentService;
 ```
 
 ### PluginBackendContext inference
@@ -667,6 +682,71 @@ mount(container: HTMLElement, block: PluginCodeBlockProps): void | PluginCleanup
 
 **Returns:** `void \| PluginCleanup \| Promise<void \| PluginCleanup>`.
 
+## PluginDocumentService
+
+Public SDK type, exported as `PluginDocumentService`. Import with `import type`; the SDK has no runtime exports.
+
+Read a local PDF the learner pointed at, under the SAME rules as the agent's read tools
+(sensitive-location denials and the optional allowed-folders boundary in Settings → Agent →
+Tools). Rendering is native (pdfjs + Skia), in process, no browser and no model cost.
+
+```ts
+export interface PluginDocumentService {
+    pdfInfo(path: string): Promise<{
+        path: string;
+        pageCount: number;
+    }>;
+    renderPdfPages(input: {
+        path: string;
+        pages: number[];
+        dpi?: number;
+    }): Promise<PluginRenderedPage[]>;
+}
+```
+
+**Related types:** [PluginRenderedPage](plugins.md#pluginrenderedpage).
+
+**Member index** (including nested object members; inherited members are defined in the linked base types):
+
+- [pdfInfo](#plugindocumentservice-pdfinfo)
+- [renderPdfPages](#plugindocumentservice-renderpdfpages)
+
+### PluginDocumentService pdfInfo
+
+Page count of a local PDF. Throws when the path is not readable under the file-access rules.
+
+```ts
+pdfInfo(path: string): Promise<{
+    path: string;
+    pageCount: number;
+}>;
+```
+
+| Parameter | Type |
+| --- | --- |
+| `path` | `string` |
+
+**Returns:** `Promise<{         path: string;         pageCount: number;     }>`.
+
+### PluginDocumentService renderPdfPages
+
+Render up to  pages (1-based) to PNG, with their text.
+`dpi` 50–200, default 110; very large pages are scaled down to stay within memory bounds.
+
+```ts
+renderPdfPages(input: {
+    path: string;
+    pages: number[];
+    dpi?: number;
+}): Promise<PluginRenderedPage[]>;
+```
+
+| Parameter | Type |
+| --- | --- |
+| `input` | `{         path: string;         pages: number[];         dpi?: number;     }` |
+
+**Returns:** `Promise<PluginRenderedPage[]>`.
+
 ## PluginFrontendContext
 
 Public SDK type, exported as `PluginFrontendContext`. Import with `import type`; the SDK has no runtime exports.
@@ -680,6 +760,7 @@ export interface PluginFrontendContext {
     readonly signal: AbortSignal;
     cleanup(dispose: PluginCleanup): void;
     registerView(view: PluginView): () => void;
+    registerSessionPanel(panel: PluginSessionPanel): () => void;
     registerAction(action: PluginAction): () => void;
     placeAction(placement: PluginActionPlacement): () => void;
     refreshActions(): void;
@@ -716,7 +797,7 @@ export interface PluginFrontendContext {
 }
 ```
 
-**Related types:** [PluginAction](plugins.md#pluginaction), [PluginActionPlacement](plugins.md#pluginactionplacement), [PluginCleanup](plugins.md#plugincleanup), [PluginCodeBlockRenderer](plugins.md#plugincodeblockrenderer), [PluginManifest](plugins.md#pluginmanifest), [PluginNotification](plugins.md#pluginnotification), [PluginProblemRenderer](plugin-problems.md#pluginproblemrenderer), [PluginQuestionRenderer](plugin-questions.md#pluginquestionrenderer), [PluginSettingsRegistration](plugins.md#pluginsettingsregistration), [PluginSettingsSchema](plugin-ui.md#pluginsettingsschema), [PluginSubmissionInterceptor](plugin-submissions.md#pluginsubmissioninterceptor), [PluginToolRenderer](plugins.md#plugintoolrenderer), [PluginUi](plugin-ui.md#pluginui), [PluginView](plugins.md#pluginview), [PluginWidgetHandle](plugin-ui.md#pluginwidgethandle), [ServerEvent](events.md#serverevent).
+**Related types:** [PluginAction](plugins.md#pluginaction), [PluginActionPlacement](plugins.md#pluginactionplacement), [PluginCleanup](plugins.md#plugincleanup), [PluginCodeBlockRenderer](plugins.md#plugincodeblockrenderer), [PluginManifest](plugins.md#pluginmanifest), [PluginNotification](plugins.md#pluginnotification), [PluginProblemRenderer](plugin-problems.md#pluginproblemrenderer), [PluginQuestionRenderer](plugin-questions.md#pluginquestionrenderer), [PluginSessionPanel](plugins.md#pluginsessionpanel), [PluginSettingsRegistration](plugins.md#pluginsettingsregistration), [PluginSettingsSchema](plugin-ui.md#pluginsettingsschema), [PluginSubmissionInterceptor](plugin-submissions.md#pluginsubmissioninterceptor), [PluginToolRenderer](plugins.md#plugintoolrenderer), [PluginUi](plugin-ui.md#pluginui), [PluginView](plugins.md#pluginview), [PluginWidgetHandle](plugin-ui.md#pluginwidgethandle), [ServerEvent](events.md#serverevent).
 
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
@@ -724,6 +805,7 @@ export interface PluginFrontendContext {
 - [signal](#pluginfrontendcontext-signal)
 - [cleanup](#pluginfrontendcontext-cleanup)
 - [registerView](#pluginfrontendcontext-registerview)
+- [registerSessionPanel](#pluginfrontendcontext-registersessionpanel)
 - [registerAction](#pluginfrontendcontext-registeraction)
 - [placeAction](#pluginfrontendcontext-placeaction)
 - [refreshActions](#pluginfrontendcontext-refreshactions)
@@ -790,6 +872,21 @@ registerView(view: PluginView): () => void;
 | Parameter | Type |
 | --- | --- |
 | `view` | `PluginView` |
+
+**Returns:** `() => void`.
+
+### PluginFrontendContext registerSessionPanel
+
+Register a pane shown beside session conversations (see ).
+Invalid/duplicate IDs throw; returned unregister removes the pane without deleting data.
+
+```ts
+registerSessionPanel(panel: PluginSessionPanel): () => void;
+```
+
+| Parameter | Type |
+| --- | --- |
+| `panel` | `PluginSessionPanel` |
 
 **Returns:** `() => void`.
 
@@ -1932,6 +2029,144 @@ viewId: string;
 
 ```ts
 pathname: string;
+```
+
+## PluginRenderedPage
+
+Public SDK type, exported as `PluginRenderedPage`. Import with `import type`; the SDK has no runtime exports.
+
+One rendered PDF page: a PNG image (base64, no data: prefix) and the page's extracted text.
+
+```ts
+export interface PluginRenderedPage {
+    page: number;
+    png: string;
+    width: number;
+    height: number;
+    text: string;
+}
+```
+
+**Member index** (including nested object members; inherited members are defined in the linked base types):
+
+- [page](#pluginrenderedpage-page)
+- [png](#pluginrenderedpage-png)
+- [width](#pluginrenderedpage-width)
+- [height](#pluginrenderedpage-height)
+- [text](#pluginrenderedpage-text)
+
+### PluginRenderedPage page
+
+```ts
+page: number;
+```
+
+### PluginRenderedPage png
+
+```ts
+png: string;
+```
+
+### PluginRenderedPage width
+
+```ts
+width: number;
+```
+
+### PluginRenderedPage height
+
+```ts
+height: number;
+```
+
+### PluginRenderedPage text
+
+Text extracted from the PDF page itself (Markdown-ish), not model output; may be empty.
+
+```ts
+text: string;
+```
+
+## PluginSessionPanel
+
+Public SDK type, exported as `PluginSessionPanel`. Import with `import type`; the SDK has no runtime exports.
+
+A plugin pane docked to the RIGHT of a session's conversation (Study redesign, owner
+2026-11-18: "the live notebook sits next to the conversation"). The host owns the pane chrome
+(open/close toggle in the session top bar, resizable width, one tab per registered panel);
+the plugin mounts only the body. Switching sessions, closing the pane or disabling the plugin
+aborts the mount signal.
+
+```ts
+export interface PluginSessionPanel {
+    id: string;
+    name: string;
+    mount(container: HTMLElement, session: PluginSessionPanelContext, signal: AbortSignal): void | PluginCleanup | Promise<void | PluginCleanup>;
+}
+```
+
+**Related types:** [PluginCleanup](plugins.md#plugincleanup), [PluginSessionPanelContext](plugins.md#pluginsessionpanelcontext).
+
+**Member index** (including nested object members; inherited members are defined in the linked base types):
+
+- [id](#pluginsessionpanel-id)
+- [name](#pluginsessionpanel-name)
+- [mount](#pluginsessionpanel-mount)
+
+### PluginSessionPanel id
+
+```ts
+id: string;
+```
+
+### PluginSessionPanel name
+
+```ts
+name: string;
+```
+
+### PluginSessionPanel mount
+
+```ts
+mount(container: HTMLElement, session: PluginSessionPanelContext, signal: AbortSignal): void | PluginCleanup | Promise<void | PluginCleanup>;
+```
+
+| Parameter | Type |
+| --- | --- |
+| `container` | `HTMLElement` |
+| `session` | `PluginSessionPanelContext` |
+| `signal` | `AbortSignal` |
+
+**Returns:** `void \| PluginCleanup \| Promise<void \| PluginCleanup>`.
+
+## PluginSessionPanelContext
+
+Public SDK type, exported as `PluginSessionPanelContext`. Import with `import type`; the SDK has no runtime exports.
+
+The session a  is mounted beside.
+
+```ts
+export interface PluginSessionPanelContext {
+    sessionId: string;
+    sessionKind: "teaching" | "practice";
+}
+```
+
+**Member index** (including nested object members; inherited members are defined in the linked base types):
+
+- [sessionId](#pluginsessionpanelcontext-sessionid)
+- [sessionKind](#pluginsessionpanelcontext-sessionkind)
+
+### PluginSessionPanelContext sessionId
+
+```ts
+sessionId: string;
+```
+
+### PluginSessionPanelContext sessionKind
+
+```ts
+sessionKind: "teaching" | "practice";
 ```
 
 ## PluginSettingsRegistration

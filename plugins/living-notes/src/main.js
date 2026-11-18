@@ -1,8 +1,10 @@
-import { openPdf, renderPage } from './pdf-pages.js';
-import { mountGraph } from './graph-view.js';
-
-const STATUS_LABEL = { new: 'not started', shaky: 'shaky', ok: 'ok', solid: 'solid' };
-const BATCH = 4;
+// Study (formerly Living Notes) — owner, 2026-11-18. Study happens in chat: the app's own teacher and
+// practice agents get Study tools (backend). This frontend adds:
+//   - the NOTEBOOK pane beside every chat: the live notes (2D map of ideas, callouts, slide
+//     screenshots), the flashcards and an activity feed showing what the agent is doing;
+//   - the SUBJECTS library: subjects → their notes, slides and flashcards (by topic), with study
+//     sessions in "due", "progressive" (weakest topic first) or "all" mode.
+import { el, figureSlides, renderActivity, renderCards, renderNotes } from './notebook-view.js';
 
 function download(name, blob) {
   const a = document.createElement('a');
@@ -10,185 +12,247 @@ function download(name, blob) {
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
+const RATINGS = [[1, 'Again'], [2, 'Hard'], [3, 'Good'], [4, 'Easy']];
+
+/** Tabs: returns {select(id)}; bodies render lazily into one shared host. */
+function tabs(parent, items, onSelect, initial) {
+  const bar = el('div', parent, { cls: 'ln-tabs', attrs: { role: 'tablist' } });
+  const buttons = new Map();
+  const select = (id) => {
+    for (const [k, b] of buttons) { b.setAttribute('aria-selected', String(k === id)); b.classList.toggle('on', k === id); }
+    onSelect(id);
+  };
+  for (const [id, label] of items) {
+    const b = el('button', bar, { text: label, cls: 'ln-tab', attrs: { type: 'button', role: 'tab' } });
+    b.onclick = () => select(id);
+    buttons.set(id, b);
+  }
+  select(initial ?? items[0][0]);
+  return { select };
+}
 
 export function activate(ctx) {
-  ctx.registerView({ id: 'notes', name: 'Living Notes', mount(container, signal) {
-    let alive = !signal.aborted, deckId = null, catalog = null, pendingKey = '', graph = null;
-    signal.addEventListener('abort', () => { alive = false; }, { once: true });
-    container.classList.add('ln-root');
-    const el = (tag, text, parent = container, cls) => { const n = document.createElement(tag); if (text !== undefined) n.textContent = text; if (cls) n.className = cls; parent.append(n); return n; };
-    const error = el('p', '', container, 'ln-error'); error.setAttribute('role', 'alert');
-    const guarded = (fn) => async (...a) => { error.textContent = ''; try { await fn(...a); } catch (e) { if (alive) error.textContent = e instanceof Error ? e.message : String(e); } };
-    const btn = (label, onClick, parent, cls = '') => { const b = el('button', label, parent, 'ln-btn ' + cls); b.type = 'button'; b.onclick = () => void guarded(onClick)(); return b; };
-    const md = (parent, text) => ctx.ui.mountMarkdown(parent, { text }, { signal });
+  const exportPdf = async (id) => {
+    const out = await ctx.call('export-pdf', { id });
+    download(out.name, new Blob([Uint8Array.from(atob(out.base64), (c) => c.charCodeAt(0))], { type: 'application/pdf' }));
+  };
 
-    el('h1', 'Living Notes', container);
-    el('p', 'Upload a slide PDF. You are taught by being questioned, your answers update the notes, and the notes export as a handwritten-style PDF. Model calls use your configured models and may incur cost.', container, 'ln-muted');
-    const body = el('div', undefined, container);
-
-    const models = () => { const s = catalog?.slots ?? {}; return { vision: s.vision?.model ?? s.strong?.model, strong: s.strong?.model }; };
-
-    async function home() {
-      deckId = null; body.replaceChildren();
-      const decks = await ctx.call('list-decks');
-      if (!alive) return;
-      const bar = el('div', undefined, body, 'ln-row');
-      const file = el('input', undefined, bar); file.type = 'file'; file.accept = '.pdf,application/pdf'; file.hidden = true;
-      btn('Upload slides (PDF)', () => file.click(), bar, 'primary');
-      const state = el('input', undefined, bar); state.type = 'file'; state.accept = '.json,application/json'; state.hidden = true;
-      btn('Open state file', () => state.click(), bar);
-      file.onchange = () => { const f = file.files[0]; file.value = ''; if (f) void guarded(() => ingest(f))(); };
-      state.onchange = () => { const f = state.files[0]; state.value = ''; if (f) void guarded(async () => { const parsed = JSON.parse(await f.text()); await ctx.call('import-deck', { deck: parsed }); await home(); })(); };
-      if (!decks.length) el('p', 'No decks yet.', body, 'ln-muted');
-      for (const d of decks) {
-        const row = el('div', undefined, body, 'ln-deck');
-        el('strong', d.title, row);
-        el('span', `${d.counts.solid} solid · ${d.counts.ok} ok · ${d.counts.shaky} shaky · ${d.counts.new} new`, row, 'ln-muted');
-        btn('Open', () => openDeck(d.id), row);
-      }
-    }
-
-    async function ingest(file) {
-      if (!catalog) catalog = await ctx.call('get-catalog');
-      const model = models().vision;
-      if (!model) throw new Error('Configure a vision-capable model in Settings first.');
-      body.replaceChildren();
-      const status = el('p', 'Opening PDF…', body);
-      const doc = await openPdf(file);
-      const deck = await ctx.call('create-deck', { title: file.name.replace(/\.pdf$/i, ''), pageCount: doc.numPages });
-      for (let start = 1; start <= doc.numPages && alive; start += BATCH) {
-        const pages = [];
-        for (let n = start; n < start + BATCH && n <= doc.numPages; n++) { status.textContent = `Rendering slide ${n} of ${doc.numPages}…`; pages.push(await renderPage(doc, n)); }
-        status.textContent = `Reading slides ${pages[0].n}–${pages.at(-1).n} with the vision model…`;
-        await ctx.call('ingest-batch', { id: deck.id, pages, model });
-      }
-      status.textContent = 'Building the concept list…';
-      await ctx.call('ingest-finish', { id: deck.id });
-      await openDeck(deck.id);
-    }
-
-    async function openDeck(id) {
-      graph?.dispose(); graph = null; deckId = id; pendingKey = ''; body.replaceChildren();
-      const deck = await ctx.call('get-deck', { id });
-      if (!alive) return;
-      el('h2', deck.title, body);
-      const bar = el('div', undefined, body, 'ln-row');
-      btn('← All decks', home, bar);
-      btn('Start session', startSession, bar, 'primary');
-      btn('Export notes PDF', exportPdf, bar);
-      btn('Download state file', async () => download(`${deck.title}.state.json`, new Blob([JSON.stringify(await ctx.call('get-deck', { id }), null, 2)], { type: 'application/json' })), bar);
-      const exam = el('input', undefined, bar); exam.type = 'date'; exam.value = deck.examDate?.slice(0, 10) ?? ''; exam.title = 'Exam date';
-      exam.onchange = () => void guarded(() => ctx.call('set-exam-date', { id, examDate: exam.value || null }))();
-      const mapBtn = btn('3D map', () => {
-        if (graph) { graph.dispose(); graph = null; mapHost.hidden = true; return; }
-        mapHost.hidden = false;
-        graph = mountGraph(mapHost, { title: deck.title, concepts: deck.concepts, onSelect: (name) => { const row = [...body.querySelectorAll('.ln-concept')].find(r => r.dataset.title === name); row?.scrollIntoView({ behavior: 'smooth', block: 'center' }); row?.classList.add('ln-flash'); setTimeout(() => row?.classList.remove('ln-flash'), 1600); } }, signal);
-      }, bar);
-      mapBtn.title = 'Drag to rotate, scroll to zoom, hover to highlight, click a concept to jump to it, double-click to reset';
-      const mapHost = el('div', undefined, body, 'ln-map'); mapHost.hidden = true;
-      const syncRow = el('div', undefined, body, 'ln-sync'); syncRow.dataset.deck = id; syncRow.setAttribute('role', 'status'); syncRow.setAttribute('aria-live', 'polite');
-      syncRow.hidden = true;
-      void refreshSync();
-      el('div', undefined, body, 'ln-session');
-      const list = el('div', undefined, body, 'ln-concepts');
-      for (const c of deck.concepts) {
-        const row = el('div', undefined, list, `ln-concept s-${c.status}`); row.dataset.title = c.title;
-        el('span', STATUS_LABEL[c.status], row, 'ln-badge');
-        el('strong', c.title, row);
-        el('span', 'slides ' + c.slides.join(', '), row, 'ln-muted');
-        if (c.nextRevisit && c.status !== 'new') el('span', 'revisit ' + c.nextRevisit.slice(0, 10), row, 'ln-muted');
-        // Slide screenshots that go into the notes PDF.
-        const shots = el('span', undefined, row, 'ln-shots');
-        for (const f of c.figures ?? []) {
-          const chip = el('span', 'slide ' + f.slide + (f.crop ? ' (crop)' : ''), shots, 'ln-chip');
-          const x = el('button', '×', chip, 'ln-chip-x'); x.type = 'button'; x.title = 'Remove this screenshot from the notes'; x.setAttribute('aria-label', 'Remove screenshot of slide ' + f.slide);
-          x.onclick = () => void guarded(async () => { await ctx.call('remove-figure', { id, concept_id: c.id, slide: f.slide }); await openDeck(id); })();
+  // ── The notebook pane beside a chat ──────────────────────────────────────────
+  ctx.registerSessionPanel({ id: 'notebook', name: 'Notebook', mount(container, session, signal) {
+    let alive = true, tab = 'notes', timer = 0, current = null, bodySignal = null;
+    signal.addEventListener('abort', () => { alive = false; clearTimeout(timer); }, { once: true });
+    container.classList.add('ln-root', 'ln-pane');
+    const head = el('div', container, { cls: 'ln-pane-head' });
+    const host = el('div', container, { cls: 'ln-pane-body' });
+    const error = el('p', container, { cls: 'ln-error', attrs: { role: 'alert' } });
+    const renderBody = async () => {
+      if (!alive || !current) return;
+      bodySignal?.abort(); const ac = new AbortController(); bodySignal = ac;
+      signal.addEventListener('abort', () => ac.abort(), { once: true });
+      const deck = current.notebook;
+      if (tab === 'notes') {
+        const images = await ctx.call('slide-images', { id: deck.id, slides: figureSlides(deck) }).catch(() => ({}));
+        if (alive && bodySignal === ac) renderNotes(host, deck, { ctx, signal: ac.signal, images });
+      } else if (tab === 'cards') renderCards(host, deck, { ctx, signal: ac.signal });
+      else renderActivity(host, deck);
+    };
+    const load = async () => {
+      try {
+        error.textContent = '';
+        current = await ctx.call('notebook-for-chat', { chatId: session.sessionId });
+        if (!alive) return;
+        head.replaceChildren();
+        if (!current) {
+          host.replaceChildren();
+          el('p', host, { cls: 'ln-empty', text: 'No notebook yet. Attach slides or a PDF in the chat, or ask to learn a topic — the notebook (map of ideas, notes, flashcards) builds here as you study.' });
+          return;
         }
-        const form = el('span', undefined, row, 'ln-shot-form'); form.hidden = true;
-        const sel = el('select', undefined, form); sel.setAttribute('aria-label', 'Slide to screenshot');
-        for (const n of c.slides) { const o = el('option', 'slide ' + n, sel); o.value = String(n); }
-        const cap = el('input', undefined, form); cap.placeholder = 'caption (optional)'; cap.setAttribute('aria-label', 'Caption');
-        btn('Add', async () => { await ctx.call('add-figure', { id, concept_id: c.id, slide: Number(sel.value), caption: cap.value }); await openDeck(id); }, form);
-        btn('📷 Add slide screenshot', () => { form.hidden = !form.hidden; }, row);
-      }
-      await refreshSession();
-    }
-
-    async function startSession() {
-      if (!catalog) catalog = await ctx.call('get-catalog');
-      const model = models().strong;
-      if (!model) throw new Error('Configure a model in Settings first.');
-      await ctx.call('start-session', { deckId, model });
-      await openDeck(deckId);
-    }
-
-    async function exportPdf() {
-      const out = await ctx.call('export-pdf', { id: deckId });
-      download(out.name, new Blob([Uint8Array.from(atob(out.base64), c => c.charCodeAt(0))], { type: 'application/pdf' }));
-    }
-
-    async function refreshSession() {
-      const host = body.querySelector('.ln-session');
-      if (!host || !alive) return;
-      const s = await ctx.call('session-get');
-      if (!alive || !s || s.session.deckId !== deckId) { host.replaceChildren(); return; }
-      const a = s.agent, key = a.status + JSON.stringify(a.pending.map(p => p.toolCallId));
-      if (key === pendingKey) return;
-      pendingKey = key; host.replaceChildren();
-      el('p', a.status === 'running' ? 'Tutor is thinking…' : a.pending.length ? 'Your turn' : 'Session ' + a.status, host, 'ln-muted');
-      const answer = (call, text) => async () => { await ctx.call('answer', { toolCallId: call.toolCallId, answer: text(), requestId: crypto.randomUUID() }); await refreshSession(); };
-      for (const call of a.pending) {
-        const card = el('div', undefined, host, 'ln-question');
-        if (call.input?.teach) md(el('div', undefined, card, 'ln-teach'), call.input.teach);
-        md(el('div', undefined, card, 'ln-q'), call.input?.question ?? '');
-        el('p', `${call.input?.mode ?? ''} · slides ${(call.input?.slides ?? []).join(', ')}`, card, 'ln-muted');
-        const box = el('textarea', undefined, card); box.rows = 4; box.setAttribute('aria-label', 'Your answer');
-        box.placeholder = call.input?.mode === 'step' ? 'Write the next step yourself…' : call.input?.mode === 'predict' ? 'Predict first, then say why…' : 'Answer in your own words…';
-        const row = el('div', undefined, card, 'ln-row');
-        btn('Submit', async () => { if (box.value.trim()) await answer(call, () => box.value)(); }, row, 'primary');
-        btn('I need a hint', answer(call, () => 'I need a hint.'), row);
-      }
-      if (a.status !== 'running') {
-        const chat = el('div', undefined, host, 'ln-chat');
-        const say = el('textarea', undefined, chat); say.rows = 2; say.setAttribute('aria-label', 'Talk to the tutor');
-        say.placeholder = 'Ask a question, push back, or say it your way. Useful points go into your notes.';
-        const row = el('div', undefined, chat, 'ln-row');
-        btn('Send', async () => { const text = say.value.trim(); if (!text) return; say.value = ''; await ctx.call('send', { text, requestId: crypto.randomUUID() }); await refreshSession(); }, row);
-      }
-      const last = [...a.messages].reverse().find(m => m.role === 'assistant');
-      const text = last && (typeof last.content === 'string' ? last.content : last.content.filter(p => p.type === 'text').map(p => p.text).join('\n'));
-      if (text?.trim()) md(el('div', undefined, host, 'ln-feedback'), text);
-    }
-
-    // Knowledge-graph sync: what you learn here is added to the Knowledge graph automatically.
-    function renderSync(s) {
-      const row = body.querySelector('.ln-sync'); if (!row || !s) return;
-      row.hidden = s.state === 'unsupported'; if (row.hidden) return;
-      row.replaceChildren(); row.dataset.state = s.state;
-      const when = s.lastAt ? new Date(s.lastAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
-      const msg = s.state === 'running' ? 'Adding what you learned to the Knowledge graph…'
-        : s.state === 'failed' ? 'Could not update the Knowledge graph: ' + (s.error || 'unknown error')
-        : s.state === 'pending' || s.pending ? (s.pending === 1 ? '1 concept' : s.pending + ' concepts') + ' will be added to the Knowledge graph shortly.'
-        : when ? 'Knowledge graph is up to date (last update ' + when + ').' : 'Concepts you study here are added to the Knowledge graph automatically.';
-      el('span', msg, row, 'ln-sync-msg');
-      const b = el('button', s.state === 'failed' ? 'Try again' : 'Update graph now', row, 'ln-btn'); b.type = 'button';
-      b.disabled = s.state === 'running' || (!s.pending && s.state !== 'failed');
-      b.onclick = () => void guarded(async () => { b.disabled = true; renderSync(await ctx.call('graph-sync-now', { id: deckId })); })();
-    }
-    async function refreshSync() { if (deckId) renderSync(await ctx.call('graph-sync-status', { id: deckId })); }
-    function updateStatuses(deck) {
-      const rows = body.querySelectorAll('.ln-concept');
-      if (rows.length !== deck.concepts.length) return;
-      deck.concepts.forEach((c, i) => { rows[i].className = `ln-concept s-${c.status}`; rows[i].querySelector('.ln-badge').textContent = STATUS_LABEL[c.status]; });
-    }
+        const title = el('div', head, { cls: 'ln-pane-title' });
+        el('span', title, { cls: 'ln-muted', text: current.subject?.name ?? 'Unsorted' });
+        el('strong', title, { text: current.notebook.title });
+        const pdf = el('button', head, { text: 'PDF', cls: 'ln-btn small', attrs: { type: 'button', title: 'Export these notes as a handwritten-style PDF' } });
+        pdf.onclick = () => void exportPdf(current.notebook.id).catch((e) => { error.textContent = e.message; });
+        const strip = el('div', head);
+        tabs(strip, [['notes', 'Notes'], ['cards', `Cards · ${current.notebook.cards.length}`], ['activity', 'Activity']], (id) => { tab = id; void renderBody(); }, tab);
+      } catch (e) { if (alive) error.textContent = e instanceof Error ? e.message : String(e); }
+    };
     const offN = ctx.onNotification((e) => {
-      if (e.topic === 'agents-changed' && deckId) void guarded(async () => { await refreshSession(); updateStatuses(await ctx.call('get-deck', { id: deckId })); })();
-      if (e.topic === 'graph-sync' && deckId && e.data?.deckId === deckId) renderSync(e.data);
+      if (e.topic !== 'study-changed') return;
+      clearTimeout(timer); timer = setTimeout(() => void load(), 350); // a burst of tool calls → one refresh
     });
-    const offR = ctx.onResync(() => void guarded(() => (deckId ? openDeck(deckId) : home()))());
-    void guarded(home)();
-    return () => { alive = false; offN(); offR(); container.replaceChildren(); container.classList.remove('ln-root'); };
+    const offR = ctx.onResync(() => void load());
+    void load();
+    return () => { alive = false; offN(); offR(); bodySignal?.abort(); container.replaceChildren(); };
   } });
-  ctx.registerAction({ id: 'open', name: 'Living Notes', run: () => ctx.app.openView('notes') });
+
+  // ── The Subjects library ─────────────────────────────────────────────────────
+  ctx.registerView({ id: 'subjects', name: 'Subjects', mount(container, signal) {
+    let alive = !signal.aborted, data = null, route = { page: 'home' }, child = null;
+    signal.addEventListener('abort', () => { alive = false; }, { once: true });
+    container.classList.add('ln-root', 'ln-library');
+    const error = el('p', container, { cls: 'ln-error', attrs: { role: 'alert' } });
+    const body = el('div', container);
+    const guarded = (fn) => async (...a) => { error.textContent = ''; try { await fn(...a); } catch (e) { if (alive) error.textContent = e instanceof Error ? e.message : String(e); } };
+    const btn = (label, onClick, parent, cls = '') => { const b = el('button', parent, { text: label, cls: `ln-btn ${cls}`, attrs: { type: 'button' } }); b.onclick = () => void guarded(onClick)(); return b; };
+    const scope = () => { child?.abort(); child = new AbortController(); signal.addEventListener('abort', () => child.abort(), { once: true }); return child.signal; };
+
+    const refresh = async () => { data = await ctx.call('list-subjects'); if (alive) render(); };
+    const go = (next) => { route = next; render(); };
+    const notebooksOf = (subjectId) => data.notebooks.filter((n) => n.subjectId === subjectId);
+
+    function render() {
+      if (!alive || !data) return;
+      const s = scope();
+      body.replaceChildren();
+      if (route.page === 'home') return renderHome();
+      if (route.page === 'subject') return renderSubject(s);
+      if (route.page === 'notebook') return void renderNotebook(s);
+      if (route.page === 'review') return void renderReview(s);
+    }
+
+    function renderHome() {
+      el('h1', body, { text: 'Subjects' });
+      el('p', body, { cls: 'ln-muted', text: 'Everything you study lives here: notes, the slides they came from, and flashcards. Start a Teach or Practice chat on Home — attach slides or a PDF, or name a topic — and it is filed under a subject.' });
+      const used = data.subjects.filter((s) => notebooksOf(s.id).length);
+      if (!used.length) { el('p', body, { cls: 'ln-empty', text: 'No subjects yet.' }); return; }
+      const grid = el('div', body, { cls: 'ln-grid' });
+      for (const s of used) {
+        const nbs = notebooksOf(s.id);
+        const card = el('button', grid, { cls: 'ln-subject', attrs: { type: 'button' } });
+        el('strong', card, { text: s.name });
+        el('span', card, { cls: 'ln-muted', text: `${nbs.length} notebook${nbs.length === 1 ? '' : 's'} · ${nbs.reduce((t, n) => t + n.cards, 0)} cards · ${nbs.reduce((t, n) => t + n.due, 0)} due` });
+        card.onclick = () => go({ page: 'subject', id: s.id, tab: 'notes' });
+      }
+    }
+
+    function renderSubject(s) {
+      const subject = data.subjects.find((x) => x.id === route.id);
+      if (!subject) return go({ page: 'home' });
+      const nbs = notebooksOf(subject.id);
+      const bar = el('div', body, { cls: 'ln-row' });
+      btn('← Subjects', () => go({ page: 'home' }), bar);
+      el('h1', body, { text: subject.name });
+      const host = el('div', body);
+      tabs(body.insertBefore(el('div', null), host), [['notes', 'Notes'], ['slides', 'Slides'], ['cards', 'Flashcards']], (tab) => {
+        route.tab = tab; host.replaceChildren();
+        if (tab === 'notes') {
+          if (!nbs.length) el('p', host, { cls: 'ln-empty', text: 'No notes yet.' });
+          for (const n of nbs) {
+            const row = el('button', host, { cls: 'ln-deck', attrs: { type: 'button' } });
+            el('strong', row, { text: n.title });
+            el('span', row, { cls: 'ln-muted', text: `${n.origin} · ${n.concepts} concepts · ${n.counts.solid} solid · ${n.counts.shaky} shaky · ${n.cards} cards` });
+            row.onclick = () => go({ page: 'notebook', id: n.id, subjectId: subject.id });
+          }
+        } else if (tab === 'slides') {
+          const sources = nbs.flatMap((n) => n.sources.map((src) => ({ ...src, notebook: n })));
+          if (!sources.length) el('p', host, { cls: 'ln-empty', text: 'No slides uploaded for this subject yet.' });
+          for (const src of sources) {
+            const row = el('div', host, { cls: 'ln-deck' });
+            const thumb = el('div', row, { cls: 'ln-thumb' });
+            void ctx.call('slide-images', { id: src.notebook.id, slides: [1] }).then((imgs) => { if (imgs[1]) el('img', thumb, { attrs: { src: imgs[1].src, alt: `${src.fileName}, slide 1` } }); }).catch(() => {});
+            el('strong', row, { text: src.fileName });
+            el('span', row, { cls: 'ln-muted', text: `${src.pageCount} slides · used by "${src.notebook.title}"` });
+          }
+        } else renderTopicPicker(host, nbs, s);
+      }, route.tab);
+    }
+
+    function renderTopicPicker(host, nbs, s) {
+      const topics = new Map();
+      for (const n of nbs) for (const t of n.topics) topics.set(t, true);
+      const picked = new Set(route.topics ?? []);
+      if (!nbs.some((n) => n.cards)) { el('p', host, { cls: 'ln-empty', text: 'No flashcards yet.' }); return; }
+      const controls = el('div', host, { cls: 'ln-row' });
+      const mode = el('select', controls, { attrs: { 'aria-label': 'How to study' } });
+      for (const [v, label] of [['due', 'Due (spaced repetition)'], ['progressive', 'Progressive (weakest topic first)'], ['all', 'All cards']]) { const o = el('option', mode, { text: label }); o.value = v; }
+      mode.value = route.mode ?? 'due';
+      const studySel = btn('Study selected', () => go({ page: 'review', subjectId: route.id, notebookIds: nbs.map((n) => n.id), topics: [...picked], mode: mode.value }), controls, 'primary');
+      btn('Study all', () => go({ page: 'review', subjectId: route.id, notebookIds: nbs.map((n) => n.id), topics: [], mode: mode.value }), controls);
+      const list = el('div', host, { cls: 'ln-topics' });
+      const sync = () => { studySel.disabled = !picked.size; studySel.textContent = picked.size ? `Study ${picked.size} topic${picked.size === 1 ? '' : 's'}` : 'Study selected'; };
+      void (async () => {
+        // Per-topic counts from the full notebooks.
+        const decks = await Promise.all(nbs.map((n) => ctx.call('get-notebook', { id: n.id })));
+        if (!alive || s.aborted) return;
+        const cards = decks.flatMap((d) => d.cards ?? []);
+        for (const t of [...new Set(cards.map((c) => c.topic))].sort()) {
+          const row = el('label', list, { cls: 'ln-topic-row' });
+          const box = el('input', row, { attrs: { type: 'checkbox' } }); box.checked = picked.has(t);
+          box.onchange = () => { if (box.checked) picked.add(t); else picked.delete(t); route.topics = [...picked]; sync(); };
+          el('span', row, { text: t });
+          const mine = cards.filter((c) => c.topic === t);
+          const due = mine.filter((c) => (c.schedule?.due ?? 0) <= Date.now()).length;
+          el('span', row, { cls: 'ln-muted', text: `${mine.length} cards · ${due} due` });
+        }
+        sync();
+      })();
+    }
+
+    async function renderNotebook(s) {
+      const deck = await ctx.call('get-notebook', { id: route.id });
+      if (!alive || s.aborted) return;
+      const bar = el('div', body, { cls: 'ln-row' });
+      btn('← Back', () => go({ page: 'subject', id: route.subjectId, tab: 'notes' }), bar);
+      btn('Export notes PDF', () => exportPdf(deck.id), bar);
+      btn('Delete notebook', async () => {
+        if (!confirm(`Delete "${deck.title}" with its notes, flashcards and stored slide images? This cannot be undone.`)) return;
+        await ctx.call('delete-notebook', { id: deck.id }); await refresh(); go({ page: 'subject', id: route.subjectId, tab: 'notes' });
+      }, bar, 'danger');
+      el('h1', body, { text: deck.title });
+      const host = el('div', body);
+      const images = await ctx.call('slide-images', { id: deck.id, slides: figureSlides(deck) }).catch(() => ({}));
+      if (!alive || s.aborted) return;
+      tabs(body.insertBefore(el('div', null), host), [['notes', 'Notes'], ['cards', 'Flashcards'], ['activity', 'Activity']], (tab) => {
+        if (tab === 'notes') renderNotes(host, deck, { ctx, signal: s, images });
+        else if (tab === 'cards') renderCards(host, deck, { ctx, signal: s });
+        else renderActivity(host, deck);
+      });
+    }
+
+    async function renderReview(s) {
+      const bar = el('div', body, { cls: 'ln-row' });
+      btn('← Done', async () => { await refresh(); go({ page: 'subject', id: route.subjectId, tab: 'cards', topics: route.topics, mode: route.mode }); }, bar);
+      const status = el('p', body, { cls: 'ln-muted' });
+      const stage = el('div', body, { cls: 'ln-review' });
+      let queue = [], seen = 0;
+      const next = async () => {
+        if (!queue.length) {
+          const q = await ctx.call('study-queue', { notebookIds: route.notebookIds, topics: route.topics, mode: route.mode });
+          queue = q.cards.slice(0, 30);
+          if (!queue.length) { stage.replaceChildren(); el('p', stage, { cls: 'ln-empty', text: seen ? `Done — ${seen} card${seen === 1 ? '' : 's'} reviewed.` : 'Nothing to study for this selection right now.' }); status.textContent = ''; return; }
+          if (q.topic) status.textContent = `Topic: ${q.topic}${q.topicOrder.length > 1 ? ` · then ${q.topicOrder.slice(1).join(', ')}` : ''}`;
+        }
+        const card = queue.shift();
+        stage.replaceChildren();
+        const face = el('div', stage, { cls: 'ln-flash-card' });
+        ctx.ui.mountMarkdown(el('div', face), { text: card.q }, { signal: s });
+        const controls = el('div', stage, { cls: 'ln-row' });
+        const rate = async (r) => { await ctx.call('rate-card', { notebookId: card.notebookId, id: card.id, rating: r }); seen++; document.removeEventListener('keydown', onKey); await next(); };
+        const reveal = () => {
+          controls.replaceChildren();
+          el('hr', face);
+          ctx.ui.mountMarkdown(el('div', face), { text: card.a }, { signal: s });
+          for (const [r, label] of RATINGS) btn(`${r} · ${label}`, () => rate(r), controls, `rate-${r}`);
+        };
+        btn('Reveal (Space)', reveal, controls, 'primary');
+        const onKey = (e) => {
+          if (s.aborted) { document.removeEventListener('keydown', onKey); return; }
+          if (e.target instanceof HTMLElement && /input|textarea|select/i.test(e.target.tagName)) return;
+          if (e.key === ' ' && controls.querySelector('.primary')) { e.preventDefault(); reveal(); }
+          else if (/^[1-4]$/.test(e.key) && !controls.querySelector('.primary')) void guarded(() => rate(Number(e.key)))();
+        };
+        document.addEventListener('keydown', onKey);
+        s.addEventListener('abort', () => document.removeEventListener('keydown', onKey), { once: true });
+      };
+      await next();
+    }
+
+    const offN = ctx.onNotification((e) => { if (e.topic === 'study-changed' && route.page !== 'review') void guarded(refresh)(); });
+    const offR = ctx.onResync(() => void guarded(refresh)());
+    void guarded(refresh)();
+    return () => { alive = false; child?.abort(); offN(); offR(); container.replaceChildren(); container.classList.remove('ln-root', 'ln-library'); };
+  } });
+
+  ctx.registerAction({ id: 'open', name: 'Subjects', run: () => ctx.app.openView('subjects') });
   ctx.placeAction({ id: 'sidebar-open', actionId: 'open', location: 'sidebar' });
 }

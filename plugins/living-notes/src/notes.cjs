@@ -14,6 +14,7 @@ const { revisitList, sessionQueue } = require('./state.cjs');
 const slideRef = (c, slides) => (slides && slides.length ? slides : c.slides).map(n => `[[slide ${n}]]`).join(' ');
 const oneLine = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 const MAX_CROSS = 2; // cross-links drawn per concept, to keep maps readable
+const CALLOUT_BLOCK = { revisit: 'revisit', crucial: 'crucial', exam: 'exam', mistake: 'pitfall', tip: 'tip' };
 
 const stepLines = (list) => list.map((s, i) => `${i + 1}. $$${s.math}$$\n   > ${oneLine(s.note)}`).join('\n');
 
@@ -48,7 +49,9 @@ function discussion(c) {
 function conceptBlock(c) {
   const head = `### ${c.title}  {${c.status}} ${slideRef(c)}`;
   const parts = [head];
-  if (c.status === 'shaky') parts.push(':::revisit\n**Come back to this** — still shaky. Cover the page and explain it again.\n:::');
+  if (c.status === 'shaky' && !(c.callouts ?? []).some(k => k.kind === 'revisit')) parts.push(':::revisit\n**Come back to this** — still shaky. Cover the page and explain it again.\n:::');
+  // Study callouts (owner, 2026-11-18): revisit / crucial / likely exam / common mistake / tip.
+  for (const k of c.callouts ?? []) parts.push(`:::${CALLOUT_BLOCK[k.kind] ?? 'tip'}\n${oneLine(k.text)}\n:::`);
   if (c.summary) parts.push(c.summary.trim());
   if (c.steps.length) {
     // Solid concepts keep only the key result; everything else shows the full steps.

@@ -10,6 +10,8 @@ const { createPages } = require('./pages.cjs');
 const { createGraphSync } = require('./graph-sync.cjs');
 const { buildNotesMarkdown } = require('./notes.cjs');
 const { sessionQueue, revisitList } = require('./state.cjs');
+const study = require('./study.cjs');
+const { INSTRUCTIONS: STUDY_INSTRUCTIONS, createStudyTools } = require('./study-tools.cjs');
 
 const fail = (m) => { throw new Error(m); };
 const object = (v) => { if (!v || typeof v !== 'object' || Array.isArray(v)) fail('Expected an input object.'); return v; };
@@ -47,6 +49,44 @@ exports.activate = (ctx, deps = {}) => {
   for (const e of defs) registerAgent(e);
 
   const deckOrFail = (id) => store.get(String(id ?? '')) ?? fail('Deck not found.');
+
+  // ── Study (owner, 2026-11-18): subjects → notebooks; tools for the app's own chat agents. ──
+  const subjects = study.openSubjects(ctx.dataDirectory);
+  subjects.adopt(store.list().map((d) => d.id)); // older decks land in "Unsorted"
+  const notify = (data) => { try { ctx.events.emit('study-changed', data); } catch { /* inactive */ } };
+  if (ctx.registerTools && ctx.documents) {
+    ctx.cleanup(ctx.registerTools({ agents: ['teacher', 'prober', 'practice'], create: createStudyTools({ ctx, store, subjects, pages, graphSync, notify }) }));
+    ctx.cleanup(ctx.registerInstructions({ agents: ['teacher', 'prober', 'practice'], text: STUDY_INSTRUCTIONS }));
+  }
+  const notebookOrFail = (id) => study.ensureNotebook(deckOrFail(id));
+  const saveNotebook = (deck) => { store.save(deck); notify({ notebookId: deck.id }); return deck; };
+  ctx.handle('list-subjects', () => {
+    const index = subjects.read();
+    subjects.adopt(store.list().map((d) => d.id));
+    const notebooks = store.list().map((d) => study.notebookSummary(study.ensureNotebook(store.get(d.id)), subjects.subjectOf(d.id)));
+    return { subjects: subjects.list(), notebooks, chats: index.chats };
+  });
+  ctx.handle('get-notebook', (i) => notebookOrFail(object(i).id));
+  ctx.handle('notebook-for-chat', (i) => {
+    const id = subjects.notebookForChat(String(object(i).chatId ?? ''));
+    const deck = id ? store.get(id) : null;
+    if (!deck) return null;
+    const subjectId = subjects.subjectOf(deck.id);
+    return { notebook: study.ensureNotebook(deck), subject: subjects.list().find((s) => s.id === subjectId) ?? null };
+  });
+  ctx.handle('rename-subject', (i) => subjects.rename(String(object(i).id), i.name));
+  ctx.handle('move-notebook', (i) => { const v = object(i); deckOrFail(v.id); const sub = subjects.ensure(v.subject); subjects.assign(v.id, sub.id); notify({ notebookId: v.id }); return sub; });
+  ctx.handle('slide-images', (i) => { const v = object(i); deckOrFail(v.id); return pages.images(String(v.id), (Array.isArray(v.slides) ? v.slides : []).filter((n) => Number.isInteger(n)).slice(0, 40)); });
+  ctx.handle('study-queue', (i) => {
+    const v = object(i);
+    const ids = Array.isArray(v.notebookIds) ? v.notebookIds.map(String) : [];
+    const cards = ids.flatMap((id) => notebookOrFail(id).cards.map((c) => ({ ...c, notebookId: id })));
+    return study.studyQueue(cards, { mode: v.mode ?? 'due', topics: Array.isArray(v.topics) && v.topics.length ? v.topics.map(String) : null });
+  });
+  ctx.handle('rate-card', (i) => { const v = object(i); const d = notebookOrFail(v.notebookId); study.rateCard(d, String(v.id), v.rating); saveNotebook(d); return null; });
+  ctx.handle('edit-card', (i) => { const v = object(i); const d = notebookOrFail(v.notebookId); study.editCard(d, v); saveNotebook(d); return null; });
+  ctx.handle('remove-card', (i) => { const v = object(i); const d = notebookOrFail(v.notebookId); study.removeCard(d, String(v.id)); saveNotebook(d); return null; });
+  ctx.handle('delete-notebook', (i) => { const id = String(object(i).id); store.remove(id); pages.remove(id); subjects.forget(id); notify({ notebookId: id, deleted: true }); return null; });
 
   ctx.handle('get-catalog', () => ctx.inference.catalog());
   ctx.handle('list-decks', () => store.list());

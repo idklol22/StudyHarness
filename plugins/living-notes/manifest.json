@@ -1,10 +1,10 @@
 {
   "apiVersion": 1,
   "id": "living-notes",
-  "name": "Living Notes",
-  "version": "0.1.0",
+  "name": "Study",
+  "version": "0.2.0",
   "minAppVersion": "0.4.1",
-  "description": "Learn a slide PDF by being questioned, keep per-concept learner state, and render living handwritten-style notes as a PDF. Uses your configured models and may incur cost.",
+  "description": "Study in chat: teach or practise from your slides, a PDF, a topic or a paper. Builds subject notebooks (2D map of ideas, living notes with callouts and slide screenshots, flashcards) beside the conversation and keeps them up to date. Uses your configured models and may incur cost.",
   "main": "main.js",
   "backend": "backend.cjs",
   "styles": "styles.css"

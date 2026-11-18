@@ -1,6 +1,6 @@
 # Study redesign — plan (awaiting approval)
 
-Status: **draft for owner approval**. Nothing below is implemented yet.
+Status: **approved (owner, 2026-11-18) — mostly implemented.** Done: knowledge graph (3D hive of topic balls around Knowledge, 2D Obsidian-style fallback), sidebar cleanup, host APIs (`ctx.documents`, `registerSessionPanel`), Study data model + migration, chat tools + slide ingestion with auto screenshots, notebook pane, Subjects library with Due/Progressive/All flashcard study, 2D map in notes and PDF. Not yet: starting a Practice chat directly from the library (the library has its own review screen instead), in-chat image rendering for `study_figure` beyond the model-facing image.
 
 ## Decisions already made (owner, 2026-11-18)
 

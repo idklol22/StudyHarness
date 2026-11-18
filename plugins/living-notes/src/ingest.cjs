@@ -15,7 +15,7 @@ Return ONLY a JSON object: {"concepts":[{
   "technique": how to approach exam questions on this concept and common traps, or "",
   "steps": [{"math": LaTeX for ONE step, "note": plain-language note on what this step does}] (worked example, one step per entry; [] if none),
   "qa": [{"q": question, "a": answer}] (up to 2 questions answerable cold),
-  "figures": [{"slide": n, "crop": [x,y,w,h] as 0-1 fractions of the slide (omit for the whole slide), "caption": short}] (ONLY when a figure, plot or diagram is essential and cannot be captured as text or LaTeX; at most 2 per concept; give a generous crop with a small margin),
+  "figures": [{"slide": n, "crop": [x,y,w,h] as 0-1 fractions of the slide (omit for the whole slide), "caption": short}] (WHENEVER one of the concept's slides shows a figure, diagram, chart, plot, table or worked visual that helps understand it: these screenshots go straight into the learner's notes automatically. Skip logos, decorative pictures and slides that are only text. At most 2 per concept; give a generous crop with a small margin),
   "links": [titles of other concepts this one connects to]
 }]}
 Order concepts so prerequisites come first. "math" fields are bare LaTeX: no $ signs and no \( \) delimiters.
@@ -65,7 +65,7 @@ function userMessage(pages, extra) {
   const content = [{ type: 'text', text: `${extra ? extra + '\n\n' : ''}Slides ${pages.map(p => p.n).join(', ')}. Extracted text per slide follows each image.` }];
   for (const p of pages) {
     content.push({ type: 'text', text: `--- Slide ${p.n} ---\n${(p.text || '(no extractable text)').slice(0, 4000)}` });
-    if (p.image) content.push({ type: 'image', data: p.image, mimeType: 'image/jpeg' });
+    if (p.image) content.push({ type: 'image', data: p.image, mimeType: p.mime ?? 'image/jpeg' });
   }
   return { role: 'user', content, timestamp: Date.now() };
 }
