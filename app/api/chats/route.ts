@@ -1,6 +1,7 @@
 import { chainsForSelection, formatChainLine } from "@/src/core";
 import { newGraphContextMessage, type GraphContextPick } from "@/src/core";
-import { compactionInFlight, createChat, isTurnRunning, listChats, readSettingsRecord, stores, titleFromPrompt } from "@/src/server";
+import { compactionInFlight, createChat, isTurnRunning, listChats, readSettingsRecord, stores, study, titleFromPrompt } from "@/src/server";
+import { checkPlacement } from "@/src/core/study/model";
 import type { ChatListItem } from "@/src/core";
 
 /** The session picker's list: record-derived summaries (phase, pending
@@ -20,12 +21,19 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-	const body = (await req.json().catch(() => ({}))) as { title?: unknown; kind?: unknown; graphContext?: unknown };
+	const body = (await req.json().catch(() => ({}))) as { title?: unknown; kind?: unknown; graphContext?: unknown; placement?: unknown };
+	// Where the session lives in the Study library and how it starts (owner, 2026-11-19): validated
+	// against the library, never guessed — a stale subject/topic refuses.
+	let placement;
+	if (body.placement !== undefined) {
+		try { placement = checkPlacement(study.library(), body.placement); }
+		catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Invalid placement." }, { status: 400 }); }
+	}
 	const title = typeof body.title === "string" ? body.title : "";
 	// Practice sessions (owner, 2026-10-04): kind "practice" marks the
 	// record — the practice agent + its tools from turn 1, no extraction.
 	const kind = body.kind === "practice" ? ("practice" as const) : undefined;
-	const chat = createChat(titleFromPrompt(title || "Untitled session"), kind);
+	const chat = createChat(titleFromPrompt(title || "Untitled session"), kind, placement);
 	// PER-SESSION MODELS (owner, 2026-09-28): a session owns its model +
 	// thinking level from birth — stamped verbatim from the STRONG slot,
 	// the new-session default. From here the strong slot never reaches

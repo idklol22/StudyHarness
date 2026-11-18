@@ -9,6 +9,8 @@ export * from "./events-stream.ts";
 export * from "./chats.ts";
 export * from "./graph.ts";
 export * from "./source-organization.ts";
+export { study } from "./study-runtime.ts";
+export { StudyInputError, MAX_MATERIAL_BYTES } from "./study.ts";
 export * from "./source-deletion.ts";
 export { NotesImportError } from "../agent/subagents/extraction.ts";
 export { convertPdf } from "../agent/subagents/pdf-ops.ts";

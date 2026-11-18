@@ -56,7 +56,10 @@ export interface ChatStore {
 	/** Create a session record (persisted immediately). */
 	/** Create a session record; kind "practice" marks a practice session
 	 *  (absent = teach, the default). */
-	createChat(title: string, kind?: "practice"): ChatRecord;
+	createChat(title: string, kind?: "practice", placement?: import("./study/model.ts").ChatPlacement): ChatRecord;
+	/** File a session under a subject/topic (or clear it with null). Not conversation activity:
+	 *  updatedAt stays put. Returns the record, or null when the id is unknown. */
+	savePlacement(id: string, placement: import("./study/model.ts").ChatPlacement | null): ChatRecord | null;
 	/** The full record, or null if unknown id / corrupt file. */
 	getChat(id: string): ChatRecord | null;
 	/** All sessions, newest activity first (the sidebar's list view). */

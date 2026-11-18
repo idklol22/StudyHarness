@@ -1,0 +1,238 @@
+/**
+ * The Study library (Study overhaul, owner 2026-11-19): SUBJECTS contain TOPICS; PDFs ("materials")
+ * are uploaded at subject level (subject-wide context) or topic level (topic-wide context); every
+ * chat lives in a subject or a topic of one. Subjects and topics are user-defined and can be created
+ * ahead of time or on the spot.
+ *
+ * Pure: no IO. The store (src/store/study.ts) persists a `Library` and the managed PDF copies; this
+ * module owns the rules:
+ *   - names are unique (case-insensitively) within their parent;
+ *   - a material is a managed copy of a file identified by its SHA-256; adding the same file again to
+ *     the same scope is a no-op, and to another scope shares the one stored copy;
+ *   - deleting a subject/topic cascades and reports which stored copies became unreferenced, so the
+ *     store can remove them (never keep redundant PDFs).
+ *
+ * Each subject and topic carries a `context` document: a compact running summary kept by the context
+ * keeper (see context.ts), injected into chats instead of raw material.
+ */
+
+export interface StudyScope {
+	subjectId: string;
+	/** Absent = subject-wide. */
+	topicId?: string;
+}
+
+export interface Subject {
+	id: string;
+	name: string;
+	createdAt: string;
+	/** Compact running context for the whole subject (maintained by the context keeper). */
+	context: string;
+	contextUpdatedAt?: string;
+}
+
+export interface Topic {
+	id: string;
+	subjectId: string;
+	name: string;
+	order: number;
+	createdAt: string;
+	/** Compact running context for this topic. */
+	context: string;
+	contextUpdatedAt?: string;
+}
+
+/** One uploaded PDF, attached to a scope. `sha256` names the managed copy and its page memory. */
+export interface Material {
+	id: string;
+	sha256: string;
+	fileName: string;
+	pageCount: number;
+	bytes: number;
+	scope: StudyScope;
+	addedAt: string;
+}
+
+export interface Library {
+	version: 1;
+	subjects: Subject[];
+	topics: Topic[];
+	materials: Material[];
+}
+
+export const emptyLibrary = (): Library => ({ version: 1, subjects: [], topics: [], materials: [] });
+
+export const NAME_MAX = 120;
+export const SHA256 = /^[a-f0-9]{64}$/;
+
+const fail = (message: string): never => { throw new Error(message); };
+
+/** A trimmed, single-line, bounded name. */
+export function cleanName(value: unknown, label = "Name"): string {
+	if (typeof value !== "string") return fail(`${label} must be text.`);
+	const name = value.replace(/\s+/g, " ").trim();
+	if (!name) return fail(`${label} must not be empty.`);
+	if (name.length > NAME_MAX) return fail(`${label} is at most ${NAME_MAX} characters.`);
+	return name;
+}
+
+const same = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: "accent" }) === 0;
+
+export const subjectOf = (lib: Library, id: string): Subject | undefined => lib.subjects.find((s) => s.id === id);
+export const topicOf = (lib: Library, id: string): Topic | undefined => lib.topics.find((t) => t.id === id);
+export const topicsOf = (lib: Library, subjectId: string): Topic[] =>
+	lib.topics.filter((t) => t.subjectId === subjectId).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+export const materialsIn = (lib: Library, scope: StudyScope): Material[] =>
+	lib.materials.filter((m) => m.scope.subjectId === scope.subjectId && (m.scope.topicId ?? null) === (scope.topicId ?? null));
+
+/** The scope must exist (a topic must belong to the named subject). */
+export function checkScope(lib: Library, scope: StudyScope): StudyScope {
+	if (!subjectOf(lib, scope.subjectId)) fail("That subject no longer exists.");
+	if (scope.topicId !== undefined) {
+		const topic = topicOf(lib, scope.topicId);
+		if (!topic) fail("That topic no longer exists.");
+		if (topic?.subjectId !== scope.subjectId) fail("That topic belongs to another subject.");
+	}
+	return scope.topicId === undefined ? { subjectId: scope.subjectId } : { subjectId: scope.subjectId, topicId: scope.topicId };
+}
+
+export interface Fresh { id: string; at: string }
+const fresh = (prefix: string, make?: () => Fresh): Fresh => make?.() ?? { id: `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`, at: new Date().toISOString() };
+
+/** Create a subject, or return the existing one with this name (so "create on the spot" is idempotent). */
+export function createSubject(lib: Library, name: unknown, make?: () => Fresh): { library: Library; subject: Subject; created: boolean } {
+	const clean = cleanName(name, "Subject name");
+	const existing = lib.subjects.find((s) => same(s.name, clean));
+	if (existing) return { library: lib, subject: existing, created: false };
+	const f = fresh("sub", make);
+	const subject: Subject = { id: f.id, name: clean, createdAt: f.at, context: "" };
+	return { library: { ...lib, subjects: [...lib.subjects, subject] }, subject, created: true };
+}
+
+export function createTopic(lib: Library, subjectId: string, name: unknown, make?: () => Fresh): { library: Library; topic: Topic; created: boolean } {
+	if (!subjectOf(lib, subjectId)) fail("That subject no longer exists.");
+	const clean = cleanName(name, "Topic name");
+	const existing = lib.topics.find((t) => t.subjectId === subjectId && same(t.name, clean));
+	if (existing) return { library: lib, topic: existing, created: false };
+	const f = fresh("top", make);
+	const order = Math.max(-1, ...lib.topics.filter((t) => t.subjectId === subjectId).map((t) => t.order)) + 1;
+	const topic: Topic = { id: f.id, subjectId, name: clean, order, createdAt: f.at, context: "" };
+	return { library: { ...lib, topics: [...lib.topics, topic] }, topic, created: true };
+}
+
+export function renameSubject(lib: Library, id: string, name: unknown): Library {
+	const clean = cleanName(name, "Subject name");
+	if (!subjectOf(lib, id)) fail("That subject no longer exists.");
+	if (lib.subjects.some((s) => s.id !== id && same(s.name, clean))) fail("Another subject already has that name.");
+	return { ...lib, subjects: lib.subjects.map((s) => (s.id === id ? { ...s, name: clean } : s)) };
+}
+
+export function renameTopic(lib: Library, id: string, name: unknown): Library {
+	const clean = cleanName(name, "Topic name");
+	const topic = topicOf(lib, id) ?? fail("That topic no longer exists.");
+	if (lib.topics.some((t) => t.id !== id && t.subjectId === topic.subjectId && same(t.name, clean))) fail("Another topic in this subject already has that name.");
+	return { ...lib, topics: lib.topics.map((t) => (t.id === id ? { ...t, name: clean } : t)) };
+}
+
+/** Store the maintained context document of a subject or topic. */
+export function setContext(lib: Library, target: { subjectId: string; topicId?: string }, context: string, at = new Date().toISOString()): Library {
+	const text = String(context);
+	if (target.topicId !== undefined) {
+		if (!topicOf(lib, target.topicId)) fail("That topic no longer exists.");
+		return { ...lib, topics: lib.topics.map((t) => (t.id === target.topicId ? { ...t, context: text, contextUpdatedAt: at } : t)) };
+	}
+	if (!subjectOf(lib, target.subjectId)) fail("That subject no longer exists.");
+	return { ...lib, subjects: lib.subjects.map((s) => (s.id === target.subjectId ? { ...s, context: text, contextUpdatedAt: at } : s)) };
+}
+
+/** SHA-256 hashes still referenced by any material. */
+export const referencedHashes = (lib: Library): Set<string> => new Set(lib.materials.map((m) => m.sha256));
+
+export interface Removal { library: Library; /** Stored copies no material references any more: delete these files and their page memory. */ orphaned: string[] }
+function reclaim(before: Library, after: Library): Removal {
+	const kept = referencedHashes(after);
+	return { library: after, orphaned: [...referencedHashes(before)].filter((h) => !kept.has(h)) };
+}
+
+/** Delete a subject with its topics and materials; reports now-unreferenced stored copies. */
+export function deleteSubject(lib: Library, id: string): Removal {
+	if (!subjectOf(lib, id)) fail("That subject no longer exists.");
+	return reclaim(lib, {
+		...lib,
+		subjects: lib.subjects.filter((s) => s.id !== id),
+		topics: lib.topics.filter((t) => t.subjectId !== id),
+		materials: lib.materials.filter((m) => m.scope.subjectId !== id),
+	});
+}
+
+export function deleteTopic(lib: Library, id: string): Removal {
+	if (!topicOf(lib, id)) fail("That topic no longer exists.");
+	return reclaim(lib, {
+		...lib,
+		topics: lib.topics.filter((t) => t.id !== id),
+		materials: lib.materials.filter((m) => m.scope.topicId !== id),
+	});
+}
+
+export interface NewMaterial { sha256: string; fileName: string; pageCount: number; bytes: number; scope: StudyScope }
+
+/**
+ * Attach a file to a scope. The same file (same hash) in the same scope is returned as is; in a different
+ * scope it gets its own reference but shares the single stored copy (`shared` says the copy already existed).
+ */
+export function addMaterial(lib: Library, input: NewMaterial, make?: () => Fresh): { library: Library; material: Material; created: boolean; shared: boolean } {
+	if (!SHA256.test(input.sha256)) fail("Invalid file hash.");
+	const scope = checkScope(lib, input.scope);
+	const fileName = cleanName(input.fileName.replace(/^.*[\\/]/, ""), "File name");
+	if (!Number.isInteger(input.pageCount) || input.pageCount < 1) fail("The PDF has no pages.");
+	const existing = lib.materials.find((m) => m.sha256 === input.sha256 && m.scope.subjectId === scope.subjectId && (m.scope.topicId ?? null) === (scope.topicId ?? null));
+	if (existing) return { library: lib, material: existing, created: false, shared: true };
+	const shared = lib.materials.some((m) => m.sha256 === input.sha256);
+	const f = fresh("mat", make);
+	const material: Material = { id: f.id, sha256: input.sha256, fileName, pageCount: input.pageCount, bytes: input.bytes, scope, addedAt: f.at };
+	return { library: { ...lib, materials: [...lib.materials, material] }, material, created: true, shared };
+}
+
+/** Remove one material reference; the stored copy goes only when nothing else references it. */
+export function removeMaterial(lib: Library, id: string): Removal {
+	if (!lib.materials.some((m) => m.id === id)) fail("That file no longer exists.");
+	return reclaim(lib, { ...lib, materials: lib.materials.filter((m) => m.id !== id) });
+}
+
+/** Move a material to another scope (e.g. a topic file promoted to subject-wide). */
+export function moveMaterial(lib: Library, id: string, scope: StudyScope): Library {
+	const target = checkScope(lib, scope);
+	const material = lib.materials.find((m) => m.id === id) ?? fail("That file no longer exists.");
+	if (lib.materials.some((m) => m.id !== id && m.sha256 === material.sha256 && m.scope.subjectId === target.subjectId && (m.scope.topicId ?? null) === (target.topicId ?? null))) {
+		// The same file is already in the target: drop this duplicate reference.
+		return { ...lib, materials: lib.materials.filter((m) => m.id !== id) };
+	}
+	return { ...lib, materials: lib.materials.map((m) => (m.id === id ? { ...m, scope: target } : m)) };
+}
+
+/** A chat's place in the library, chosen when it starts. */
+export interface ChatPlacement {
+	subjectId: string;
+	topicId?: string;
+	/** "scratch" = lesson-first from the material/topic; "check" = probe what the learner knows first. */
+	startMode: "scratch" | "check";
+}
+
+/** Validate a placement against the library (stale ids refuse, never guess). */
+export function checkPlacement(lib: Library, raw: unknown): ChatPlacement {
+	const r = (raw ?? {}) as Partial<ChatPlacement>;
+	if (typeof r.subjectId !== "string") return fail("Choose a subject for this chat.");
+	const scope = checkScope(lib, { subjectId: r.subjectId, ...(typeof r.topicId === "string" ? { topicId: r.topicId } : {}) });
+	if (r.startMode !== "scratch" && r.startMode !== "check") return fail("Choose how to start: from scratch, or check what you know first.");
+	return { ...scope, startMode: r.startMode };
+}
+
+/** The scopes whose context applies to a chat placed at `placement`, most specific first. */
+export function contextScopes(lib: Library, placement: Pick<ChatPlacement, "subjectId" | "topicId">): Array<{ level: "topic" | "subject"; name: string; context: string; id: string }> {
+	const out: Array<{ level: "topic" | "subject"; name: string; context: string; id: string }> = [];
+	const topic = placement.topicId ? topicOf(lib, placement.topicId) : undefined;
+	if (topic) out.push({ level: "topic", name: topic.name, context: topic.context, id: topic.id });
+	const subject = subjectOf(lib, placement.subjectId);
+	if (subject) out.push({ level: "subject", name: subject.name, context: subject.context, id: subject.id });
+	return out;
+}

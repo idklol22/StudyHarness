@@ -32,6 +32,9 @@ export const PATHS = {
 	/** Debug artifacts (env-gated): data/debug/provider-events/<chatId>.jsonl
 	 * raw provider stream recordings (src/agent/provider-events.ts). */
 	debug: path.join(/* turbopackIgnore: true */ DATA_ROOT, "debug"),
+	/** Study (Study overhaul, 2026-11): subjects/topics library, managed PDF copies
+	 * (data/study/materials/<sha256>.pdf), per-file page memory, page images, notebooks and cards. */
+	study: path.join(/* turbopackIgnore: true */ DATA_ROOT, "study"),
 } as const;
 
 // ─── Models ────────────────────────────────────────────────────────────────

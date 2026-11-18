@@ -10,6 +10,7 @@ import type { LhMessage } from "../native-messages.ts";
 import type { Phase3 } from "../phases.ts";
 import type { PlanNodeStatus, PlanTree } from "./plan.ts";
 import type { EmissionStats } from "./graph.ts";
+import type { ChatPlacement } from "../study/model.ts";
 
 // ─── Chat records (the session store's on-disk format) ───────────────────────
 
@@ -31,6 +32,9 @@ export interface ChatRecord {
 	imageSnapshots?: Record<string, ImageSnapshot>;
 	/** The session's kind; an absent field reads as teach. */
 	kind?: ChatKind;
+	/** Where the session lives in the Study library (subject, optional topic) and how it started
+	 * (from scratch, or checking what the learner knows first). Absent on sessions that predate Study. */
+	placement?: ChatPlacement;
 	/** The session's plan tree, written by the native plan tools. */
 	tree?: PlanTree;
 	/** Append-only usage log, separate from message history: one entry per billed
@@ -300,6 +304,8 @@ export interface ChatSummary {
 	updatedAt: string;
 	/** Normalized kind (absent record field reads as teach). */
 	kind: ChatKind;
+	/** The session's place in the Study library, when it has one. */
+	placement?: ChatPlacement;
 	messageCount: number;
 	/** Transcript-derived phase: probe ends at successful probe_done completion;
 	 * plan ends at the first node-tagged teaching question call, not its answer. */

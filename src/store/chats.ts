@@ -13,6 +13,7 @@ import { createHash } from "node:crypto";
 import { PATHS } from "../../config.ts";
 import { emit } from "../core/events.ts";
 import type { ChatStore } from "../core/ports.ts";
+import type { ChatPlacement } from "../core/study/model.ts";
 import type { ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, ImageSnapshot, PlanTree, SideChatThread, TurnUsage } from "../core/contracts.ts";
 import { CURRENT_CHAT_VERSION } from "../core/contracts.ts";
 import type { LhMessage } from "../core/native-messages.ts";
@@ -34,7 +35,7 @@ function chatFile(id: string): string {
  *  phase, busy, pendingQuestion) is already announced by turn-started /
  *  turn-settled, which the sidebar refetches on. Silence here is law,
  *  not oversight. */
-function createChat(title: string, kind?: "practice"): ChatRecord {
+function createChat(title: string, kind?: "practice", placement?: ChatPlacement): ChatRecord {
 	const now = new Date().toISOString();
 	const record: ChatRecord = {
 		id: `chat_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`,
@@ -45,6 +46,8 @@ function createChat(title: string, kind?: "practice"): ChatRecord {
 		// Practice sessions carry the marker; teach stays ABSENT (absence
 		// reads as teach — pre-practice records never migrate).
 		...(kind === "practice" ? { kind: "practice" as const } : {}),
+		// Study placement (subject / topic / how it started), stamped at birth.
+		...(placement ? { placement } : {}),
 	};
 	fs.mkdirSync(PATHS.chats, { recursive: true });
 	writeChat(record);
@@ -243,8 +246,19 @@ function updateSideChats(id: string, update: (threads: SideChatThread[]) => Side
 	return next;
 }
 
+/** File a session under a subject/topic, or clear it. Like a rename: not conversation activity. */
+function savePlacement(id: string, placement: ChatPlacement | null): ChatRecord | null {
+	const record = getChat(id);
+	if (!record) return null;
+	if (placement) record.placement = placement; else delete record.placement;
+	writeChat(record);
+	emit("chats-changed", {});
+	return record;
+}
+
 export const chatStore: ChatStore = {
 	createChat,
+	savePlacement,
 	getChat,
 	listChats,
 	saveMessages,
