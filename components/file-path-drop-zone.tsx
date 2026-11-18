@@ -5,6 +5,7 @@ import { FileSymlinkIcon, XIcon } from "lucide-react";
 import { directoryReferencePath, quoteFilePath } from "@/src/core";
 import { appendToPrimaryInput } from "@/components/dictation";
 import { INSERT_FILE_PATHS_EVENT } from "@/components/path-input";
+import { UPLOADING_NOTICE, uploadFilesForPaths } from "@/components/browser-upload";
 
 export const BROWSER_NOTICE = "Local file paths can only be attached in the desktop app. You can paste a full path instead.";
 
@@ -68,7 +69,23 @@ export function FilePathDropZone({ children, className, onContentRoot }: {
 				event.stopPropagation();
 				clearDrag();
 				const resolve = window.lh?.getPathForFile;
-				if (!resolve) { setNotice(BROWSER_NOTICE); return; }
+				if (!resolve) {
+					// Browser: upload the dropped files (not folders) and attach the saved copies' paths.
+					const items = Array.from(event.dataTransfer.items).filter((item) => item.kind === "file");
+					const files = Array.from(event.dataTransfer.files).filter((_, index) => {
+						try { return items[index]?.webkitGetAsEntry?.()?.isDirectory !== true; } catch { return true; }
+					});
+					if (!files.length) { setNotice(BROWSER_NOTICE); return; }
+					const target = document.activeElement?.closest<HTMLElement>("[data-file-path-input]");
+					const zone = event.currentTarget;
+					setNotice(UPLOADING_NOTICE(files.length));
+					void uploadFilesForPaths(files).then((paths) => {
+						if (target && zone.contains(target) && target.isConnected) target.dispatchEvent(new CustomEvent(INSERT_FILE_PATHS_EVENT, { detail: paths }));
+						else if (!appendToPrimaryInput(paths.map(quoteFilePath).join(" "))) { setNotice("Open a chat to attach files."); return; }
+						setNotice(files.length < event.dataTransfer.files.length ? "Folders can only be attached in the desktop app; the files were uploaded." : "");
+					}, (error: unknown) => setNotice(error instanceof Error ? error.message : "Could not upload the files."));
+					return;
+				}
 				// Inspect only the dropped item's type, never traverse its entries.
 				// Positively known directories get a durable trailing separator.
 				const entries = Array.from(event.dataTransfer.items).filter((item) => item.kind === "file");
@@ -104,7 +121,7 @@ export function FilePathDropZone({ children, className, onContentRoot }: {
 				<div data-testid="file-path-drop-indicator" className="pointer-events-none absolute inset-2 z-50 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-background/85 p-6 text-center backdrop-blur-sm">
 					<div className="flex max-w-md flex-col items-center gap-3">
 						<FileSymlinkIcon className="size-8 text-primary" aria-hidden />
-						<span className="font-ui text-sm">{window.lh?.getPathForFile ? "Drop to attach file paths" : BROWSER_NOTICE}</span>
+						<span className="font-ui text-sm">{window.lh?.getPathForFile ? "Drop to attach file paths" : "Drop to upload and attach files"}</span>
 					</div>
 				</div>
 			)}

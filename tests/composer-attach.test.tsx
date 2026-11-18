@@ -20,7 +20,7 @@ import { InteractionLayersProvider, useInteractionLayers, type InteractionLayers
 let cleanup: (() => Promise<void>) | undefined;
 afterEach(async () => { await cleanup?.(); cleanup = undefined; });
 
-async function fixture({ desktop = true } = {}) {
+async function fixture({ desktop = true, uploadPaths }: { desktop?: boolean; uploadPaths?: string[] } = {}) {
 	const { window: win, document: doc } = parseHTML("<html><body><div id='root'></div></body></html>");
 	let active: Element = doc.body;
 	Object.defineProperty(doc, "activeElement", { get: () => active });
@@ -39,11 +39,17 @@ async function fixture({ desktop = true } = {}) {
 	let folderResult: string | null | Error = null;
 	let byteReads = 0;
 	let sends = 0;
+	let uploads = 0;
 	let value = "readthis";
 	const previous = new Map<string, PropertyDescriptor | undefined>();
 	for (const [name, next] of Object.entries({
 		React, window: win, document: doc, Node: win.Node, HTMLElement: win.HTMLElement, Element: win.Element,
 		Event: win.Event, CustomEvent: win.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true, innerWidth: 1000, innerHeight: 800,
+		fetch: async (url: string) => {
+			uploads++;
+			if (uploadPaths && url === "/api/uploads") return new Response(JSON.stringify({ paths: uploadPaths }), { headers: { "content-type": "application/json" } });
+			throw new Error("No network expected");
+		},
 	})) {
 		previous.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
 		Object.defineProperty(globalThis, name, { configurable: true, writable: true, value: next });
@@ -82,6 +88,7 @@ async function fixture({ desktop = true } = {}) {
 		get pickerClicks() { return pickerClicks; },
 		get folderCalls() { return folderCalls; },
 		get sends() { return sends; },
+		get uploads() { return uploads; },
 		setFolderResult(result: typeof folderResult) { folderResult = result; },
 		async choice(label: string) {
 			await act(async () => { Array.from(doc.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((button) => button.textContent === label)!.click(); });
@@ -174,9 +181,9 @@ describe("composer attach button", () => {
 		assert.deepEqual(result, { paths: ["/notes/a.pdf"], skipped: 2 });
 	});
 
-	it("server render is the browser case: a disabled-looking paperclip between the input and Send", () => {
+	it("server render is the browser case: an enabled paperclip (uploads) between the input and Send", () => {
 		const html = renderToStaticMarkup(<Composer busy={false} value="" onChange={() => {}} onSend={() => {}} onStop={() => {}} canSend={false} />);
-		assert.match(html, /aria-label="Attach files"[^>]*aria-disabled="true"|aria-disabled="true"[^>]*aria-label="Attach files"/);
+		assert.match(html, /aria-label="Attach files"[^>]*aria-disabled="false"|aria-disabled="false"[^>]*aria-label="Attach files"/);
 		const editor = html.indexOf("data-file-path-input");
 		const attach = html.indexOf('data-testid="attach-files"');
 		const send = html.indexOf('aria-label="Send"');
@@ -287,12 +294,27 @@ describe("composer attach button", () => {
 		assert.equal(f.sends, 0);
 	});
 
-	it("browser: the button stays inert and the picker never opens", async () => {
-		const f = await fixture({ desktop: false });
-		assert.equal(f.button.getAttribute("aria-disabled"), "true");
+	it("browser: the paperclip opens the file picker directly, uploads, and attaches the saved copies' paths", async () => {
+		const saved = ["/data/uploads/2026-11-18-ab12cd34/week 3.pdf"];
+		const f = await fixture({ desktop: false, uploadPaths: saved });
+		assert.equal(f.button.getAttribute("aria-disabled"), "false");
+		f.caret(4);
 		await act(async () => { f.button.click(); });
-		assert.equal(f.pickerClicks, 0);
-		await f.pick([f.file("a.pdf", "/a.pdf")]);
+		assert.equal(f.pickerClicks, 1, "no Files/Folder menu: folders need the desktop app");
+		assert.equal(f.doc.querySelectorAll('[role="menuitem"]').length, 0);
+		await f.pick([f.file("week 3.pdf")]);
+		await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+		assert.equal(f.uploads, 1);
+		assert.equal(f.value, `read ${saved.map(quoteFilePath).join(" ")} this`);
+		assert.equal(f.sends, 0);
+	});
+
+	it("browser: a failed upload keeps the draft and says why", async () => {
+		const f = await fixture({ desktop: false });
+		await act(async () => { f.button.click(); });
+		await f.pick([f.file("a.pdf")]);
+		await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
 		assert.equal(f.value, "readthis");
+		assert.match(f.doc.querySelector('[data-testid="attachment-popup"]')?.textContent ?? "", /Could not upload/);
 	});
 });

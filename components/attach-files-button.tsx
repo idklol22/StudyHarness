@@ -7,6 +7,7 @@ import { directoryReferencePath, quoteFilePath } from "@/src/core";
 import { Hint } from "@/components/ui/hint";
 import { INSERT_FILE_PATHS_EVENT } from "@/components/path-input";
 import { BROWSER_NOTICE } from "@/components/file-path-drop-zone";
+import { UPLOADING_NOTICE, uploadFilesForPaths } from "@/components/browser-upload";
 import { InteractionLayerOwner, useInteractionLayer, useInteractionLayers, useOptionalInteractionLayers } from "./interaction-layers";
 import { INTERACTION_LAYER_Z_BASE } from "./host-dialog";
 import { isInteractionScopeEligible } from "./plugin-input-focus";
@@ -76,8 +77,9 @@ function AttachmentPopup({ anchorRef, rootRef, open, close, children }: {
  * The attach button (issue #285): the picker's twin of a file drop — files
  * stay where they are and only their quoted paths enter the draft, at the
  * caret of `editorRef` (a PathInput root). Any file type; the agent reads
- * what it can. Desktop only: a browser File has no local path, so there the
- * button explains instead (the drop zone's notice). The separate native
+ * what it can. In a browser a File has no local path, so the picked files are
+ * uploaded to the app's data folder (/api/uploads) and THOSE paths enter the
+ * draft; folders stay desktop-only. The separate native
  * folder choice returns the directory itself, including an empty directory.
  * aria-disabled, not disabled, so the tooltip still shows.
  */
@@ -151,21 +153,27 @@ export function AttachFilesButton({ editorRef }: { editorRef: React.RefObject<HT
 				data-testid="attach-files-input"
 				onChange={(e) => {
 					const resolve = window.lh?.getPathForFile;
-					const { paths } = resolve ? pathsForFiles(Array.from(e.currentTarget.files ?? []), resolve) : { paths: [] };
-					if (paths.length > 0) editorRef.current?.dispatchEvent(new CustomEvent(INSERT_FILE_PATHS_EVENT, { detail: paths }));
+					const picked = Array.from(e.currentTarget.files ?? []);
 					e.currentTarget.value = ""; // allow re-picking the same file
+					const editor = editorRef.current;
+					const insert = (paths: string[]) => { if (paths.length > 0 && editor?.isConnected) editor.dispatchEvent(new CustomEvent(INSERT_FILE_PATHS_EVENT, { detail: paths })); };
+					if (resolve) { insert(pathsForFiles(picked, resolve).paths); return; }
+					// Browser: upload, then attach the saved copies' paths.
+					if (!picked.length) return;
+					setNotice(UPLOADING_NOTICE(picked.length));
+					void uploadFilesForPaths(picked).then((paths) => { insert(paths); setNotice(""); }, (error: unknown) => setNotice(error instanceof Error ? error.message : "Could not upload the files."));
 				}}
 			/>
-			<Hint label={desktop ? "Attach files or a folder" : BROWSER_NOTICE}>
+			<Hint label={desktop ? "Attach files or a folder" : "Attach files (uploaded to this app)"}>
 				<button
 					ref={buttonRef}
 					type="button"
 					aria-label="Attach files"
-					aria-disabled={!desktop}
-					aria-haspopup="menu"
-					aria-expanded={open}
+					aria-disabled={false}
+					aria-haspopup={desktop ? "menu" : undefined}
+					aria-expanded={desktop ? open : undefined}
 					data-testid="attach-files"
-					onClick={() => { if (desktop) { setNotice(""); setOpen(!open); } }}
+					onClick={() => { setNotice(""); if (desktop) setOpen(!open); else pickerRef.current?.click(); }}
 					className="flex size-10 shrink-0 items-center justify-center rounded-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground aria-disabled:cursor-default aria-disabled:opacity-40 aria-disabled:hover:bg-transparent aria-disabled:hover:text-muted-foreground"
 				>
 					<PaperclipIcon className="size-4" />
