@@ -75,21 +75,23 @@ export function SuggestionsCard({ library, subjectId, act }: { library: Library;
 	);
 }
 
-/** Choose a file's topic yourself: an existing topic, or a new one by name. */
-export function PutInTopic({ library, subjectId, materialId, act, onDone }: { library: Library; subjectId: string; materialId: string; act: Act; onDone: () => void }) {
-	const topics = topicsOf(library, subjectId);
+/** Choose a file's topic yourself (move), or add it to another topic as well (link): an existing topic or a new one. */
+export function PutInTopic({ library, subjectId, materialId, act, onDone, mode = "move" }: { library: Library; subjectId: string; materialId: string; act: Act; onDone: () => void; mode?: "move" | "link" }) {
+	const file = library.materials.find((m) => m.id === materialId);
+	// Topics that already hold this file are not offered again.
+	const topics = topicsOf(library, subjectId).filter((t) => !library.materials.some((m) => m.sha256 === file?.sha256 && m.scope.topicId === t.id));
 	const [topicId, setTopicId] = useState(topics[0]?.id ?? "");
 	const [name, setName] = useState("");
 	return (
-		<form className="mt-2 flex flex-wrap items-center gap-2 text-xs" data-testid="put-in-topic" onSubmit={(e) => { e.preventDefault(); void act({ action: "assign-material", id: materialId, ...(topicId ? { topicId } : { newTopicName: name }) }).then(onDone); }}>
+		<form className="mt-2 flex flex-wrap items-center gap-2 text-xs" data-testid="put-in-topic" onSubmit={(e) => { e.preventDefault(); void act({ action: mode === "link" ? "link-material" : "assign-material", id: materialId, ...(topicId ? { topicId } : { newTopicName: name }) }).then(onDone); }}>
 			<select value={topicId} onChange={(e) => setTopicId(e.target.value)} aria-label="Topic" className={`${input} text-xs`}>
 				{topics.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
 				<option value="">New topic…</option>
 			</select>
 			{!topicId && <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Topic name" maxLength={80} aria-label="New topic name" className={`${input} w-48`} />}
-			<button type="submit" disabled={!topicId && !name.trim()} className="h-7 rounded-md bg-primary px-3 font-medium text-primary-foreground disabled:opacity-50">Move here</button>
+			<button type="submit" disabled={!topicId && !name.trim()} className="h-7 rounded-md bg-primary px-3 font-medium text-primary-foreground disabled:opacity-50">{mode === "link" ? "Add to topic" : "Move here"}</button>
 			<button type="button" onClick={onDone} className="h-7 rounded-md border px-2 hover:bg-accent">Cancel</button>
-			<span className="basis-full text-muted-foreground">The file moves into the topic and its ideas are found for it (you can edit them after).</span>
+			<span className="basis-full text-muted-foreground">{mode === "link" ? "The file stays where it is and also joins this topic (one stored copy); its ideas for this topic are found too." : "The file moves into the topic and its ideas are found for it (you can edit them after)."}</span>
 		</form>
 	);
 }

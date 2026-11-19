@@ -188,3 +188,31 @@ export function assignMaterial(lib: Library, materialId: string, to: { topicId?:
 	const material = next.materials.find((m) => m.sha256 === source.sha256 && m.scope.topicId === topicId)!;
 	return { library: next, topicId, material };
 }
+
+/**
+ * Add a file to another topic as well (an existing one, or a new one by name), keeping it where it is. Both places
+ * share the one stored copy and its page memory; removing it from one topic leaves the other.
+ */
+export function linkMaterial(lib: Library, materialId: string, to: { topicId?: string; newTopicName?: string }): { library: Library; topicId: string; material: Material } {
+	const source = lib.materials.find((m) => m.id === materialId);
+	if (!source) throw new Error("That file no longer exists.");
+	let next = lib;
+	let topicId = to.topicId && topicOf(next, to.topicId)?.subjectId === source.scope.subjectId ? to.topicId : undefined;
+	if (!topicId) {
+		if (!clip(to.newTopicName, 80)) throw new Error("Choose a topic or type a new topic name.");
+		const r = createTopic(next, source.scope.subjectId, to.newTopicName);
+		next = r.library; topicId = r.topic.id;
+	}
+	if (next.materials.some((m) => m.sha256 === source.sha256 && m.scope.topicId === topicId)) throw new Error("That file is already in that topic.");
+	const r = addMaterial(next, { sha256: source.sha256, fileName: source.fileName, pageCount: source.pageCount, bytes: source.bytes, scope: { subjectId: source.scope.subjectId, topicId }, ...(source.kind ? { kind: source.kind } : {}) });
+	return { library: r.library, topicId, material: r.material };
+}
+
+/** The other topics (of the same subject) that hold the same file. */
+export function otherTopicsOf(lib: Library, materialId: string): Array<{ topicId: string; name: string }> {
+	const m = lib.materials.find((x) => x.id === materialId);
+	if (!m) return [];
+	return lib.materials
+		.filter((x) => x.id !== m.id && x.sha256 === m.sha256 && x.scope.subjectId === m.scope.subjectId && x.scope.topicId && x.scope.topicId !== m.scope.topicId)
+		.flatMap((x) => { const t = topicOf(lib, x.scope.topicId!); return t ? [{ topicId: t.id, name: t.name }] : []; });
+}

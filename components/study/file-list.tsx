@@ -6,9 +6,9 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { FileTextIcon, FolderInputIcon, Trash2Icon } from "lucide-react";
+import { CopyPlusIcon, FileTextIcon, FolderInputIcon, Trash2Icon } from "lucide-react";
 import { useServerEvent } from "@/components/server-events";
-import { coverageByFile, materialTopicName, type Coverage, type Library, type Material } from "@/src/core";
+import { coverageByFile, materialTopicName, otherTopicsOf, type Coverage, type Library, type Material } from "@/src/core";
 import { PutInTopic } from "./suggestions-card";
 import { SlideViewer } from "./slide-viewer";
 
@@ -20,7 +20,7 @@ const fmtBytes = (n: number) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(
 export function FileList({ library, subjectId, files, topicPage, act, onMessage }: { library: Library; subjectId: string; files: readonly Material[]; topicPage: boolean; act: Act; onMessage: (m: string) => void }) {
 	const [notebooks, setNotebooks] = useState<NotebookCover[]>([]);
 	const [viewing, setViewing] = useState<{ material: Material; page: number } | null>(null);
-	const [placing, setPlacing] = useState<string | null>(null);
+	const [placing, setPlacing] = useState<{ id: string; mode: "move" | "link" } | null>(null);
 	const load = useCallback(async () => {
 		try {
 			const r = await fetch(`/api/study/notes?view=coverage&subjectId=${encodeURIComponent(subjectId)}`);
@@ -47,10 +47,11 @@ export function FileList({ library, subjectId, files, topicPage, act, onMessage 
 								<span className="shrink-0 text-xs text-muted-foreground">{m.pages ? `pp. ${m.pages.from}–${m.pages.to} of ${m.pageCount}` : `${m.pageCount} ${m.kind === "text" ? "text pages" : "pages"}`} · {fmtBytes(m.bytes)}</span>
 								{!m.scope.topicId && (
 									<>
-										<button type="button" onClick={() => setPlacing(placing === m.id ? null : m.id)} title="Choose this file's topic yourself" className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-primary hover:bg-accent"><FolderInputIcon className="size-3" />Put in topic</button>
+										<button type="button" onClick={() => setPlacing(placing?.id === m.id && placing.mode === "move" ? null : { id: m.id, mode: "move" })} title="Move this file into a topic you choose" className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-primary hover:bg-accent"><FolderInputIcon className="size-3" />Put in topic</button>
 										{!pending && <button type="button" title="Let the agent read this file and suggest topics" onClick={() => { void act({ action: "understand-material", id: m.id }).then(() => onMessage(`Understanding ${m.fileName} — watch the activity panel; suggested topics will appear here.`)); }} className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-primary hover:bg-accent">Find topics</button>}
 									</>
 								)}
+								<button type="button" onClick={() => setPlacing(placing?.id === m.id && placing.mode === "link" ? null : { id: m.id, mode: "link" })} title="Also add this file to another topic (it stays here too)" data-testid="link-file" className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-primary hover:bg-accent"><CopyPlusIcon className="size-3" />Also in topic</button>
 								<button type="button" aria-label={`Remove ${m.fileName}`} title="Remove" onClick={() => void act({ action: "remove-material", id: m.id })} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive"><Trash2Icon className="size-3.5" /></button>
 							</div>
 							{cov && (
@@ -59,7 +60,10 @@ export function FileList({ library, subjectId, files, topicPage, act, onMessage 
 									<span>{cov.parts.length ? (cov.uncovered ? `${cov.uncovered} page${cov.uncovered === 1 ? "" : "s"} not in any notes yet` : "fully covered by notes") : "not in any notes yet"}</span>
 								</div>
 							)}
-							{placing === m.id && <PutInTopic library={library} subjectId={subjectId} materialId={m.id} act={act} onDone={() => setPlacing(null)} />}
+							{topicPage && otherTopicsOf(library, m.id).length > 0 && (
+								<div className="mt-1 flex flex-wrap items-center gap-1 pl-6 text-[11px] text-muted-foreground">Also in:{otherTopicsOf(library, m.id).map((t) => <Link key={t.topicId} href={`/subjects/${subjectId}/${t.topicId}`} className="rounded-full border px-2 py-0.5 hover:bg-accent">{t.name}</Link>)}</div>
+							)}
+							{placing?.id === m.id && <PutInTopic library={library} subjectId={subjectId} materialId={m.id} act={act} mode={placing.mode} onDone={() => setPlacing(null)} />}
 						</li>
 					);
 				})}

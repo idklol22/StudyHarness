@@ -17,7 +17,7 @@ import {
 } from "../core/study/model.ts";
 import { lookup, recordBatch, recordPages, type MaterialMemory } from "../core/study/material-memory.ts";
 import { isTextName, textOutline, textPages } from "../core/study/text-material.ts";
-import { acceptSuggestion, addIdea, addSuggestion, assignMaterial, dismissSuggestion, editIdea, ideasOf, mergeIdeas, removeIdea, setIdeas, tidyLibrary, type IncomingIdea, type SuggestionEdit } from "../core/study/ideas.ts";
+import { acceptSuggestion, addIdea, addSuggestion, assignMaterial, linkMaterial, dismissSuggestion, editIdea, ideasOf, mergeIdeas, removeIdea, setIdeas, tidyLibrary, type IncomingIdea, type SuggestionEdit } from "../core/study/ideas.ts";
 import type { SuggestedTopic } from "../core/study/model.ts";
 import type { TextRun } from "../core/study/text-boxes.ts";
 import { guessField } from "../core/study/fields.ts";
@@ -132,6 +132,7 @@ export function createStudyService(store: StudyStore, pdf: StudyPdf) {
 		addIdea: (target: { subjectId: string; topicId?: string }, idea: { name: string; summary?: string }) => guard(() => change((lib) => ({ library: addIdea(lib, target, idea), result: undefined }))),
 		editIdea: (target: { subjectId: string; topicId?: string }, id: string, patch: { name?: string; summary?: string }) => guard(() => change((lib) => ({ library: editIdea(lib, target, id, patch), result: undefined }))),
 		removeIdea: (target: { subjectId: string; topicId?: string }, id: string) => guard(() => change((lib) => ({ library: removeIdea(lib, target, id), result: undefined }))),
+		linkMaterial: (materialId: string, to: { topicId?: string; newTopicName?: string }) => guard(() => change((lib) => { const r = linkMaterial(lib, materialId, to); return { library: r.library, result: { topicId: r.topicId, material: r.material } }; })),
 		assignMaterial: (materialId: string, to: { topicId?: string; newTopicName?: string }) => guard(() => change((lib) => { const r = assignMaterial(lib, materialId, to); return { library: r.library, result: { topicId: r.topicId, material: r.material } }; })),
 		dismissSuggestion: (id: string) => guard(() => change((lib) => ({ library: dismissSuggestion(lib, id), result: undefined }))),
 		removeMaterial: (id: string) => guard(() => change((lib) => withRemoval(removeMaterial(lib, id)))),

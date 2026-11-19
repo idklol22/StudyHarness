@@ -4,7 +4,8 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { acceptSuggestion, addIdea, addSuggestion, assignMaterial, editIdea, ideasOf, removeIdea } from "../src/core/study/ideas.ts";
+import { acceptSuggestion, addIdea, addSuggestion, assignMaterial, editIdea, ideasOf, linkMaterial, otherTopicsOf, removeIdea } from "../src/core/study/ideas.ts";
+import { removeMaterial } from "../src/core/study/model.ts";
 import { addMaterial, createSubject, createTopic, emptyLibrary, materialsIn, type Library } from "../src/core/study/model.ts";
 import { coverageByFile, coveredPages, MAX_SOURCE_PAGES, normalizeCoverage } from "../src/core/study/coverage.ts";
 import { FIELDS, fieldDirection, guessField } from "../src/core/study/fields.ts";
@@ -183,5 +184,21 @@ describe("view sliders", () => {
 		layout.setTuning({ ...DEFAULT_TUNING, edgeLength: 2, topicDistance: 2.5 });
 		layout.settle();
 		assert.ok(gap() > g0 * 2, "the subject → topic slider lengthens only that step");
+	});
+});
+
+describe("one file in several topics", () => {
+	it("a file can join more topics (one stored copy), shows where else it is, and leaving one topic keeps the others", () => {
+		const f = lib();
+		const moved = assignMaterial(f.l, f.big.id, { topicId: f.t.id });
+		const a = linkMaterial(moved.library, moved.material.id, { newTopicName: "Sorting" });
+		const b = linkMaterial(a.library, moved.material.id, { newTopicName: "Searching" });
+		const copies = b.library.materials.filter((m) => m.sha256 === f.big.sha256);
+		assert.equal(copies.length, 3);
+		assert.deepEqual(otherTopicsOf(b.library, moved.material.id).map((t) => t.name).sort(), ["Searching", "Sorting"]);
+		assert.throws(() => linkMaterial(b.library, moved.material.id, { topicId: a.topicId }), /already in that topic/);
+		const r = removeMaterial(b.library, moved.material.id);
+		assert.deepEqual(r.orphaned, [], "the stored copy stays while other topics use it");
+		assert.equal(r.library.materials.filter((m) => m.sha256 === f.big.sha256).length, 2);
 	});
 });

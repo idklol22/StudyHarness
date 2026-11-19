@@ -7,7 +7,8 @@
  *   {action:"delete-subject", id} · {action:"delete-topic", id}     (cascade; unreferenced stored PDFs are removed)
  *   {action:"remove-material", id} · {action:"move-material", id, subjectId, topicId?}
  *   {action:"accept-suggestion", id, renames?: {index: name}} · {action:"dismiss-suggestion", id}   (suggested topics for a file)
- *   {action:"assign-material", id, topicId? | newTopicName?}   (the learner picks the topic; ideas are then found for it)
+ *   {action:"assign-material", id, topicId? | newTopicName?}   (move the file into a topic the learner picks; ideas are then found for it)
+ *   {action:"link-material", id, topicId? | newTopicName?}     (also put the file in another topic, keeping it where it is)
  *   {action:"add-idea"|"edit-idea"|"remove-idea", subjectId, topicId?, id?, name?, summary?}
  *   {action:"understand-material", id}          (re-run the background understanding of a file: text, skim, topics/ideas)
  */
@@ -69,8 +70,8 @@ export async function POST(request: Request) {
 				return Response.json({ topics: accepted.map((a) => a.topicId), library: study.library() });
 			}
 			case "dismiss-suggestion": study.dismissSuggestion(text(raw.id, "id")); break;
-			case "assign-material": {
-				const r = study.assignMaterial(text(raw.id, "id"), { ...(typeof raw.topicId === "string" && raw.topicId ? { topicId: raw.topicId } : {}), ...(typeof raw.newTopicName === "string" ? { newTopicName: raw.newTopicName } : {}) });
+			case "assign-material": case "link-material": {
+				const r = (raw.action === "link-material" ? study.linkMaterial : study.assignMaterial)(text(raw.id, "id"), { ...(typeof raw.topicId === "string" && raw.topicId ? { topicId: raw.topicId } : {}), ...(typeof raw.newTopicName === "string" ? { newTopicName: raw.newTopicName } : {}) });
 				// The file's ideas for that topic are found in the background (activity panel).
 				digestMaterial(r.material.id, { engineFor: resolveEngine });
 				return Response.json({ topicId: r.topicId, library: study.library() });
