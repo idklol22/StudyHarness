@@ -308,7 +308,7 @@ export class Graph3DRenderer {
 			if (c === null || c === undefined) return base.clone();
 			const id = this.layout.ids[i] ?? "";
 			const isHub = this.layout.kind[i] === NODE_HUB;
-			const hue = (clusterHue(c) + (isHub ? 0 : (hash01(id + "h") - 0.5) * 14) + 360) % 360;
+			const hue = (this.hueOf(c) + (isHub ? 0 : (hash01(id + "h") - 0.5) * 14) + 360) % 360;
 			const light = data.colors.clusterLightness.ring / 100 + (isHub ? 0.1 : (hash01(id + "l") - 0.5) * 0.16);
 			return new THREE.Color().setHSL(hue / 360, 0.6, Math.min(0.82, Math.max(0.3, light)));
 		});
@@ -391,8 +391,17 @@ export class Graph3DRenderer {
 
 	// ── Per-frame sync ───────────────────────────────────────────────────────────
 
+	/** Study data: subjects → topics → ideas, sized and labelled by level. */
+	private get study(): boolean { return !!this.data?.parents; }
+	private hueOf(group: string): number { return this.data?.hues?.[group] ?? clusterHue(group); }
+
 	private radiusOf(layoutIdx: number): number {
 		const kind = this.layout.kind[layoutIdx];
+		if (this.study) {
+			if (kind === NODE_ROOT) return this.radiusScale * 1.9;
+			if (kind === NODE_HUB) return this.radiusScale * 1.3;
+			return this.radiusScale * ((this.layout.depth[layoutIdx] ?? 3) <= 2 ? 0.72 : 0.42);
+		}
 		if (kind === NODE_ROOT) return this.radiusScale * 3.2;
 		if (kind === NODE_HUB) return this.radiusScale * Math.min(2.8, 1.5 + 0.12 * Math.sqrt(this.children[layoutIdx]?.length ?? 0));
 		// Ideas are sized by connections: a lone idea is small, well-linked ones grow with sqrt(links), capped at 3×.
@@ -520,6 +529,11 @@ export class Graph3DRenderer {
 		let near = 0;
 		for (const { li, k } of order) {
 			const forced = must.has(li); const s = this.screen[k]!;
+			// Study: subjects always; topics once you zoom in (or hover their subject); ideas only up close (or in focus).
+			if (this.study && !forced) {
+				const depth = this.layout.depth[li] ?? 3;
+				if (depth <= 2 ? zoomIn < 1.25 : zoomIn < 2.2) continue;
+			}
 			if (!forced && near >= baseCount) continue;
 			const text = this.labels[li] ?? ""; if (!text) continue;
 			if (!forced) near++;
@@ -533,7 +547,7 @@ export class Graph3DRenderer {
 			const g = this.clusterOf[li];
 			el.textContent = this.labels[li] ?? "";
 			Object.assign(el.style, { display: "block", left: `${p.x}px`, top: `${p.y - (labelPx + 3) / 2}px`, maxWidth: hub ? "220px" : "180px", fontFamily: font, fontSize: `${hub ? labelPx + 2 : labelPx}px`, fontWeight: forced ? "600" : "500",
-				color: hub && g && this.data ? `hsl(${clusterHue(g)} 62% ${this.data.colors.clusterLightness.label}%)` : forced ? strong : color,
+				color: hub && g && this.data ? `hsl(${this.hueOf(g)} 62% ${this.data.colors.clusterLightness.label}%)` : forced ? strong : color,
 				opacity: forced ? "1" : String(Math.min(0.92, 0.5 + 0.5 * Math.min(1, 1.4 / Math.max(this.screen[this.instanceOf[li]!]?.depth ?? 1, 1) * this.fitDist * 0.5))) });
 		});
 		void rect;
@@ -559,8 +573,10 @@ export class Graph3DRenderer {
 		for (const li of shown) radius = Math.max(radius, Math.hypot(this.layout.pos[li * 3]! - target.x, this.layout.pos[li * 3 + 1]! - target.y, this.layout.pos[li * 3 + 2]! - target.z));
 		this.fogRadius = radius;
 		const rect = this.canvas.getBoundingClientRect();
-		const dist = fitDistance(radius, FOV, rect.width / Math.max(rect.height, 1), 0.92);
+		const dist = fitDistance(radius, FOV, rect.width / Math.max(rect.height, 1), this.study ? 0.7 : 0.92);
 		const dir = this.camera.position.clone().sub(this.controls.target); if (dir.lengthSq() < 1e-6) dir.set(0.35, 0.25, 1);
+		// Study: the subjects ring the centre, so the first view looks down onto the ring (subjects all around, none hidden).
+		if (this.study && !this.hasInitialCamera) dir.set(0.22, 1, 0.42);
 		return { pos: target.clone().add(dir.normalize().multiplyScalar(dist)), target, dist };
 	}
 	private fitNow(): void {

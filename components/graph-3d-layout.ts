@@ -342,9 +342,12 @@ export class Layout3D {
 	/** Replace the graph. Existing nodes keep their position; new ones start at their branch target. */
 	/** Study: each group's preferred direction from the centre (its field). */
 	private anchors: ReadonlyMap<string, readonly [number, number, number]> = new Map();
+	/** Study data (explicit tree / anchors): shells instead of topic balls. */
+	private explicit = false;
 
 	setGraph(nodes: Layout3DNode[], edges: Layout3DEdge[], anchors: ReadonlyMap<string, readonly [number, number, number]> = new Map()): void {
 		this.anchors = anchors;
+		this.explicit = anchors.size > 0 || nodes.some((n) => n.parent !== undefined);
 		const previous = new Map<string, [number, number, number]>();
 		for (let i = 0; i < this.ids.length; i++) previous.set(this.ids[i]!, [this.pos[i * 3]!, this.pos[i * 3 + 1]!, this.pos[i * 3 + 2]!]);
 		const tree = buildKnowledgeTree(nodes, edges);
@@ -398,6 +401,7 @@ export class Layout3D {
 			if (p >= 0) children[p]!.push(i);
 		}
 		if (root < 0) return;
+		if (this.explicit) { this.computeShellTargets(children, root); return; }
 		for (const c of children) c.sort((a, b) => (children[b]!.length - children[a]!.length) || (this.ids[a]! < this.ids[b]! ? -1 : 1));
 
 		// Topics: ball sizes from their idea counts; neighbours by shared interconnections.
@@ -486,6 +490,39 @@ export class Layout3D {
 		}
 		if (loose.length) fillBall(LOOSE, loose);
 	}
+
+	/**
+	 * Study layout (owner 2026-11-19): even shells growing outward from the centre. Every subject sits on the same
+	 * sphere (its direction = its field anchor), its topics on a wider sphere inside a cone around it, their ideas on
+	 * the next sphere around each topic. Cones are narrowed so neighbouring subjects never overlap.
+	 */
+	private computeShellTargets(children: number[][], root: number): void {
+		const L = LAYOUT_LINK_DISTANCE;
+		const R1 = L * 2.4, R2 = R1 + L * 1.8, R3 = R2 + L * 1.4;
+		const setTarget = (i: number, d: readonly number[], r: number) => { this.target[i * 3] = d[0]! * r; this.target[i * 3 + 1] = d[1]! * r; this.target[i * 3 + 2] = d[2]! * r; };
+		const norm = (v: readonly number[]): [number, number, number] => { const l = Math.hypot(v[0]!, v[1]!, v[2]!) || 1; return [v[0]! / l, v[1]! / l, v[2]! / l]; };
+		const tops = children[root]!;
+		const fallback = fibonacciSphere(tops.length);
+		const dirs = tops.map((t, k) => norm(this.kind[t] === NODE_HUB ? this.anchors.get(this.group[t]!) ?? fallback[k]! : fallback[k]!));
+		const room = dirs.map((d, k) => (dirs.length > 1 ? Math.min(...dirs.map((o, j) => (j === k ? Infinity : angleBetween(d, o)))) / 2 : Math.PI / 2));
+		tops.forEach((top, k) => {
+			setTarget(top, dirs[k]!, R1);
+			const kids = children[top]!;
+			const wT = Math.min(room[k]! * 0.85, 0.12 + 0.09 * kids.length);
+			const tdirs = coneDirections(dirs[k]!, kids.length === 1 ? 0 : wT, kids.length);
+			kids.forEach((t, j) => {
+				setTarget(t, tdirs[j]!, R2);
+				const ideas = children[t]!;
+				if (!ideas.length) return;
+				const roomT = kids.length > 1 ? Math.max(0.08, (wT * 1.6) / Math.sqrt(kids.length)) : room[k]! * 0.8;
+				const wI = Math.min(roomT, 0.07 + 0.045 * ideas.length);
+				const idirs = coneDirections(tdirs[j]!, ideas.length === 1 ? 0 : wI, ideas.length);
+				ideas.forEach((idea, m) => setTarget(idea, idirs[m]!, R3));
+			});
+		});
+		this.radius = R3 + L;
+	}
+
 
 	/** True when this idea's tree parent is another idea (it is a twig). */
 	private isTwigCandidate(i: number): boolean {

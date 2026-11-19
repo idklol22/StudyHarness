@@ -3,7 +3,7 @@
  * subjects span out topics and topics span out ideas. Related subjects (same or neighbouring field, shared ideas)
  * sit near each other. This turns the Study map into what the 3D renderer draws. Pure.
  */
-import { fieldDirection, guessField, isField } from "./fields.ts";
+import { FIELDS, guessField, isField, type Field } from "./fields.ts";
 import type { StudyMap } from "./map.ts";
 
 export interface KnowledgeGraphData {
@@ -21,22 +21,36 @@ export interface KnowledgeGraphData {
 
 const key = (name: string) => name.toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 
-function nudge(base: readonly [number, number, number], k: number): [number, number, number] {
-	if (k === 0) return [base[0], base[1], base[2]];
-	// Subjects of one field spread on a small circle around the field's direction.
-	const helper: [number, number, number] = Math.abs(base[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
-	let ux = base[1] * helper[2] - base[2] * helper[1], uy = base[2] * helper[0] - base[0] * helper[2], uz = base[0] * helper[1] - base[1] * helper[0];
-	const ul = Math.hypot(ux, uy, uz) || 1; ux /= ul; uy /= ul; uz /= ul;
-	const vx = base[1] * uz - base[2] * uy, vy = base[2] * ux - base[0] * uz, vz = base[0] * uy - base[1] * ux;
-	const a = k * 2.399, r = 0.28 * Math.ceil(k / 6);
-	const x = base[0] + (ux * Math.cos(a) + vx * Math.sin(a)) * r, y = base[1] + (uy * Math.cos(a) + vy * Math.sin(a)) * r, z = base[2] + (uz * Math.cos(a) + vz * Math.sin(a)) * r;
-	const l = Math.hypot(x, y, z) || 1;
-	return [x / l, y / l, z / l];
+/**
+ * Subjects round the globe: in field order (related fields are neighbours in FIELDS), evenly spread all the way
+ * round the centre, with a bigger gap between subjects of unrelated fields than between subjects of one field.
+ */
+export function subjectDirections(subjects: ReadonlyArray<{ id: string; name: string; field?: string }>): Record<string, [number, number, number]> {
+	const fieldOf = (s: { name: string; field?: string }): Field | undefined => (isField(s.field) ? s.field : guessField(s.name));
+	const rank = (f: Field | undefined) => (f ? FIELDS.indexOf(f) : FIELDS.length);
+	const order = [...subjects].sort((a, b) => rank(fieldOf(a)) - rank(fieldOf(b)) || a.name.localeCompare(b.name));
+	const gap = (a: Field | undefined, b: Field | undefined) => {
+		if (a && a === b) return 1;
+		if (!a || !b) return 3;
+		const d = Math.abs(FIELDS.indexOf(a) - FIELDS.indexOf(b));
+		return 1 + Math.min(d, FIELDS.length - d);
+	};
+	const steps = order.map((s, i) => gap(fieldOf(s), fieldOf(order[(i + 1) % order.length]!)));
+	const total = order.length > 1 ? steps.reduce((x, y) => x + y, 0) : 1;
+	const out: Record<string, [number, number, number]> = {};
+	let at = 0;
+	order.forEach((s, i) => {
+		const a = (2 * Math.PI * at) / total;
+		const x = Math.cos(a), z = Math.sin(a), y = 0.35 * Math.sin(2 * a + 0.6);
+		const l = Math.hypot(x, y, z);
+		out[s.id] = [x / l, y / l, z / l];
+		at += steps[i]!;
+	});
+	return out;
 }
 
 export function knowledgeGraph(map: StudyMap): KnowledgeGraphData {
 	const out: KnowledgeGraphData = { nodes: [], edges: [], parents: {}, clusters: [], anchors: {} };
-	const perField = new Map<string, number>();
 	const byIdea = new Map<string, Array<{ id: string; subjectId: string }>>();
 	for (const s of map.subjects) {
 		const members: string[] = [];
@@ -59,12 +73,6 @@ export function knowledgeGraph(map: StudyMap): KnowledgeGraphData {
 		// A subject with nothing in it yet still shows (its hub needs one member): a "no topics yet" stub opening its page.
 		if (!members.length) { const stub = `${s.id}:empty`; out.nodes.push({ id: stub, label: "No topics yet", kind: "topic", subjectId: s.id, href: s.href }); members.push(stub); }
 		out.clusters.push({ id: s.id, label: s.name, members });
-		const field = isField(s.field) ? s.field : guessField(s.name);
-		if (field) {
-			const k = perField.get(field) ?? 0;
-			perField.set(field, k + 1);
-			out.anchors[s.id] = nudge(fieldDirection(field), k);
-		}
 	}
 	// The same idea in two subjects: an interconnection (it also pulls the two subjects together).
 	for (const list of byIdea.values()) {
@@ -72,5 +80,6 @@ export function knowledgeGraph(map: StudyMap): KnowledgeGraphData {
 			if (list[a]!.subjectId !== list[b]!.subjectId) out.edges.push({ from: list[a]!.id, to: list[b]!.id });
 		}
 	}
+	out.anchors = subjectDirections(map.subjects);
 	return out;
 }

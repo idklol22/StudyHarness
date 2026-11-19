@@ -152,6 +152,8 @@ export interface CanvasData {
 	parents?: Readonly<Record<string, string>>;
 	/** 3D only (Study): each group's preferred direction from the centre (unit vector). */
 	anchors?: Readonly<Record<string, readonly [number, number, number]>>;
+	/** 3D only (Study): each group's hue in degrees (distinct colours per subject). */
+	hues?: Readonly<Record<string, number>>;
 	colors: CanvasColors;
 	/** Body font family (labels must match the app typography). */
 	fontFamily: string;
