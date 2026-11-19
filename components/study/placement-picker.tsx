@@ -1,10 +1,9 @@
 "use client";
 
 /**
- * Where does this chat live, and how does it start? (Study overhaul, owner 2026-11-19.) Shown above the new-chat
- * composer on Home and in the draft view: pick a SUBJECT, optionally a TOPIC of it (or the whole subject), create
- * either on the spot, then choose "From scratch" or "Check what I know first" — asked every time, never defaulted.
- * The last subject/topic is remembered; the start mode is not.
+ * Where does this chat live? (Study overhaul, owner 2026-11-19.) Shown above the new-chat composer on Home and in
+ * the draft view: pick a SUBJECT, optionally a TOPIC of it (or the whole subject), and create either on the spot.
+ * A new chat just starts teaching; the last subject/topic is remembered and reused.
  */
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";

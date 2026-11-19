@@ -43,7 +43,8 @@ export type TreeUpdatesRemainControlled = Assert<Equal<Parameters<ReturnType<Plu
 export type DocumentsHaveOnlyTheApprovedHelper = Assert<Equal<keyof PluginFrontendContext["documents"], "toMarkdown">>;
 export type DocumentConversionHasExactAsyncShape = Assert<Equal<PluginFrontendContext["documents"]["toMarkdown"],
   (file: File, options?: { signal?: AbortSignal }) => Promise<{ name: string; markdown: string; notices: string[] }>>>;
-export type DocumentsAreFrontendOnly = Assert<Equal<"documents" extends keyof PluginBackendContext ? true : false, false>>;
+export type BackendDocumentsAreThePdfReader = Assert<Equal<keyof PluginBackendContext["documents"], "pdfInfo" | "renderPdfPages">>;
+export type DocumentConversionIsFrontendOnly = Assert<Equal<"toMarkdown" extends keyof PluginBackendContext["documents"] ? true : false, false>>;
 
 // File and optional caller cancellation only; no host implementation imports.
 export function publicDocumentExamples(frontend: PluginFrontendContext, backend: PluginBackendContext, file: File, signal: AbortSignal): void {
@@ -66,8 +67,8 @@ export function publicDocumentExamples(frontend: PluginFrontendContext, backend:
   void frontend.documents.toMarkdown(file, { signal: "abort" });
   // @ts-expect-error Conversion has no model selection or inference options.
   void frontend.documents.toMarkdown(file, { model: { provider: "fixture", id: "fixture" } });
-  // @ts-expect-error Conversion is not exposed to plugin backends.
-  void backend.documents;
+  // @ts-expect-error The browser File conversion helper stays frontend-only; backends get the PDF reader.
+  void backend.documents.toMarkdown;
 }
 
 // No host implementation imports: icon markup is data, never a renderer or DOM node.

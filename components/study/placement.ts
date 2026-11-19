@@ -1,6 +1,6 @@
 /**
  * Pure logic for the new-chat placement picker (Study overhaul, owner 2026-11-19): a chat lives in a subject
- * or a topic of one, and every new chat asks how to start ("from scratch" or "check what I know first").
+ * or a topic of one. There is no upfront start-mode choice any more; a normal chat starts teaching.
  * No React, no fetch: the picker component and its tests both use these.
  */
 import { checkPlacement, topicsOf, type ChatPlacement, type Library } from "@/src/core";
@@ -11,7 +11,7 @@ export interface Choice {
 	subjectId: string;
 	/** "" = the whole subject. */
 	topicId: string;
-	/** "" until the learner picks: the start mode is asked every time, never defaulted. */
+	/** "" until a chat is placed; it then resolves to "scratch" ("check" is chosen only for probes/practice). */
 	startMode: StartMode | "";
 }
 

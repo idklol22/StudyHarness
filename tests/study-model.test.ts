@@ -10,7 +10,7 @@ import {
 	materialsIn, moveMaterial, removeMaterial, renameSubject, renameTopic, setContext, topicsOf, type Library,
 } from "../src/core/study/model.ts";
 import {
-	emptyMemory, formatLookup, lookup, parseRange, recordBatch, recordPages, unread,
+	emptyMemory, formatLookup, lookup, pageRanges, parseRange, recordBatch, recordPages, unread,
 } from "../src/core/study/material-memory.ts";
 
 const HASH_A = "a".repeat(64), HASH_B = "b".repeat(64);
@@ -168,5 +168,12 @@ describe("material memory", () => {
 		const exact = lookup(m, { pages: [15, 30] });
 		assert.ok(exact.kind === "pages" && exact.pages[0]!.n === 15 && exact.missing[0] === 30);
 		assert.match(formatLookup("b.pdf", lookup(m, { query: "quantum chromodynamics" })), /Nothing in the pages read so far matches/);
+	});
+
+	it("the read-page summary lists the ranges actually read, never the gaps between them", () => {
+		const m = book();
+		assert.equal(pageRanges([3, 4, 7, 15]), "3–4, 7, 15");
+		assert.equal(pageRanges([]), "");
+		assert.match(formatLookup("book.pdf", lookup(m)), /read pages 3–4, 7, 15 \(4\)/, "pages 5–6 and 8–14 were never read");
 	});
 });

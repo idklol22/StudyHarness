@@ -22,7 +22,8 @@ type Assert<T extends true> = T;
 type ExactHelper = Assert<Equal<keyof PluginFrontendContext["documents"], "toMarkdown">>;
 type ExactAsyncShape = Assert<Equal<PluginFrontendContext["documents"]["toMarkdown"],
   (file: File, options?: { signal?: AbortSignal }) => Promise<{ name: string; markdown: string; notices: string[] }>>>;
-type FrontendOnly = Assert<Equal<"documents" extends keyof PluginBackendContext ? true : false, false>>;
+type BackendIsPdfReader = Assert<Equal<keyof PluginBackendContext["documents"], "pdfInfo" | "renderPdfPages">>;
+type FrontendOnly = Assert<Equal<"toMarkdown" extends keyof PluginBackendContext["documents"] ? true : false, false>>;
 declare const frontend: PluginFrontendContext;
 declare const backend: PluginBackendContext;
 const file = new File(["UTF-8 text"], "notes.anything", { type: "application/octet-stream" });
@@ -51,8 +52,8 @@ frontend.documents.toMarkdown(file, { url: "https://example.invalid/notes.txt" }
 frontend.documents.toMarkdown(file, { signal: new AbortController() });
 // @ts-expect-error No structured error outcome or public error code.
 result.error.code;
-// @ts-expect-error No documents helper on the backend context.
-backend.documents;
+// @ts-expect-error The browser conversion helper is frontend-only; the backend documents service reads PDFs.
+backend.documents.toMarkdown;
 void [pending, withOptions, name, markdown, notices, immediate];
 `);
 		const tsc = createRequire(import.meta.url).resolve("typescript/bin/tsc");

@@ -135,6 +135,19 @@ export function lookup(memory: MaterialMemory, input: { query?: string; pages?: 
 	return { kind: "search", toc, chunks, pages };
 }
 
+/** Page numbers in compact, honest form: "1–4, 7, 15" (never a range claiming pages nobody read). */
+export function pageRanges(pages: readonly number[]): string {
+	const sorted = [...new Set(pages)].sort((a, b) => a - b);
+	const out: string[] = [];
+	for (let i = 0; i < sorted.length; i++) {
+		const start = sorted[i]!;
+		let end = start;
+		while (i + 1 < sorted.length && sorted[i + 1] === end + 1) { i += 1; end = sorted[i]!; }
+		out.push(start === end ? `${start}` : `${start}–${end}`);
+	}
+	return out.join(", ");
+}
+
 /** Compact text for the model (bounded so lookups never flood the context). */
 export function formatLookup(fileName: string, r: Lookup): string {
 	const out: string[] = [];
@@ -142,7 +155,7 @@ export function formatLookup(fileName: string, r: Lookup): string {
 		for (const p of r.pages) out.push(`--- ${fileName} page ${p.n} ---\n${p.text || "(no text on this page; it may be a figure — show it in the notes instead)"}`);
 		if (r.missing.length) out.push(`Not stored yet: pages ${r.missing.join(", ")}.`);
 	} else if (r.kind === "overview") {
-		out.push(`${fileName}: read pages ${r.read.length ? `${r.read[0]}–${r.read.at(-1)} (${r.read.length})` : "none yet"}.`);
+		out.push(`${fileName}: read pages ${r.read.length ? `${pageRanges(r.read)} (${r.read.length})` : "none yet"}.`);
 		if (r.toc.length) out.push("Contents: " + r.toc.slice(0, 40).map((e) => `${e.title} (p.${e.page})`).join("; "));
 		for (const c of r.chunks) out.push(`pages ${c.from}–${c.to}: ${c.summary}${c.concepts.length ? ` [${c.concepts.join(", ")}]` : ""}`);
 	} else {
