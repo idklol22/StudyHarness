@@ -11,6 +11,8 @@ import {
 } from "../core/graph-deletion.ts";
 import { extractionStatuses } from "../agent/subagents/extraction.ts";
 import { stores } from "./stores.ts";
+import { study } from "./study-runtime.ts";
+import { subjectOf, topicOf } from "../core/study/model.ts";
 import { callCost } from "./pricing.ts";
 
 /**
@@ -22,7 +24,16 @@ import { callCost } from "./pricing.ts";
 export function graphView(): GraphSnapshot {
 	const organization = stores.sourceOrganizationStore.read();
 	const names = Object.fromEntries(Object.entries(organization.placements).flatMap(([id, p]) => p.name === undefined ? [] : [[id, p.name]]));
-	return graphSnapshot(stores, names);
+	const library = study.library();
+	return graphSnapshot(stores, names, {
+		scopeOf(chatId) {
+			const placement = stores.chatStore.getChat(chatId)?.placement;
+			const subject = placement && subjectOf(library, placement.subjectId);
+			if (!placement || !subject) return undefined;
+			const topic = placement.topicId ? topicOf(library, placement.topicId) : undefined;
+			return { subjectId: subject.id, ...(topic ? { topicId: topic.id } : {}), label: topic ? `${subject.name} › ${topic.name}` : subject.name };
+		},
+	});
 }
 
 /** The graph view's cost surface (GET /api/graph/costs — the 2026-09 cost

@@ -323,6 +323,8 @@ export interface GraphSnapshot {
 	 *  exists (core/layout.ts settle writes it). Absent on a fresh graph —
 	 *  the view then falls back to its own one-shot forceAtlas2 pass. */
 	positions?: Record<string, Position>;
+	/** Study: nodeId → the subject/topic of the chat that birthed it (absent for unfiled chats and imported notes). */
+	nodeScope?: Record<string, { subjectId: string; topicId?: string }>;
 }
 
 /** A node's resting position in layout space (the positions ledger). */

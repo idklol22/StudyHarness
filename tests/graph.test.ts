@@ -477,6 +477,24 @@ describe("the merger (mergeFindings)", () => {
 		assert.equal(snap.sessions["src_snapfixture"], undefined, "a notes source is never a chat session");
 	});
 
+	it("groups ideas by the subject/topic their birth chat is filed under (Study)", () => {
+		graphStore.upsertSource({ id: "src_scopefixture", filePath: "/vault/scoped.md", importedAt: "2026-09-13T00:00:00.000Z" });
+		mergeFindings(
+			"src_scopefixture",
+			{ propositions: ["Zeta one", "Zeta two", "Zeta three"].map((name, i) => ({ id: `z${i}`, name, statement: `${name} is a scoped statement number ${i}.`, aliases: [] })), chains: [] },
+			{ links: [] },
+			graphDeps,
+			{ foldedAt: "2026-09-13T00:00:00.000Z" },
+		);
+		const snap = graphSnapshot(graphDeps, {}, { scopeOf: (id) => (id === "src_scopefixture" ? { subjectId: "sub_1", topicId: "top_1", label: "ML › DP" } : undefined) });
+		const cluster = snap.clusters.find((c) => c.id === "scope:top_1")!;
+		assert.equal(cluster.label, "ML › DP");
+		assert.equal(cluster.members.length, 3);
+		assert.ok(!snap.clusters.some((c) => c.id === "src_scopefixture"), "the chat's own cluster is replaced by the topic's");
+		assert.deepEqual(snap.nodeScope?.[cluster.members[0]!], { subjectId: "sub_1", topicId: "top_1" });
+		assert.equal(graphSnapshot(graphDeps).nodeScope, undefined, "no scopes given: grouping is unchanged");
+	});
+
 	it("reads the sources map once per snapshot, however many notes sources the graph names", () => {
 		const ids = ["src_snaponce_a", "src_snaponce_b", "src_snaponce_c"];
 		for (const [i, id] of ids.entries()) {

@@ -507,7 +507,14 @@ export function deriveView(graph: DerivedGraph): {
 // ─── the /api/graph payload ──────────────────────────────────────────────────
 
 /** Everything the home graph view needs, in one fetch (shape: contracts). */
-export function graphSnapshot(deps: GraphDeps, sourceNames: Readonly<Record<string, string>> = {}): GraphSnapshot {
+/** Study: where a chat lives. When given, the graph groups ideas by topic (or subject) instead of by chat. */
+export interface GraphScopes {
+	/** The chat's subject/topic with a display label, or undefined for unfiled chats. */
+	scopeOf(chatId: string): { subjectId: string; topicId?: string; label: string } | undefined;
+}
+const scopeKey = (s: { subjectId: string; topicId?: string }) => `scope:${s.topicId ?? s.subjectId}`;
+
+export function graphSnapshot(deps: GraphDeps, sourceNames: Readonly<Record<string, string>> = {}, scopes?: GraphScopes): GraphSnapshot {
 	const graph = getGraph(deps.graphStore);
 	// The canvas-facing lossy image: propositions + derived implication
 	// nodes, untyped arrows. `chains` (the stored truth) ride along for
@@ -566,7 +573,18 @@ export function graphSnapshot(deps: GraphDeps, sourceNames: Readonly<Record<stri
 	// but renders unlabeled — honest, never guessed.
 	// PROPOSITIONS ONLY (owner, 2026-09-30): derived implication nodes
 	// never partition — the stored world clusters, its image follows.
-	const communities = birthSessionPartition(graph.nodes);
+	// STUDY GROUPING: a chat filed under a subject/topic births its ideas into that scope's group. Chat ids are
+	// remapped to the scope key before partitioning, so implication nodes follow the same majority rule.
+	const scopeLabels = new Map<string, string>();
+	const remapChat = (chatId: string): string => {
+		const scope = scopes?.scopeOf(chatId);
+		if (!scope) return chatId;
+		scopeLabels.set(scopeKey(scope), scope.label);
+		return scopeKey(scope);
+	};
+	const remapped = scopes ? graph.nodes.map((node) => ({ ...node, provenance: node.provenance.map((p) => ({ ...p, chatId: remapChat(p.chatId) })) })) : graph.nodes;
+	const remappedChains = scopes ? graph.chains.map((chain) => ({ ...chain, provenance: chain.provenance.map((p) => ({ ...p, chatId: remapChat(p.chatId) })) })) : graph.chains;
+	const communities = birthSessionPartition(remapped);
 	const clusters: Cluster[] = communities
 		.filter((community) => community.members.length >= MIN_CLUSTER_SIZE)
 		.map((community) => {
@@ -574,7 +592,7 @@ export function graphSnapshot(deps: GraphDeps, sourceNames: Readonly<Record<stri
 			const file = fileSources[community.id];
 			return {
 				id: community.id,
-				label: sessions[community.id] ?? (file === undefined ? null : sourceNames[community.id] ?? sourceFileLabel(file)),
+				label: scopeLabels.get(community.id) ?? sessions[community.id] ?? (file === undefined ? null : sourceNames[community.id] ?? sourceFileLabel(file)),
 				members: community.members,
 			};
 		});
@@ -584,7 +602,15 @@ export function graphSnapshot(deps: GraphDeps, sourceNames: Readonly<Record<stri
 	// never resurrects a hull (the filter counts propositions). Both
 	// cluster-membership consumers — the sim's centroid pull and the
 	// canvas's region rasterization — read it through this one list.
-	attachImpToCommunities(clusters, graph.nodes, graph.chains);
+	attachImpToCommunities(clusters, remapped, remappedChains);
+	const nodeScope: Record<string, { subjectId: string; topicId?: string }> = {};
+	if (scopes) {
+		for (const node of graph.nodes) {
+			const birth = node.provenance[0]?.chatId;
+			const scope = birth === undefined ? undefined : scopes.scopeOf(birth);
+			if (scope) nodeScope[node.id] = { subjectId: scope.subjectId, ...(scope.topicId ? { topicId: scope.topicId } : {}) };
+		}
+	}
 
 	// Resting layout (Option A): the positions ledger, when the settle has
 	// ever run. Absent on a fresh graph — the view falls back to its own
@@ -603,6 +629,7 @@ export function graphSnapshot(deps: GraphDeps, sourceNames: Readonly<Record<stri
 		nodeSessions,
 		clusters,
 		...(Object.keys(positions).length > 0 ? { positions } : {}),
+		...(Object.keys(nodeScope).length > 0 ? { nodeScope } : {}),
 	};
 }
 

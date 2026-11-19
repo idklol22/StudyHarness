@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { displayCostTotals, graphGroups, hiddenByGroups, isNodeVisible } from "../components/graph-view.tsx";
+import { displayCostTotals, graphGroups, hiddenByGroups, hiddenBySubject, isNodeVisible } from "../components/graph-view.tsx";
 
 const node = {
 	name: "Money multiplier",
@@ -85,5 +85,14 @@ describe("graph groups (Obsidian legend, Study redesign 2026-11-18)", () => {
 		assert.deepEqual([...hiddenByGroups(clusters, new Set(["src_b"]))], ["n4"]);
 		assert.deepEqual([...hiddenByGroups(clusters, new Set(["chat_a"]))].sort(), ["n1", "n2", "n3"]);
 		assert.equal(hiddenByGroups(clusters, new Set()).size, 0);
+	});
+});
+
+describe("subject picker (Study)", () => {
+	it("keeps only the chosen subject's ideas; unscoped ideas drop out; no choice hides nothing", () => {
+		const scope = { a: { subjectId: "s1" }, b: { subjectId: "s2" }, c: { subjectId: "s1" } };
+		assert.deepEqual([...hiddenBySubject(["a", "b", "c", "d"], scope, "s1")].sort(), ["b", "d"]);
+		assert.equal(hiddenBySubject(["a", "b"], scope, "").size, 0);
+		assert.deepEqual([...hiddenBySubject(["a"], undefined, "s1")], ["a"]);
 	});
 });

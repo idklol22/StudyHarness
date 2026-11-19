@@ -86,6 +86,7 @@ import { DeleteNodeDialog } from "@/components/delete-node-dialog.tsx";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { Hint } from "@/components/ui/hint";
+import { useLibrary } from "@/components/study/subject-tree";
 import {
 	CHARGE_RANGE,
 	CLUSTER_PULL_RANGE,
@@ -161,6 +162,19 @@ export function graphGroups(
 		groups.push({ id: c.id, label: labelOverrides.get(c.id) ?? c.label ?? "Untitled", hue: clusterHue(c.id), count });
 	}
 	return groups;
+}
+
+/** Study: node ids outside the chosen subject's brain. A node belongs to the subject of the chat that birthed it;
+ *  with a subject chosen, ideas from unfiled chats and imported notes are out too. Pure; exported for tests. */
+export function hiddenBySubject(
+	nodeIds: readonly string[],
+	nodeScope: Readonly<Record<string, { subjectId: string }>> | undefined,
+	subjectId: string,
+): Set<string> {
+	const out = new Set<string>();
+	if (!subjectId) return out;
+	for (const id of nodeIds) if (nodeScope?.[id]?.subjectId !== subjectId) out.add(id);
+	return out;
 }
 
 /** Node ids hidden by the legend: a node follows the group that colors it
@@ -899,7 +913,13 @@ export function GraphLegend({
 	onShowAll,
 	onHideAll,
 	lightness,
+	subjects = [],
+	subjectId = "",
+	onSubject,
 }: {
+	subjects?: ReadonlyArray<{ id: string; name: string }>;
+	subjectId?: string;
+	onSubject?: (id: string) => void;
 	groups: readonly GraphGroup[];
 	hidden: ReadonlySet<string>;
 	onToggle: (id: string) => void;
@@ -922,6 +942,13 @@ export function GraphLegend({
 				<span>Groups</span>
 				<span className="tabular-nums">{groups.length}</span>
 			</button>
+			{open && onSubject && subjects.length > 0 && (
+				<select data-testid="graph-subject-picker" aria-label="Subject" value={subjectId} onChange={(e) => onSubject(e.target.value)}
+					className="mx-1 mt-1 rounded-md border bg-transparent px-2 py-1 text-xs">
+					<option value="">All subjects</option>
+					{subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+				</select>
+			)}
 			{open && (onShowAll || onHideAll) && (
 				<div className="mt-1 flex gap-1 px-1">
 					{onShowAll && (
@@ -1166,7 +1193,19 @@ export function GraphView({
 	};
 	// Live renames relabel legend rows without a refetch.
 	const [groupLabels, setGroupLabels] = useState<ReadonlyMap<string, string>>(new Map());
-	const groups = useMemo(() => (snapshot ? graphGroups(snapshot.clusters, groupLabels) : []), [snapshot, groupLabels]);
+	// Study: the subject picker — one subject's brain, or everything.
+	const { library } = useLibrary();
+	const [subjectId, setSubjectIdState] = useState("");
+	useEffect(() => { try { setSubjectIdState(localStorage.getItem("lh:graph-subject") ?? ""); } catch { /* storage may be blocked */ } }, []);
+	const setSubjectId = (id: string) => { setSubjectIdState(id); try { localStorage.setItem("lh:graph-subject", id); } catch { /* ignore */ } };
+	const activeSubject = library.subjects.some((s) => s.id === subjectId) ? subjectId : "";
+	const subjectHidden = useMemo(() => (snapshot ? hiddenBySubject(snapshot.nodes.map((n) => n.id), snapshot.nodeScope, activeSubject) : new Set<string>()), [snapshot, activeSubject]);
+	const scopedClusters = useMemo(() => {
+		if (!snapshot) return [];
+		if (subjectHidden.size === 0) return snapshot.clusters;
+		return snapshot.clusters.map((c) => ({ ...c, members: c.members.filter((id) => !subjectHidden.has(id)) })).filter((c) => c.members.length > 0);
+	}, [snapshot, subjectHidden]);
+	const groups = useMemo(() => graphGroups(scopedClusters, groupLabels), [scopedClusters, groupLabels]);
 
 	// The id set that survives the current search AND the legend — consumed
 	// by the visibility feed and the "no matches" hint.
@@ -1175,11 +1214,11 @@ export function GraphView({
 		const set = new Set<string>();
 		if (snapshot)
 			for (const node of snapshot.nodes) {
-				if (!groupHidden.has(node.id) && isNodeVisible(node, query)) set.add(node.id);
+				if (!groupHidden.has(node.id) && !subjectHidden.has(node.id) && isNodeVisible(node, query)) set.add(node.id);
 			}
 		return set;
-	}, [snapshot, query, groupHidden]);
-	const filtering = query.trim() !== "" || groupHidden.size > 0;
+	}, [snapshot, query, groupHidden, subjectHidden]);
+	const filtering = query.trim() !== "" || groupHidden.size > 0 || subjectHidden.size > 0;
 
 	// Fetch the derived graph. Re-runs when a background pipeline run
 	// finishes (refreshTick) — its merges just landed in the ledger.
@@ -1702,8 +1741,11 @@ export function GraphView({
 
 			<PluginGraphActions />
 
-			{!isEmpty && groups.length > 0 && (
+			{!isEmpty && (groups.length > 0 || library.subjects.length > 0) && (
 				<GraphLegend
+					subjects={library.subjects}
+					subjectId={activeSubject}
+					onSubject={setSubjectId}
 					groups={groups}
 					hidden={hiddenGroups}
 					onToggle={toggleGroup}
