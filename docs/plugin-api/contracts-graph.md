@@ -373,6 +373,10 @@ export interface GraphSnapshot {
     nodeSessions: Record<string, string[]>;
     clusters: Cluster[];
     positions?: Record<string, Position>;
+    nodeScope?: Record<string, {
+        subjectId: string;
+        topicId?: string;
+    }>;
 }
 ```
 
@@ -391,6 +395,7 @@ export interface GraphSnapshot {
 - [nodeSessions](#graphsnapshot-nodesessions)
 - [clusters](#graphsnapshot-clusters)
 - [positions](#graphsnapshot-positions)
+- [nodeScope](#graphsnapshot-nodescope)
 
 ### GraphSnapshot nodes
 
@@ -500,6 +505,17 @@ the view then falls back to its own one-shot forceAtlas2 pass.
 
 ```ts
 positions?: Record<string, Position>;
+```
+
+### GraphSnapshot nodeScope
+
+Study: nodeId → the subject/topic of the chat that birthed it (absent for unfiled chats and imported notes).
+
+```ts
+nodeScope?: Record<string, {
+    subjectId: string;
+    topicId?: string;
+}>;
 ```
 
 ## NotesSource

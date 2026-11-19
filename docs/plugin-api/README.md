@@ -43,6 +43,7 @@ The SDK is **type-only**. Call the contexts supplied by LearnHarness, not runtim
 - [plugins](plugins.md)
 - [question-core](question-core.md)
 - [settings](settings.md)
+- [study-model](study-model.md)
 - [view](view.md)
 
 ## Public types
@@ -257,6 +258,7 @@ These are reachable through public data, event, inheritance or helper-type relat
 - [MODEL_SLOTS](settings.md#model_slots) — `settings`
 - [ModelSlot](settings.md#modelslot) — `settings`
 - [ModelSlotName](settings.md#modelslotname) — `settings`
+- [ChatPlacement](study-model.md#chatplacement) — `study-model`
 - [LhViewMessage](view.md#lhviewmessage) — `view`
 - [LhViewPart](view.md#lhviewpart) — `view`
 
@@ -264,4 +266,4 @@ These are reachable through public data, event, inheritance or helper-type relat
 
 Standard JavaScript/DOM types (`Promise`, `AbortSignal`, `File`, `HTMLElement`, and utility types) use their standard contracts. Pi model/messages/tools and TypeBox schemas use the exact peer versions declared by the bundled SDK's `package.json`. Supply those peers when typechecking; they are development types, not permission to import private LearnHarness runtime modules.
 
-Coverage: **148 public types**, **57 supporting declarations**, **916 declared member signatures/variants**. Generation contains no build timestamps or absolute source paths.
+Coverage: **148 public types**, **58 supporting declarations**, **922 declared member signatures/variants**. Generation contains no build timestamps or absolute source paths.

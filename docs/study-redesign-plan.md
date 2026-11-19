@@ -1,4 +1,6 @@
-# Study redesign — plan (awaiting approval)
+# Study redesign — plan
+
+> **Superseded.** The Study overhaul of 2026-11-19 moved Study into the core app (subjects → topics, layered context, agent-written class notes with learner ink, core flashcards) and removed the Living Notes and Flashcards plugins. See the README's *Study* section. The text below is the earlier plugin-based plan, kept for history.
 
 Status: **approved (owner, 2026-11-18) — mostly implemented.** Done: knowledge graph (3D hive of topic balls around Knowledge, 2D Obsidian-style fallback), sidebar cleanup, host APIs (`ctx.documents`, `registerSessionPanel`), Study data model + migration, chat tools + slide ingestion with auto screenshots, notebook pane, Subjects library with Due/Progressive/All flashcard study, 2D map in notes and PDF. Not yet: starting a Practice chat directly from the library (the library has its own review screen instead).
 

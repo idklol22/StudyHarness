@@ -35,11 +35,20 @@ Instead of just giving you an explanation, it uses your answers and thinking to 
 
 The agent can also research questions in the background, create visual explanations, show your own images in the lesson and mark them up with arrows and labels, and build interactive demonstrations.
 
+## Study: subjects, topics and class notes
+
+Organise what you learn into **subjects** and **topics** (create them beforehand or on the spot). Upload PDFs to a subject for subject-wide context, or to a topic for topic-wide context; a file is stored once however many places use it. Every chat lives in a subject or topic, and each new chat asks how to begin: **from scratch** (a lesson that explains, shows the slide, works one example and checks lightly) or **check what I know first** (the probe).
+
+The tutor keeps layers of context so it never rereads your files: the topic's context, then the subject's, then a memory of the pages it has already read (contents, summaries, figures), and only then the pages themselves. Each subject and topic page also holds:
+
+- **Notes** that look like iPad class notes: short handwritten text, screenshots of your slides with circles, arrows and labels, margin stickies and worked steps from the lesson. The tutor writes them as it teaches, or on demand for a topic or the whole subject. Draw on them with a pen and highlighter or add stickies; your ink is kept separate and never overwritten. Export to PDF from the print view. Notes are added to and edited, never deleted.
+- **Flashcards** the tutor adds while teaching (or you add yourself), studied in **Due**, **Progressive** (weakest topic first) or **All** mode with spaced repetition.
+
 ## Knowledge that carries forward
 
 What you are taught accumulates as propositions and reasoning chains: individual claims and the premises that lead to them. The graph shows this structure, with links back to the source sessions. You can also import notes.
 
-The knowledge graph opens in 3D: drag to orbit, scroll to zoom, hover to light up a node and its neighbours, click for details. A 2D/3D toggle (and Fit) sits in the toolbar, and the 2D view is unchanged. Plugins such as Living Notes can add what you learn to the graph through the same extraction pipeline as imported notes.
+The knowledge graph opens in 3D: drag to orbit, scroll to zoom, hover to light up a node and its neighbours, click for details. A 2D/3D toggle (and Fit) sits in the toolbar, and the 2D view is unchanged. Ideas group under the topic of the chat that taught them, and a subject picker shows one subject's brain or everything.
 
 Future teaching sessions can read the graph instead of starting from scratch. Practice sessions can draw their material from it. It stores the ideas and their connections, not ratings of your ability.
 
