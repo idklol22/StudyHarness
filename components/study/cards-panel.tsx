@@ -5,6 +5,7 @@
  * and the three study modes (Due, Progressive, All). Studying opens a practice chat in this subject/topic that quizzes
  * the chosen cards; ratings are recorded there with spaced-repetition scheduling.
  */
+import { RichText } from "./rich-text";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useServerEvent } from "@/components/server-events";
@@ -90,7 +91,7 @@ export function CardsPanel({ subjectId, topicId }: { subjectId: string; topicId?
 						<ul className="border-t">
 							{data.cards.filter((c) => c.group === g.group).map((c) => (
 								<li key={c.id} className="group flex items-start gap-2 border-b px-3 py-2 text-sm last:border-b-0">
-									<div className="min-w-0 flex-1"><div>{c.q}</div><div className="text-muted-foreground">{c.a}</div></div>
+									<div className="min-w-0 flex-1"><div><RichText text={c.q} /></div><div className="text-muted-foreground"><RichText text={c.a} /></div></div>
 									<button type="button" aria-label="Remove card" title="Remove" className="opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100" onClick={() => void act({ action: "remove", id: c.id })}><Trash2Icon className="size-3.5" /></button>
 								</li>
 							))}

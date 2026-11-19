@@ -12,7 +12,7 @@ export * from "./source-organization.ts";
 export { study } from "./study-runtime.ts";
 export { StudyInputError, MAX_MATERIAL_BYTES } from "./study.ts";
 export { changeCards, readCards } from "./study-cards.ts";
-export { addBlocks, editNote, generateNotes, learnerInk, readNotebook, checkedScope as checkedNotesScope } from "./study-notes.ts";
+export { addBlocks, createNotebook, editNote, generateNotes, learnerInk, notebooksOf, readNotebook, checkedScope as checkedNotesScope, type NotebookEntry } from "./study-notes.ts";
 export * from "./source-deletion.ts";
 export { NotesImportError } from "../agent/subagents/extraction.ts";
 export { convertPdf } from "../agent/subagents/pdf-ops.ts";
@@ -69,3 +69,5 @@ export { claudeCodeInstallationResponse } from "./claude-code.ts";
 // No import side effects; the boot sync lives in stores.ts.
 export * from "./custom-provider.ts";
 export { customProviderGet, customProviderMutation } from "./custom-provider-http.ts";
+export { studyMapView } from "./study-map.ts";
+export { digestMaterial, seedAcceptedTopics } from "./study-digest-job.ts";

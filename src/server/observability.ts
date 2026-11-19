@@ -25,6 +25,7 @@ import { graphRevision } from "./graph.ts";
 import { catalogContextLimits } from "./model-catalog.ts";
 import { listJobs } from "./jobs.ts";
 import { jobCost } from "./pricing.ts";
+import { studyWorkSnapshot, type StudyWork } from "./study-activity.ts";
 import { pluginWorkerActivities, type PluginWorkerActivity } from "./plugin-worker-activity.ts";
 import type { JobRecord } from "../core/contracts.ts";
 
@@ -77,6 +78,8 @@ export function activityFeed(): {
 	jobs: ActivityJob[];
 	pluginWorkers: ActivityPluginWorker[];
 	extractions: ActivityExtraction[];
+	/** Study agents' live steps (reading files, updating what is known, writing notes). */
+	studyWork: StudyWork[];
 	graphRevision: number;
 } {
 	const chats = chatStore.listChats();
@@ -123,6 +126,7 @@ export function activityFeed(): {
 		jobs,
 		pluginWorkers,
 		extractions: extractions.sort((a, b) => a.startedAt - b.startedAt),
+		studyWork: studyWorkSnapshot(),
 		graphRevision: graphRevision(),
 	};
 }

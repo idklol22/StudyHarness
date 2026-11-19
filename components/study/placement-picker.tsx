@@ -6,6 +6,7 @@
  * either on the spot, then choose "From scratch" or "Check what I know first" — asked every time, never defaulted.
  * The last subject/topic is remembered; the start mode is not.
  */
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { emptyLibrary, topicsOf, type ChatPlacement, type Library } from "@/src/core";
 import { emptyChoice, LAST_CHOICE_KEY, missingPlacement, placementFromChoice, restoreChoice, type Choice, type StartMode } from "./placement";
@@ -167,6 +168,15 @@ export function PlacementPickerView({ state, practice = false, showMissing = fal
 						</button>
 					))}
 				</div>
+			)}
+			{state.choice.subjectId && (
+				<Link
+					href={`/subjects/${state.choice.subjectId}${state.choice.topicId ? `/${state.choice.topicId}` : ""}#files`}
+					data-testid="placement-add-files"
+					className="rounded-md border border-border/60 bg-background px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+				>
+					Only adding notes or files? Add them here
+				</Link>
 			)}
 			{(state.error || (showMissing && state.missing)) && (
 				<p role="alert" data-testid="placement-hint" className="basis-full text-[11px] text-destructive">{state.error || state.missing}</p>

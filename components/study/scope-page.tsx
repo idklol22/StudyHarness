@@ -13,10 +13,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FileTextIcon, MessageSquarePlusIcon, Trash2Icon, UploadIcon } from "lucide-react";
 import { TopBar } from "@/components/top-bar";
-import { materialsIn, subjectOf, topicOf, topicsOf, type Library, type Material } from "@/src/core";
+import { materialsIn, materialsUnder, materialTopicName, subjectOf, topicOf, topicsOf, type Library, type Material } from "@/src/core";
 import type { ChatListItem } from "@/src/core";
 import { LAST_CHOICE_KEY } from "./placement";
 import { groupChats } from "./group-chats";
+import { IdeasSection, SuggestionsCard } from "./suggestions-card";
+import { useServerEvent } from "@/components/server-events";
 import { NotesPanel } from "./notes-view";
 import { CardsPanel } from "./cards-panel";
 
@@ -51,6 +53,8 @@ export function ScopePage({ subjectId, topicId }: { subjectId: string; topicId?:
 		} catch { setMessage("Could not load this page."); }
 	}, []);
 	useEffect(() => { void load(); }, [load]);
+	// Background work (files understood, topics suggested, ideas added) lands here without a reload.
+	useServerEvent("sources-changed", () => { void load(); });
 
 	if (!library) return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
 	const subject = subjectOf(library, subjectId);
@@ -60,15 +64,18 @@ export function ScopePage({ subjectId, topicId }: { subjectId: string; topicId?:
 	}
 	const scope = topic ? { subjectId, topicId: topic.id } : { subjectId };
 	const title = topic?.name ?? subject.name;
-	const files: Material[] = materialsIn(library, scope);
+	const files: Material[] = materialsUnder(library, scope);
 	const grouped = groupChats(library, chats);
 	const group = grouped.subjects.find((g) => g.subject.id === subjectId);
-	const here = topic ? group?.topics.find((t) => t.topic.id === topic.id)?.chats ?? [] : group?.chats ?? [];
+	// A subject lists its own chats and every topic's (tagged); a topic lists its own.
+	const here: Array<{ chat: ChatListItem; topicName: string }> = topic
+		? (group?.topics.find((t) => t.topic.id === topic.id)?.chats ?? []).map((chat) => ({ chat, topicName: "" }))
+		: [...(group?.chats ?? []).map((chat) => ({ chat, topicName: "" })), ...(group?.topics ?? []).flatMap((t) => t.chats.map((chat) => ({ chat, topicName: t.topic.name })))];
 	const context = (topic ?? subject).context;
 
 	const upload = async (list: FileList | File[]) => {
-		const pdfs = Array.from(list).filter((f) => /\.pdf$/i.test(f.name) || f.type === "application/pdf");
-		if (!pdfs.length) { setMessage("Only PDF files can be added. Export slides (PowerPoint, Keynote) to PDF first."); return; }
+		const pdfs = Array.from(list).filter((f) => /\.(pdf|md|markdown|txt)$/i.test(f.name) || f.type === "application/pdf");
+		if (!pdfs.length) { setMessage("Only PDF, Markdown (.md) and text (.txt) files can be added. Export slides (PowerPoint, Keynote) to PDF first."); return; }
 		setBusy(true); setMessage("");
 		const body = new FormData();
 		body.set("subjectId", subjectId);
@@ -120,6 +127,29 @@ export function ScopePage({ subjectId, topicId }: { subjectId: string; topicId?:
 			>
 				<div className="mx-auto w-full max-w-3xl px-5 pb-16 pt-4">
 					{message && <p role="status" className="mb-3 rounded-md border bg-card px-3 py-2 text-xs">{message}</p>}
+					{!topic && <SuggestionsCard library={library} subjectId={subjectId} act={async (body) => { await run(body); }} />}
+
+					<section id="files" className={`${section} scroll-mt-4 rounded-xl border-2 border-dashed border-primary/40 bg-primary/5 p-4`} data-testid="materials-section">
+						<h2 className={h}>{topic ? "Topic files" : "Subject files"}</h2>
+						<p className="mb-2 text-xs text-muted-foreground">{topic ? "Files here give the agent topic-wide context, and also appear in the subject's files." : "Everything in the subject: files added here are subject-wide, and every topic's files are listed too."} Drop PDF, Markdown or text files anywhere on this page, or attach them in a chat.</p>
+						<ul className="flex flex-col gap-1">
+							{files.map((m) => (
+								<li key={m.id} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm">
+									<FileTextIcon className="size-4 shrink-0 text-muted-foreground" />
+									<span className="min-w-0 flex-1 truncate">{m.fileName}</span>
+									{!topic && materialTopicName(library, m) && <Link href={`/subjects/${subjectId}/${m.scope.topicId}`} className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-accent">{materialTopicName(library, m)}</Link>}
+										<span className="shrink-0 text-xs text-muted-foreground">{m.pageCount} {m.kind === "text" ? "text pages" : "pages"} · {fmtBytes(m.bytes)}</span>
+									{!m.scope.topicId && !(library.suggestions ?? []).some((s) => s.materialId === m.id) && (
+										<button type="button" title="Read this file again and suggest topics for it" onClick={() => { void run({ action: "understand-material", id: m.id }).then(() => setMessage(`Understanding ${m.fileName} — watch the activity panel; suggested topics will appear here.`)); }} className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-primary hover:bg-accent">Find topics</button>
+									)}
+									<button type="button" aria-label={`Remove ${m.fileName}`} title="Remove" onClick={() => void run({ action: "remove-material", id: m.id })} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive"><Trash2Icon className="size-3.5" /></button>
+								</li>
+							))}
+							{files.length === 0 && <li className="text-sm text-muted-foreground">No files yet.</li>}
+						</ul>
+						<input ref={picker} type="file" accept=".pdf,.md,.markdown,.txt,application/pdf,text/markdown,text/plain" multiple hidden data-testid="material-input" onChange={(e) => { const list = e.currentTarget.files; if (list?.length) void upload(list); e.currentTarget.value = ""; }} />
+						<button type="button" disabled={busy} onClick={() => picker.current?.click()} className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50" data-testid="add-material"><UploadIcon className="size-3.5" />{busy ? "Uploading…" : "Add files"}</button>
+					</section>
 
 					{!topic && (
 						<section className={section} data-testid="topics-section">
@@ -142,23 +172,6 @@ export function ScopePage({ subjectId, topicId }: { subjectId: string; topicId?:
 						</section>
 					)}
 
-					<section className={section} data-testid="materials-section">
-						<h2 className={h}>{topic ? "Topic files" : "Subject-wide files"}</h2>
-						<p className="mb-2 text-xs text-muted-foreground">{topic ? "PDFs here give the agent topic-wide context." : "PDFs here give the agent context across every topic of the subject."} Drop PDFs anywhere on this page.</p>
-						<ul className="flex flex-col gap-1">
-							{files.map((m) => (
-								<li key={m.id} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm">
-									<FileTextIcon className="size-4 shrink-0 text-muted-foreground" />
-									<span className="min-w-0 flex-1 truncate">{m.fileName}</span>
-									<span className="shrink-0 text-xs text-muted-foreground">{m.pageCount} pages · {fmtBytes(m.bytes)}</span>
-									<button type="button" aria-label={`Remove ${m.fileName}`} title="Remove" onClick={() => void run({ action: "remove-material", id: m.id })} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive"><Trash2Icon className="size-3.5" /></button>
-								</li>
-							))}
-							{files.length === 0 && <li className="text-sm text-muted-foreground">No files yet.</li>}
-						</ul>
-						<input ref={picker} type="file" accept=".pdf,application/pdf" multiple hidden data-testid="material-input" onChange={(e) => { const list = e.currentTarget.files; if (list?.length) void upload(list); e.currentTarget.value = ""; }} />
-						<button type="button" disabled={busy} onClick={() => picker.current?.click()} className={`${btn} mt-2`} data-testid="add-material"><UploadIcon className="size-3.5" />{busy ? "Uploading…" : "Add PDFs"}</button>
-					</section>
 
 					{context.trim() && (
 						<section className={section} data-testid="context-section">
@@ -167,6 +180,8 @@ export function ScopePage({ subjectId, topicId }: { subjectId: string; topicId?:
 						</section>
 					)}
 
+					<IdeasSection library={library} subjectId={subjectId} topicId={topic?.id} chatTitles={new Map(chats.map((c) => [c.id, c.title]))} />
+
 					<NotesPanel subjectId={subjectId} topicId={topicId} label={title} />
 
 					<CardsPanel subjectId={subjectId} topicId={topicId} />
@@ -174,8 +189,8 @@ export function ScopePage({ subjectId, topicId }: { subjectId: string; topicId?:
 					<section className={section} data-testid="chats-section">
 						<h2 className={h}>Chats</h2>
 						<ul className="flex flex-col gap-1">
-							{here.map((c) => (
-								<li key={c.id}><Link href={`/chat/${c.id}`} className="block truncate rounded-lg border px-3 py-2 text-sm transition-colors hover:bg-accent/60">{c.title}</Link></li>
+							{here.map(({ chat: c, topicName }) => (
+								<li key={c.id}><Link href={`/chat/${c.id}`} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors hover:bg-accent/60"><span className="min-w-0 flex-1 truncate">{c.title}</span>{topicName && <span className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">{topicName}</span>}</Link></li>
 							))}
 							{here.length === 0 && <li className="text-sm text-muted-foreground">No chats here yet.</li>}
 						</ul>
@@ -195,7 +210,7 @@ export function ScopePage({ subjectId, topicId }: { subjectId: string; topicId?:
 						</button>
 					</section>
 				</div>
-				{dragging && <div className="pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-background/85 text-sm">Drop PDFs to add them to {title}</div>}
+				{dragging && <div className="pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-background/85 text-sm">Drop files to add them to {title}</div>}
 			</div>
 		</div>
 	);

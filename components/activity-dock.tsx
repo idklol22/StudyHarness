@@ -88,9 +88,11 @@ export interface ActivityFeed {
 	/** Optional for older payloads and consumers; current server always sends it. */
 	pluginWorkers?: FeedPluginWorker[];
 	extractions: FeedExtraction[];
+	/** Study agents at work: what they are reading or writing, step by step. */
+	studyWork?: Array<{ id: string; title: string; activity: string; log: string[]; startedAt: number }>;
 }
 
-const EMPTY_FEED: ActivityFeed = { jobs: [], pluginWorkers: [], extractions: [] };
+const EMPTY_FEED: ActivityFeed = { jobs: [], pluginWorkers: [], extractions: [], studyWork: [] };
 
 // ─── The activity feed (composition root: the root layout) ───────────────────
 
@@ -127,7 +129,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
 				if (res.ok) {
 					const data = (await res.json()) as Partial<ActivityFeed>;
 					if (alive)
-						setFeed({ jobs: data.jobs ?? [], pluginWorkers: data.pluginWorkers ?? [], extractions: data.extractions ?? [] });
+						setFeed({ jobs: data.jobs ?? [], pluginWorkers: data.pluginWorkers ?? [], extractions: data.extractions ?? [], studyWork: data.studyWork ?? [] });
 				}
 			} catch {
 				// transport blip: keep the last feed, announce again next event
@@ -187,7 +189,7 @@ export interface ActivityBlob {
 	/** job.id, or the extraction job's row id (source id, or "src#i" for
 	 *  chunk jobs — unique per row, per-chunk jobs owner 2026-09-28). */
 	id: string;
-	process: "job" | "plugin-worker" | "extraction";
+	process: "job" | "plugin-worker" | "extraction" | "study";
 	/** Sub-agent kind for jobs (extraction blobs have none). */
 	jobKind?: JobKind;
 	/** Extraction phase (extracting/auditing/merging/embedding); jobs carry none. */
@@ -202,6 +204,8 @@ export interface ActivityBlob {
 	context: { used: number; limit: number } | null;
 	/** Latest human-readable activity line (""). */
 	activity: string;
+	/** Study agents: every step so far. */
+	log?: string[];
 	/** Sub-agent model id, when usage is reported. */
 	model?: string;
 	/** Model calls made so far, when usage is reported. */
@@ -283,6 +287,9 @@ export function toBlobs(feed: ActivityFeed): ActivityBlob[] {
 			context: null,
 			activity: "",
 		});
+	}
+	for (const w of feed.studyWork ?? []) {
+		blobs.push({ id: w.id, process: "study", title: w.title, startedAt: w.startedAt, cost: null, context: null, activity: w.activity, log: w.log });
 	}
 	blobs.sort((a, b) => a.startedAt - b.startedAt);
 	return blobs;
@@ -426,7 +433,9 @@ function ActivityBlobRow({
 	const label =
 		blob.process === "extraction"
 			? `Extraction — ${blob.phase ?? "running"}`
-			: blob.jobKind === "research"
+			: blob.process === "study"
+				? "Study agent"
+				: blob.jobKind === "research"
 				? "Researcher"
 				: blob.jobKind === "demo"
 					? "Demo builder"
@@ -468,7 +477,7 @@ function ActivityBlobRow({
 			{/* The explicit END always on the blob's face (SCOPE) — the popover
 			    is for DETAIL, not the control. A failed abort locks the button and
 			    says why; a succeeded one just makes the blob vanish on refresh. */}
-			<button
+			{blob.process !== "study" && <button
 				type="button"
 				data-testid="activity-abort"
 				onClick={onAbort}
@@ -478,7 +487,7 @@ function ActivityBlobRow({
 				className="absolute right-1 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground/70 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
 			>
 				<SquareIcon className="size-3" />
-			</button>
+			</button>}
 
 			{detailOpen && (
 				<div
@@ -496,7 +505,9 @@ function ActivityBlobRow({
 						<div className="truncate text-card-foreground" title={blob.title}>
 							{blob.title}
 						</div>
-						{blob.activity && <div className="break-words">{blob.activity}</div>}
+						{blob.log?.length ? (
+							<ol data-testid="activity-blob-log" className="flex max-h-48 flex-col gap-0.5 overflow-y-auto break-words">{blob.log.map((l, i) => <li key={i} className={i === blob.log!.length - 1 ? "text-card-foreground" : ""}>{l}</li>)}</ol>
+						) : blob.activity && <div className="break-words">{blob.activity}</div>}
 						<div className="flex justify-between gap-2">
 							<span>Cost</span>
 							<span className="tabular-nums text-card-foreground">

@@ -1,13 +1,15 @@
 /**
- * GET  /api/study/notes?subjectId=…[&topicId=…]  — the scope's notebook (pages, elements, the learner's ink).
+ * GET  /api/study/notes?subjectId=…[&topicId=…][&notebookId=…]  — a notebook (default: the newest) and the scope's list
+ *      of notebooks {notebook, notebookId, notebooks}. A notebook holds at most 32 pages; a scope can have several.
  * POST /api/study/notes                          — one action per request:
- *   {action:"generate", subjectId, topicId?, lesson?}      the note-taker adds blocks from context + material (+ lesson)
+ *   {action:"generate", subjectId, topicId?, pages?, title?, lesson?}  a NEW notebook of about `pages` pages (1–32) summarising
+ *                                                         the scope's files and chats; every other action takes notebookId?
  *   {action:"stroke", subjectId, topicId?, pageId, stroke}  the learner draws (pen / highlighter)
  *   {action:"undo", …, pageId} · {action:"sticky", …, pageId, x, y, text} · {action:"remove-sticky", …, pageId, id}
  *   {action:"edit", …, elementId, text?, items?}            reword an agent element (the old text is kept in its history)
  * The learner's ink is stored beside the agent's pages and is never changed by "generate" or "edit".
  */
-import { StudyInputError, checkedNotesScope, editNote, generateNotes, learnerInk, readNotebook, resolveEngine } from "@/src/server";
+import { StudyInputError, checkedNotesScope, editNote, generateNotes, learnerInk, notebooksOf, readNotebook, resolveEngine } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 const LIMIT = 2 * 1024 * 1024;
@@ -16,15 +18,20 @@ const fail = (error: unknown) => {
 	const status = error instanceof StudyInputError ? 400 : 500;
 	return Response.json({ error: error instanceof Error ? error.message : "Notes failed." }, { status });
 };
-const scopeOf = (v: { subjectId?: unknown; topicId?: unknown }) => {
+const scopeOf = (v: { subjectId?: unknown; topicId?: unknown; notebookId?: unknown }) => {
 	if (typeof v.subjectId !== "string") throw new StudyInputError("subjectId is required.");
-	return checkedNotesScope({ subjectId: v.subjectId, ...(typeof v.topicId === "string" && v.topicId ? { topicId: v.topicId } : {}) });
+	return checkedNotesScope({ subjectId: v.subjectId, ...(typeof v.topicId === "string" && v.topicId ? { topicId: v.topicId } : {}), ...(typeof v.notebookId === "string" && v.notebookId ? { notebookId: v.notebookId } : {}) });
+};
+/** The notebook plus the scope's notebook list, so the viewer can show tabs. */
+const view = (scope: ReturnType<typeof scopeOf>, notebook = readNotebook(scope)) => {
+	const notebooks = notebooksOf(scope);
+	return { notebook, notebookId: scope.notebookId ?? notebooks.at(-1)?.id ?? null, notebooks };
 };
 
 export function GET(request: Request) {
 	try {
 		const q = new URL(request.url).searchParams;
-		return Response.json({ notebook: readNotebook(scopeOf({ subjectId: q.get("subjectId") ?? undefined, topicId: q.get("topicId") ?? undefined })) });
+		return Response.json(view(scopeOf({ subjectId: q.get("subjectId") ?? undefined, topicId: q.get("topicId") ?? undefined, notebookId: q.get("notebookId") ?? undefined })));
 	} catch (error) { return fail(error); }
 }
 
@@ -39,14 +46,15 @@ export async function POST(request: Request) {
 		const scope = scopeOf(raw);
 		switch (raw.action) {
 			case "generate": {
-				const { notebook, added } = await generateNotes(scope, typeof raw.lesson === "string" ? raw.lesson.slice(-12000) : "", { engineFor: resolveEngine, signal: request.signal });
-				return Response.json({ notebook, added });
+				const { subjectId, topicId } = scope;
+				const { notebook, notebookId, added } = await generateNotes({ subjectId, ...(topicId ? { topicId } : {}) }, typeof raw.lesson === "string" ? raw.lesson.slice(-12000) : "", { engineFor: resolveEngine, signal: request.signal }, { pages: Number(raw.pages) || undefined, title: typeof raw.title === "string" ? raw.title : undefined });
+				return Response.json({ ...view({ ...scope, notebookId }, notebook), added });
 			}
-			case "stroke": return Response.json({ notebook: await learnerInk(scope, { kind: "stroke", pageId: String(raw.pageId), stroke: raw.stroke }) });
-			case "undo": return Response.json({ notebook: await learnerInk(scope, { kind: "undo", pageId: String(raw.pageId) }) });
-			case "sticky": return Response.json({ notebook: await learnerInk(scope, { kind: "sticky", pageId: String(raw.pageId), x: Number(raw.x), y: Number(raw.y), text: String(raw.text ?? "") }) });
-			case "remove-sticky": return Response.json({ notebook: await learnerInk(scope, { kind: "remove-sticky", pageId: String(raw.pageId), id: String(raw.id) }) });
-			case "edit": return Response.json({ notebook: await editNote(scope, String(raw.elementId), { text: raw.text, items: raw.items }) });
+			case "stroke": return Response.json(view(scope, await learnerInk(scope, { kind: "stroke", pageId: String(raw.pageId), stroke: raw.stroke })));
+			case "undo": return Response.json(view(scope, await learnerInk(scope, { kind: "undo", pageId: String(raw.pageId) })));
+			case "sticky": return Response.json(view(scope, await learnerInk(scope, { kind: "sticky", pageId: String(raw.pageId), x: Number(raw.x), y: Number(raw.y), text: String(raw.text ?? "") })));
+			case "remove-sticky": return Response.json(view(scope, await learnerInk(scope, { kind: "remove-sticky", pageId: String(raw.pageId), id: String(raw.id) })));
+			case "edit": return Response.json(view(scope, await editNote(scope, String(raw.elementId), { text: raw.text, items: raw.items })));
 			default: return Response.json({ error: "Unknown action." }, { status: 400 });
 		}
 	} catch (error) {

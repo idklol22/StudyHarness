@@ -63,7 +63,7 @@ export function createStudyStore(root: string, announce: () => void = () => {}) 
 			const raw = readJson<Partial<Library> | null>(libraryFile, null);
 			if (!raw) return emptyLibrary();
 			if (raw.version !== 1) throw new Error("This Study library was written by a newer version of the app.");
-			return { version: 1, subjects: raw.subjects ?? [], topics: raw.topics ?? [], materials: raw.materials ?? [] };
+			return { version: 1, subjects: raw.subjects ?? [], topics: raw.topics ?? [], materials: raw.materials ?? [], ...(raw.suggestions?.length ? { suggestions: raw.suggestions } : {}) };
 		},
 		writeLibrary(library: Library): void {
 			writeJson(libraryFile, library);
@@ -72,11 +72,12 @@ export function createStudyStore(root: string, announce: () => void = () => {}) 
 		},
 
 		// ── Managed PDF copies ─────────────────────────────────────────────────
-		materialPath: (hash: string) => dir("materials", `${sha(hash)}.pdf`),
-		hasMaterial: (hash: string) => fs.existsSync(dir("materials", `${sha(hash)}.pdf`)),
-		/** Store the file once. Returns false when the identical copy already existed (nothing written). */
-		saveMaterial(hash: string, bytes: Uint8Array): boolean {
-			const file = dir("materials", `${sha(hash)}.pdf`);
+		materialPath: (hash: string, ext: "pdf" | "txt" = "pdf") => dir("materials", `${sha(hash)}.${ext}`),
+		hasMaterial: (hash: string) => fs.existsSync(dir("materials", `${sha(hash)}.pdf`)) || fs.existsSync(dir("materials", `${sha(hash)}.txt`)),
+		readText: (hash: string): string => fs.readFileSync(dir("materials", `${sha(hash)}.txt`), "utf8"),
+		/** Store the file once. Returns false when the identical copy already existed (nothing written). Text files are kept as .txt. */
+		saveMaterial(hash: string, bytes: Uint8Array, ext: "pdf" | "txt" = "pdf"): boolean {
+			const file = dir("materials", `${sha(hash)}.${ext}`);
 			if (fs.existsSync(file)) return false;
 			if (sha256Of(bytes) !== hash) throw new Error("File contents do not match their hash.");
 			writeBytesAtomic(file, bytes);
@@ -125,6 +126,7 @@ export function createStudyStore(root: string, announce: () => void = () => {}) 
 		/** Remove everything stored for a file nothing references any more: the PDF, its memory, its page images. */
 		deleteFile(hash: string): void {
 			fs.rmSync(dir("materials", `${sha(hash)}.pdf`), { force: true });
+			fs.rmSync(dir("materials", `${sha(hash)}.txt`), { force: true });
 			fs.rmSync(dir("memory", `${sha(hash)}.json`), { force: true });
 			fs.rmSync(dir("pages", sha(hash)), { recursive: true, force: true });
 		},
@@ -148,7 +150,7 @@ export function createStudyStore(root: string, announce: () => void = () => {}) 
 			let names: string[] = [];
 			try { names = fs.readdirSync(dir("materials")); } catch { /* none yet */ }
 			for (const name of names) {
-				const hash = name.replace(/\.pdf$/, "");
+				const hash = name.replace(/\.(pdf|txt)$/, "");
 				if (SHA256.test(hash) && !kept.has(hash)) { this.deleteFile(hash); removed.push(hash); }
 			}
 			return removed;

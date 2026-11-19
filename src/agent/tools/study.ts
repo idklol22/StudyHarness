@@ -12,6 +12,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { serverExecute } from "../tool-execute.ts";
 import { addCards, editCard, groupSummaries, rateCard, removeCard, studyQueue, type Card, type CardSet, type StudyMode } from "../../core/study/cards.ts";
 import { visibleMaterials } from "../../core/study/doctrine.ts";
+import { diagramFromFlat } from "../../core/study/diagram.ts";
 import type { ChatPlacement, Library } from "../../core/study/model.ts";
 import { parseRange } from "../../core/study/material-memory.ts";
 
@@ -73,11 +74,17 @@ export function studyTools(ports: StudyToolPorts): Record<string, AgentTool<any>
 		action: Type.Union([Type.Literal("add"), Type.Literal("edit"), Type.Literal("outline")]),
 		summary: Type.Optional(Type.String({ description: "One short line: what this addition covers." })),
 		blocks: Type.Optional(Type.Array(Type.Object({
-			type: Type.Union([Type.Literal("heading"), Type.Literal("text"), Type.Literal("bullets"), Type.Literal("box"), Type.Literal("sticky"), Type.Literal("steps"), Type.Literal("figure")]),
+			type: Type.Union([Type.Literal("heading"), Type.Literal("text"), Type.Literal("bullets"), Type.Literal("box"), Type.Literal("sticky"), Type.Literal("steps"), Type.Literal("figure"), Type.Literal("diagram"), Type.Literal("math")]),
+			latex: Type.Optional(Type.String({ description: "math: the equation in LaTeX, without $ signs" })),
+			diagramKind: Type.Optional(Type.Union([Type.Literal("flow"), Type.Literal("mind")])),
+			nodes: Type.Optional(Type.Array(Type.Object({ id: Type.String(), text: Type.String(), decision: Type.Optional(Type.Boolean()) }))),
+			edges: Type.Optional(Type.Array(Type.Object({ from: Type.String(), to: Type.String(), label: Type.Optional(Type.String()) }))),
+			center: Type.Optional(Type.String()),
+			branches: Type.Optional(Type.Array(Type.Object({ text: Type.String(), children: Type.Optional(Type.Array(Type.String())) }))),
 			text: Type.Optional(Type.String()), items: Type.Optional(Type.Array(Type.String())), steps: Type.Optional(Type.Array(Type.String())),
 			kind: Type.Optional(Type.String({ description: "box: definition | exam | revisit | mistake | idea" })), title: Type.Optional(Type.String()),
 			material: Type.Optional(Type.String({ description: "figure: material id or file name" })), page: Type.Optional(Type.Integer({ minimum: 1 })),
-			focus: Type.Optional(Type.String({ description: "figure: what on that page the note is about; it gets circled/underlined/pointed at" })), caption: Type.Optional(Type.String()),
+			focus: Type.Optional(Type.String({ description: "figure: ONLY when the learner struggled with something on this page — what they found hard; those words get circled or pointed at. Leave it out for an ordinary screenshot (most figures)." })), caption: Type.Optional(Type.String()),
 		}))),
 		id: Type.Optional(Type.String({ description: "edit: the element id from the outline" })), text: Type.Optional(Type.String()), items: Type.Optional(Type.Array(Type.String())),
 	});
@@ -114,7 +121,7 @@ export function studyTools(ports: StudyToolPorts): Record<string, AgentTool<any>
 		study_notes: {
 			name: "study_notes",
 			label: "study_notes",
-			description: "Write the learner's class notes as you teach, like a student's iPad notes: short headings, bullets, margin stickies, boxes (definition / exam / revisit / mistake), worked steps from this lesson, and figure blocks that screenshot a page of the material (give page and focus; it is marked up with circles and arrows for you). Add after each part is taught, not before. Notes are never deleted: use edit to change wording, outline to see what is there first.",
+			description: "Write the learner's class notes as you teach, like a student's iPad notes: short headings, bullets, margin stickies, boxes (definition / exam / revisit / mistake), worked steps from this lesson, diagram blocks (flowcharts and mind maps drawn from the content you give), math blocks for key equations (all maths in LaTeX: $...$ inline in any text), and figure blocks that screenshot a page of the material (give page and focus; it is marked up with circles and arrows for you). Add after each part is taught, not before. Notes are never deleted: use edit to change wording, outline to see what is there first.",
 			parameters: NotesSchema,
 			execute: serverExecute("study_notes", NotesSchema, async (input) => {
 				if (input.action === "outline") return { text: ports.notes.outline() };
@@ -124,6 +131,8 @@ export function studyTools(ports: StudyToolPorts): Record<string, AgentTool<any>
 				}
 				const planned = (input.blocks ?? []).flatMap((b): Array<{ block: import("../../core/study/notes.ts").Block; focus?: string }> => {
 					if (b.type === "figure") { const m = material(b.material); return b.page ? [{ block: { type: "figure", materialId: m.id, page: b.page, aspect: 0.75, caption: b.caption }, focus: b.focus }] : []; }
+					if (b.type === "math") return b.latex ? [{ block: { type: "math", latex: b.latex, text: b.text } }] : [];
+					if (b.type === "diagram") return [{ block: { type: "diagram", title: b.title, diagram: diagramFromFlat(b) } }];
 					if (b.type === "bullets") return [{ block: { type: "bullets", items: b.items ?? [] } }];
 					if (b.type === "steps") return [{ block: { type: "steps", title: b.title, steps: b.steps ?? b.items ?? [] } }];
 					if (b.type === "box") return [{ block: { type: "box", kind: (b.kind ?? "idea") as never, title: b.title, text: b.text ?? "" } }];

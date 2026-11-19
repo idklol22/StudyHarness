@@ -55,7 +55,7 @@ describe("study service", () => {
 		assert.equal(svc.library().materials.length, 2);
 		assert.equal(fs.readdirSync(path.join(store.root, "materials")).length, 1, "one stored copy for both topics");
 		assert.equal(first.material.fileName, "book.pdf");
-		await assert.rejects(svc.addMaterial({ bytes: Buffer.from("PK zip file"), fileName: "slides.pptx", scope: { subjectId: sub.id } }), /Only PDF files/);
+		await assert.rejects(svc.addMaterial({ bytes: Buffer.from("PK zip file"), fileName: "slides.pptx", scope: { subjectId: sub.id } }), /Only PDF, Markdown/);
 		assert.ok(calls.count >= 1);
 	});
 

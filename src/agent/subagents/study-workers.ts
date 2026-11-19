@@ -104,36 +104,42 @@ export async function keepContext(input: { name: string; level: "topic" | "subje
 
 // ── note-taker: plan blocks, then mark figures ──────────────────────────────────────────────────────────────────
 
-import type { Block, Mark } from "../../core/study/notes.ts";
+import type { Block } from "../../core/study/notes.ts";
+import type { MarkPick } from "../../core/study/text-boxes.ts";
+import { DIAGRAM_GUIDE, diagramFromFlat } from "../../core/study/diagram.ts";
 
-const MARKER_PROMPT = `You annotate ONE page image the way a student marks up a slide with a pen.
-Given what the note is about, submit 1–4 marks over the part of the page that matters. Coordinates are fractions of the image (0 = left/top, 1 = right/bottom).
-Kinds: circle (x,y = top-left, w,h = size), highlight and underline (x,y,w,h), bracket (x,y,w,h), arrow (x,y = the tip pointing at the thing, fromX,fromY = the tail, away from it), label (x,y position, label = a short phrase, at most 6 words).
-Prefer a circle or highlight on the key formula or part, an arrow to a short label. Mark only what is visible. If nothing on the page is worth marking, submit no marks.`;
+const MARKER_PROMPT = `You mark up ONE page of course material the way a student does with a pen, but sparingly: only what the learner needs to look at for the point given. You see the page's text.
+Submit at most 2 picks (usually 1). Each pick is a QUOTE copied exactly from the page text (3–10 consecutive words, or a whole formula/term), a kind, and an optional short label (at most 5 words):
+- circle: the key term, formula or value;
+- highlight: a phrase or definition to reread;
+- underline: a short statement;
+- arrow: points at the quoted words, with a label explaining it.
+If nothing on the page matches the point, submit no picks.`;
 const markerSchema = Type.Object({
-	marks: Type.Array(Type.Object({
-		kind: Type.Union([Type.Literal("circle"), Type.Literal("arrow"), Type.Literal("underline"), Type.Literal("highlight"), Type.Literal("bracket"), Type.Literal("label")]),
-		x: Type.Number(), y: Type.Number(), w: Type.Optional(Type.Number()), h: Type.Optional(Type.Number()),
-		fromX: Type.Optional(Type.Number()), fromY: Type.Optional(Type.Number()), label: Type.Optional(Type.String()),
+	picks: Type.Array(Type.Object({
+		quote: Type.String({ description: "Words copied exactly from the page text." }),
+		kind: Type.Union([Type.Literal("circle"), Type.Literal("highlight"), Type.Literal("underline"), Type.Literal("arrow")]),
+		label: Type.Optional(Type.String()),
 	})),
 });
 
-/** A vision look at one page: where would a student circle, underline or point? */
-export async function markFigure(image: PageImage, focus: string, env: WorkerEnv): Promise<Mark[]> {
-	const content = [
-		{ type: "image", data: image.data, mimeType: image.mimeType },
-		{ type: "text", text: `The note is about: ${focus || "the main idea on this page"}. Submit the marks.` },
-	];
-	const messages = [{ role: "user", content, timestamp: Date.now() }] as unknown as AgentMessage[];
-	const out = await runSubmitAgent<{ marks: Mark[] }>({
-		role: "pdfReader", toolName: "submit_marks", toolDescription: "Submit the marks for this page.", parameters: markerSchema,
-		fill: (i) => ({ marks: i.marks ?? [] }), systemPrompt: MARKER_PROMPT, messages, engine: env.engine, signal: env.signal, chatId: env.chatId,
+/**
+ * Which words on a page to mark for a point (the learner's difficulty). Code then places the marks exactly on those
+ * words from the PDF's own text layout (core/study/text-boxes.ts), so marks never drift. No text → no picks.
+ */
+export async function markFigure(pageText: string, focus: string, env: WorkerEnv): Promise<MarkPick[]> {
+	if (!pageText.trim() || !focus.trim()) return [];
+	const out = await runSubmitAgent<{ picks: MarkPick[] }>({
+		role: "extractor", toolName: "submit_picks", toolDescription: "Submit the words to mark.", parameters: markerSchema,
+		fill: (i) => ({ picks: i.picks ?? [] }), systemPrompt: MARKER_PROMPT,
+		prompt: `The point to mark: ${focus}\n\nPage text:\n${pageText.slice(0, 6000)}`,
+		engine: env.engine, signal: env.signal, chatId: env.chatId,
 		onStep: (usage, model) => env.onUsage?.(usage, model), neverSubmitted: "The page marker did not submit.",
 	});
-	return out.marks;
+	return out.picks.slice(0, 2);
 }
 
-const NOTE_PROMPT = `You write the class notes a diligent student would hand-write on an iPad while learning this topic: short, visual, in their own words.
+const NOTE_PROMPT = `You write the class notes a diligent student would hand-write on an iPad while learning this topic: clear, visual and complete, in their own words.
 You are given the topic's context, what the course material contains (page summaries and figures worth showing), what the notes already say, and the lesson so far.
 Submit ONLY the blocks to ADD (never repeat what the notes already say). Block types:
 - heading: a section title.
@@ -142,11 +148,20 @@ Submit ONLY the blocks to ADD (never repeat what the notes already say). Block t
 - box: kind definition | exam | revisit | mistake | idea, optional title, short text. Use sparingly.
 - sticky: a tiny margin note (a hint, a warning, "exam favourite!"); at most 12 words.
 - steps: a worked example from the lesson, one short step per line, with the numbers.
-- figure: a page of the material to screenshot: materialId, page, and "focus" = what on that page the note is about (a few words). Prefer a figure whenever the material has a diagram, plot, formula or worked example for the point.
-Write like notes, not like an essay. Keep the whole submission under about 14 blocks. Never invent facts that are not in the context, material or lesson.`;
+- figure: a page of the material to screenshot: materialId, page, optional caption. Prefer a figure whenever the material has a diagram, plot, formula or worked example for the point. Give "focus" ONLY for something the conversations show the learner found hard or got wrong (it gets marked with a pen); otherwise leave focus out — clean screenshots are the norm.
+- math: a displayed equation — latex (LaTeX, no $ signs) and optional text saying what it means.
+${DIAGRAM_GUIDE}
+MATHS IS ALWAYS LaTeX: every formula, symbol and variable, in every block, is written in LaTeX — inline as $...$ inside text, bullets, boxes, steps and stickies (e.g. "$T(n) = 2T(n/2) + O(n)$", "each $x_i$"), a key equation as a math block. Never plain-text maths like T(n)=2T(n/2)+O(n) or x^2.
+Quality bar: the notes must be DESCRIPTIVE and cover the basic content properly. For every concept in the material: a heading, a plain-language explanation in 2–4 sentences ("text"), the key points as bullets, a definition box for each important term, and a worked example ("steps") where the source has one. Add a flowchart for every process, algorithm, protocol or lifecycle, and a mind map for every group of related ideas (for a whole file or chapter: one mind map of its structure first). Use stickies for tips and exam warnings. Be faithful and specific (names, numbers, formulas from the source) rather than vague. Keep any single text block under about 60 words. Never invent facts that are not in the context, material or lesson.`;
 const noteSchema = Type.Object({
 	blocks: Type.Array(Type.Object({
-		type: Type.Union([Type.Literal("heading"), Type.Literal("text"), Type.Literal("bullets"), Type.Literal("box"), Type.Literal("sticky"), Type.Literal("steps"), Type.Literal("figure")]),
+		type: Type.Union([Type.Literal("heading"), Type.Literal("text"), Type.Literal("bullets"), Type.Literal("box"), Type.Literal("sticky"), Type.Literal("steps"), Type.Literal("figure"), Type.Literal("diagram"), Type.Literal("math")]),
+		latex: Type.Optional(Type.String({ description: "math: the equation in LaTeX, without $ signs" })),
+		diagramKind: Type.Optional(Type.Union([Type.Literal("flow"), Type.Literal("mind")])),
+		nodes: Type.Optional(Type.Array(Type.Object({ id: Type.String(), text: Type.String(), decision: Type.Optional(Type.Boolean()) }))),
+		edges: Type.Optional(Type.Array(Type.Object({ from: Type.String(), to: Type.String(), label: Type.Optional(Type.String()) }))),
+		center: Type.Optional(Type.String()),
+		branches: Type.Optional(Type.Array(Type.Object({ text: Type.String(), children: Type.Optional(Type.Array(Type.String())) }))),
 		text: Type.Optional(Type.String()), items: Type.Optional(Type.Array(Type.String())), steps: Type.Optional(Type.Array(Type.String())),
 		kind: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
 		materialId: Type.Optional(Type.String()), page: Type.Optional(Type.Integer({ minimum: 1 })), focus: Type.Optional(Type.String()), caption: Type.Optional(Type.String()),
@@ -158,16 +173,19 @@ export interface PlannedBlock { block: Block; focus?: string }
 export interface NotePlan { blocks: PlannedBlock[]; summary: string }
 
 /** Plan the next blocks of the notes. Figures come back without marks (see markFigure) and with a placeholder aspect. */
-export async function planNotes(input: { name: string; context: string; materials: string; outline: string; lesson: string }, env: WorkerEnv): Promise<NotePlan> {
+export async function planNotes(input: { name: string; context: string; materials: string; outline: string; lesson: string; /** What this pass should cover and how much (appended to the system prompt). */ instruction?: string }, env: WorkerEnv): Promise<NotePlan> {
 	const out = await runSubmitAgent<{ blocks: any[]; summary?: string }>({
 		role: "extractor", toolName: "submit_blocks", toolDescription: "Submit the note blocks to add.", parameters: noteSchema,
-		fill: (i) => ({ blocks: i.blocks ?? [], summary: i.summary }), systemPrompt: NOTE_PROMPT,
+		fill: (i) => ({ blocks: i.blocks ?? [], summary: i.summary }), systemPrompt: input.instruction ? `${NOTE_PROMPT}
+${input.instruction}` : NOTE_PROMPT,
 		prompt: `Topic: ${input.name}\n\n# Context\n${input.context || "(none)"}\n\n# Material\n${input.materials || "(none)"}\n\n# Notes so far\n${input.outline}\n\n# The lesson so far\n${input.lesson || "(no lesson yet — write notes from the material)"}`,
 		engine: env.engine, signal: env.signal, chatId: env.chatId, onStep: (usage, model) => env.onUsage?.(usage, model), neverSubmitted: "The note-taker did not submit.",
 		validate: (v) => (v.blocks.length ? null : "Submit at least one block."),
 	});
 	const blocks: PlannedBlock[] = out.blocks.flatMap((b): PlannedBlock[] => {
 		const t = b.type;
+		if (t === "math") return b.latex ? [{ block: { type: "math", latex: b.latex, text: b.text } }] : [];
+		if (t === "diagram") return [{ block: { type: "diagram", title: b.title, diagram: diagramFromFlat(b) } }];
 		if (t === "figure") return b.materialId && b.page ? [{ block: { type: "figure", materialId: b.materialId, page: b.page, aspect: 0.75, caption: b.caption }, focus: b.focus }] : [];
 		if (t === "bullets") return b.items?.length ? [{ block: { type: "bullets", items: b.items } }] : [];
 		if (t === "steps") return b.steps?.length ? [{ block: { type: "steps", title: b.title, steps: b.steps } }] : [];
@@ -175,4 +193,74 @@ export async function planNotes(input: { name: string; context: string; material
 		return b.text ? [{ block: { type: t, text: b.text } as Block }] : [];
 	});
 	return { blocks, summary: out.summary ?? `Notes on ${input.name}` };
+}
+
+// ── chat titles ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+const TITLE_PROMPT = `You name chats the way ChatGPT does. Given the start of a study chat (what the learner sent, any files they attached, and the tutor's first reply), write a short title that says what the chat is ABOUT.
+Rules: 3 to 7 words; name the actual subject matter (the concepts, the lecture topic), never the act of chatting ("Notes for today", "Help me", "Question"); Title Case or sentence case, no quotes, no trailing period, no emoji.
+Examples: "Virtual Memory and Page Replacement", "TCP Congestion Control Basics", "Condition Variables vs Locks".`;
+const titleSchema = Type.Object({ title: Type.String() });
+
+/** A descriptive title for a chat from its opening exchange. Returns "" when no model is available. */
+export async function titleChat(input: { opening: string; reply: string; files: readonly string[]; place: string }, env: WorkerEnv): Promise<string> {
+	const out = await runSubmitAgent<{ title: string }>({
+		role: "extractor", toolName: "submit_title", toolDescription: "Submit the chat title.", parameters: titleSchema,
+		fill: (i) => ({ title: String(i.title ?? "") }), systemPrompt: TITLE_PROMPT,
+		prompt: `Where it lives: ${input.place}\nFiles attached: ${input.files.join(", ") || "none"}\n\nLearner: ${input.opening.slice(0, 1200)}\n\nTutor: ${input.reply.slice(0, 1500)}`,
+		engine: env.engine, signal: env.signal, chatId: env.chatId, onStep: (usage, model) => env.onUsage?.(usage, model), neverSubmitted: "The titler did not submit.",
+		validate: (v) => (v.title.trim() ? null : "Submit a title."),
+	});
+	return out.title.replace(/["“”]/g, "").replace(/\s+/g, " ").trim().replace(/[.。]+$/, "").slice(0, 72);
+}
+
+// ── topics and ideas from a file ────────────────────────────────────────────────────────────────────────────────
+
+const TOPICS_PROMPT = `You organise a learner's course material into TOPICS and IDEAS. You get an outline of one file (every page's headings and opening words) and the subject's existing topics.
+A TOPIC is a unit a course would teach as a whole and a learner would name a folder after: "Dynamic programming", "Virtual memory", "TCP congestion control". It is never a sub-technique, a single definition or a slide title: memoization and tabulation are IDEAS inside "Dynamic programming", not topics.
+Rules:
+- Submit 1 topic, or 2 only when the file clearly has two major, separate parts (e.g. a deck that covers paging AND concurrency). Never more than 2. Prefer fewer, broader topics.
+- When an existing topic fits, use it (give its id) instead of inventing a near-duplicate.
+- Each topic: name (2–4 words), the PDF page range it spans (from/to), a 2–3 sentence summary of what it teaches, and 3–8 ideas: the key concepts, techniques, results or algorithms it covers, each with a one-line meaning and the pages where it appears (e.g. "12-15").
+- Name things the way the material does. Never invent content that is not in the outline.`;
+const topicsSchema = Type.Object({
+	topics: Type.Array(Type.Object({
+		name: Type.String(),
+		existingTopicId: Type.Optional(Type.String()),
+		from: Type.Integer({ minimum: 1 }),
+		to: Type.Integer({ minimum: 1 }),
+		summary: Type.String(),
+		ideas: Type.Array(Type.Object({ name: Type.String(), summary: Type.String(), pages: Type.Optional(Type.String()) })),
+	})),
+});
+
+export interface TopicProposal { name: string; existingTopicId?: string; from: number; to: number; summary: string; ideas: Array<{ name: string; summary: string; pages?: string }> }
+
+/** Propose the 1–2 broad topics a file covers, with their key ideas. `intoTopic` = the file already belongs to that topic: just its ideas. */
+export async function suggestTopics(input: { fileName: string; pageCount: number; outline: string; existing: ReadonlyArray<{ id: string; name: string; context: string }>; intoTopic?: string }, env: WorkerEnv): Promise<TopicProposal[]> {
+	const existing = input.existing.length ? input.existing.map((t) => `- ${t.name} [id ${t.id}]${t.context ? `: ${t.context.slice(0, 200).replace(/\s+/g, " ")}` : ""}`).join("\n") : "(none yet)";
+	const task = input.intoTopic
+		? `This file was added to the topic "${input.intoTopic}". Submit exactly ONE topic with that name, its page range and the ideas this file contributes to it.`
+		: "Submit the 1–2 topics this file covers.";
+	const out = await runSubmitAgent<{ topics: TopicProposal[] }>({
+		role: "extractor", toolName: "submit_topics", toolDescription: "Submit the topics and their ideas.", parameters: topicsSchema,
+		fill: (i) => ({ topics: i.topics ?? [] }), systemPrompt: TOPICS_PROMPT,
+		prompt: `File: ${input.fileName} (${input.pageCount} pages)\n\nExisting topics in this subject:\n${existing}\n\n${task}\n\nOutline:\n${input.outline}`,
+		engine: env.engine, signal: env.signal, chatId: env.chatId, onStep: (usage, model) => env.onUsage?.(usage, model), neverSubmitted: "The topic finder did not submit.",
+		validate: (v) => (!v.topics.length ? "Submit at least one topic." : v.topics.length > 2 ? "At most 2 topics: merge them into broader ones." : v.topics.some((t) => !t.ideas.length) ? "Give every topic its ideas." : null),
+	});
+	return out.topics.slice(0, input.intoTopic ? 1 : 2);
+}
+
+const IDEAS_PROMPT = `You keep the list of key IDEAS of a study topic. Given the ideas already listed and a recent exchange from a tutoring chat, submit the ideas this exchange actually worked on (at most 4): reuse an existing idea's exact name when it is the same idea; add a new one only for a genuinely new concept, technique or result (not a sub-detail, not a question). Each with a one-line meaning. Submit none if the exchange was small talk or logistics.`;
+const ideasSchema = Type.Object({ ideas: Type.Array(Type.Object({ name: Type.String(), summary: Type.String() })) });
+
+export async function keepIdeas(input: { scopeName: string; existing: ReadonlyArray<{ name: string; summary: string }>; exchange: string }, env: WorkerEnv): Promise<Array<{ name: string; summary: string }>> {
+	const out = await runSubmitAgent<{ ideas: Array<{ name: string; summary: string }> }>({
+		role: "extractor", toolName: "submit_ideas", toolDescription: "Submit the ideas this exchange worked on.", parameters: ideasSchema,
+		fill: (i) => ({ ideas: i.ideas ?? [] }), systemPrompt: IDEAS_PROMPT,
+		prompt: `Topic: ${input.scopeName}\n\nIdeas already listed:\n${input.existing.map((i) => `- ${i.name}: ${i.summary}`).join("\n") || "(none)"}\n\nExchange:\n${input.exchange.slice(-4000)}`,
+		engine: env.engine, signal: env.signal, chatId: env.chatId, onStep: (usage, model) => env.onUsage?.(usage, model), neverSubmitted: "The idea keeper did not submit.",
+	});
+	return out.ideas.slice(0, 4);
 }

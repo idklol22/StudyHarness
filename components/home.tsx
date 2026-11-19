@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { SurfaceRegion, usePageSurfaceBoundary, useSurfaceChromeStyle } from "./plugin-surfaces";
 import { CornerDownLeftIcon, DumbbellIcon } from "lucide-react";
 import { GraphView } from "@/components/graph-view";
+import { SubjectMap } from "@/components/study/subject-map";
 import { MinimalHome } from "@/components/minimal-home";
 import { SetupDialog } from "@/components/setup-dialog";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
@@ -44,6 +45,10 @@ export function Home({
 	const bodyRef = useRef<HTMLDivElement>(null);
 	const surfaceTarget = usePageSurfaceBoundary({ active: pathname === "/", viewKey: "/", bodyRef });
 	const chromeStyle = useSurfaceChromeStyle(surfaceTarget);
+	// Which map the home shows: your subjects (default) or the idea graph. Remembered per device.
+	const [homeView, setHomeView] = useState<"subjects" | "ideas">("subjects");
+	useEffect(() => { try { if (localStorage.getItem("lh:home-view") === "ideas") setHomeView("ideas"); } catch { /* storage may be blocked */ } }, []);
+	const chooseHomeView = (v: "subjects" | "ideas") => { setHomeView(v); try { localStorage.setItem("lh:home-view", v); } catch { /* best-effort */ } };
 	const [topic, setTopic] = useState("");
 	/* The topic MIRROR ("nothing gets lost" round, 2026-10-01 — same
 	 * mechanics as the chat composer, owner's consistency ruling): a
@@ -193,7 +198,9 @@ export function Home({
 			    untouched, and the chain table stays behind its button. */}
 			<div ref={bodyRef} className="absolute inset-0">
 			<main className="absolute inset-0">
-				{rendering ? (
+				{rendering && homeView === "subjects" ? (
+					<SubjectMap />
+				) : rendering ? (
 					<GraphView
 						chainSelectOpen={chainSelectOpen}
 						practiceSelection={pickedIds}
@@ -209,6 +216,21 @@ export function Home({
 					/>
 				)}
 			</main>
+			{rendering && (
+				<div role="tablist" aria-label="Home view" className="lh-no-drag absolute left-1/2 top-2 z-20 flex -translate-x-1/2 rounded-full border bg-card/90 p-0.5 text-xs shadow backdrop-blur">
+					{(["subjects", "ideas"] as const).map((v) => (
+						<button
+							key={v}
+							type="button"
+							role="tab"
+							aria-selected={homeView === v}
+							data-testid={`home-view-${v}`}
+							onClick={() => chooseHomeView(v)}
+							className={`rounded-full px-3 py-1 transition-colors ${homeView === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+						>{v === "subjects" ? "Subjects" : "Ideas"}</button>
+					))}
+				</div>
+			)}
 
 
 			{/* New session — same floating blob as the chat composer, docked

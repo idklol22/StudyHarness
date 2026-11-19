@@ -35,6 +35,9 @@ import { providerEventNote } from "../agent/provider-events.ts";
 import { effectiveSettings, stores } from "./stores.ts";
 import { getPluginAgentContributions, getPluginHost } from "./plugins.ts";
 import { keepContextAfterTurn, studyContributions } from "./study-agent.ts";
+import { digestMaterial } from "./study-digest-job.ts";
+import { adoptAttachments } from "./study-attachments.ts";
+import { titleAfterFirstTurn } from "./chat-title.ts";
 import { preparePluginQuestionSubmission, reconcilePluginQuestionCompatibility, type QuestionTypeResolver } from "./plugin-questions.ts";
 import { searchAvailable, searchProvider } from "./search.ts";
 import { prepareSubmissionImages, prepareSubmissionImageChannels, prepareProblemSubmissionImageChannels, submissionImagePolicyKey } from "./submission-images.ts";
@@ -428,6 +431,12 @@ export async function handleChatInput(
 		},
 		chatId,
 	);
+	// Files attached in a placed chat are saved as that subject/topic's files (a topic's also show under its subject).
+	if (record.placement && input.type === "text") {
+		const adopted = await adoptAttachments(record.placement, input.text).catch((error) => { console.error("[study] attachments not saved:", error); return []; });
+		// Each new file is understood right away in the background (text, a skim, topics/ideas), shown in the dock.
+		for (const a of adopted) if (a.created && a.material) digestMaterial(a.material.id, { engineFor: resolveEngine }, chatId);
+	}
 	let pluginContributions: AgentBuildOptions["pluginContributions"];
 	/** Study workers' model calls are billed to this turn once the usage collector below exists. */
 	let studyUsage: ((usage: Usage) => void) | undefined;
@@ -897,6 +906,8 @@ export async function handleChatInput(
 						steps,
 					});
 				}
+				// A descriptive title from the first exchange (never replaces a title the learner set).
+				titleAfterFirstTurn(chatId, { engineFor: resolveEngine });
 				// Study: refresh the topic/subject context document from this exchange (throttled; never blocks or throws).
 				if (record.placement && stamped.length > 0) {
 					const recent = (stores.chatStore.getChat(chatId)?.messages ?? []).slice(-6);

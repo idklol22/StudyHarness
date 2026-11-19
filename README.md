@@ -37,11 +37,13 @@ The agent can also research questions in the background, create visual explanati
 
 ## Study: subjects, topics and class notes
 
-Organise what you learn into **subjects** and **topics** (create them beforehand or on the spot). Upload PDFs to a subject for subject-wide context, or to a topic for topic-wide context; a file is stored once however many places use it. Every chat lives in a subject or topic, and each new chat asks how to begin: **from scratch** (a lesson that explains, shows the slide, works one example and checks lightly) or **check what I know first** (the probe).
+Organise what you learn into **subjects** and **topics**. Add PDFs, Markdown or text files on a subject or topic page, or just attach them in a chat: they are saved to that chat's subject or topic, and a topic's files also show in its subject. Every chat lives in a subject or topic and asks how to begin: **from scratch** (a lesson) or **check what I know first** (a probe). Handing over files is not a question: the tutor confirms what it got and waits.
 
-The tutor keeps layers of context so it never rereads your files: the topic's context, then the subject's, then a memory of the pages it has already read (contents, summaries, figures), and only then the pages themselves. Each subject and topic page also holds:
+**Files are understood the moment they arrive** (watch the activity panel): the whole text is extracted, the first pages are skimmed (20% of the file, at most 8 pages), and the agent works out what the file covers. A file added to a subject gets **suggested topics** — one or two broad ones, like "Dynamic programming", with its sub-techniques as ideas — which you accept, rename or dismiss; accepting creates the topic, moves the file into it (or links it to both topics with their page ranges) and teaches the topic what it holds.
 
-- **Notes** that look like iPad class notes: short handwritten text, screenshots of your slides with circles, arrows and labels, margin stickies and worked steps from the lesson. The tutor writes them as it teaches, or on demand for a topic or the whole subject. Draw on them with a pen and highlighter or add stickies; your ink is kept separate and never overwritten. Export to PDF from the print view. Notes are added to and edited, never deleted.
+The home **Subjects map** shows each subject with its topics and their key ideas; click an idea to see the files (with pages) and chats about it. Subjects that share ideas are linked. Ideas grow as files arrive and as you talk with the tutor.
+
+- **Notes** that look like iPad class notes: handwritten explanations, definition boxes, worked steps, flowcharts and mind maps, equations in LaTeX, and screenshots of your slides — marked with a pen only where you struggled, placed exactly on the words. Choose how many pages you want (up to 32 per notebook; a subject or topic can have several). Draw on them with a pen, highlighter or stickies; export each notebook as a PDF.
 - **Flashcards** the tutor adds while teaching (or you add yourself), studied in **Due**, **Progressive** (weakest topic first) or **All** mode with spaced repetition.
 
 ## Knowledge that carries forward

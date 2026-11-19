@@ -29,6 +29,8 @@ export interface Subject {
 	/** Compact running context for the whole subject (maintained by the context keeper). */
 	context: string;
 	contextUpdatedAt?: string;
+	/** Ideas from subject-wide files and chats (see ideas.ts). */
+	ideas?: Idea[];
 }
 
 export interface Topic {
@@ -40,7 +42,29 @@ export interface Topic {
 	/** Compact running context for this topic. */
 	context: string;
 	contextUpdatedAt?: string;
+	/** The key ideas this topic covers, each linked to the files (pages) and chats about it (see ideas.ts). */
+	ideas?: Idea[];
 }
+
+/** A key idea of a topic or subject, linked to where it is covered. */
+export interface Idea {
+	id: string;
+	name: string;
+	summary: string;
+	files: Array<{ materialId: string; pages?: string }>;
+	chats: string[];
+}
+
+/** Topics suggested for a file just added to a subject; the learner accepts or dismisses them. */
+export interface SuggestedTopic {
+	name: string;
+	/** An existing topic this matches (accepting adds to it instead of creating one). */
+	topicId?: string;
+	pages: { from: number; to: number };
+	summary: string;
+	ideas: Array<{ name: string; summary: string; pages?: string }>;
+}
+export interface Suggestion { id: string; materialId: string; createdAt: string; topics: SuggestedTopic[] }
 
 /** One uploaded PDF, attached to a scope. `sha256` names the managed copy and its page memory. */
 export interface Material {
@@ -51,6 +75,10 @@ export interface Material {
 	bytes: number;
 	scope: StudyScope;
 	addedAt: string;
+	/** "text" = a markdown/plain-text file split into virtual pages (no page images); absent = PDF. */
+	kind?: "text";
+	/** The part of the file this scope uses (a file shared by two topics covers different pages in each). */
+	pages?: { from: number; to: number };
 }
 
 export interface Library {
@@ -58,6 +86,8 @@ export interface Library {
 	subjects: Subject[];
 	topics: Topic[];
 	materials: Material[];
+	/** Topic suggestions waiting for the learner. */
+	suggestions?: Suggestion[];
 }
 
 export const emptyLibrary = (): Library => ({ version: 1, subjects: [], topics: [], materials: [] });
@@ -84,6 +114,16 @@ export const topicsOf = (lib: Library, subjectId: string): Topic[] =>
 	lib.topics.filter((t) => t.subjectId === subjectId).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
 export const materialsIn = (lib: Library, scope: StudyScope): Material[] =>
 	lib.materials.filter((m) => m.scope.subjectId === scope.subjectId && (m.scope.topicId ?? null) === (scope.topicId ?? null));
+
+/**
+ * Everything a scope holds, rolled up: a topic's own files; a subject's own files PLUS every topic's.
+ * (Owner: whatever appears in a topic also appears in the subject's files.)
+ */
+export const materialsUnder = (lib: Library, scope: StudyScope): Material[] =>
+	scope.topicId ? materialsIn(lib, scope) : lib.materials.filter((m) => m.scope.subjectId === scope.subjectId);
+
+/** Where a material lives, for labels: the topic's name, or "" for a subject-wide file. */
+export const materialTopicName = (lib: Library, m: Material): string => (m.scope.topicId ? topicOf(lib, m.scope.topicId)?.name ?? "" : "");
 
 /** The scope must exist (a topic must belong to the named subject). */
 export function checkScope(lib: Library, scope: StudyScope): StudyScope {
@@ -174,7 +214,7 @@ export function deleteTopic(lib: Library, id: string): Removal {
 	});
 }
 
-export interface NewMaterial { sha256: string; fileName: string; pageCount: number; bytes: number; scope: StudyScope }
+export interface NewMaterial { sha256: string; fileName: string; pageCount: number; bytes: number; scope: StudyScope; kind?: "text" }
 
 /**
  * Attach a file to a scope. The same file (same hash) in the same scope is returned as is; in a different
@@ -189,7 +229,7 @@ export function addMaterial(lib: Library, input: NewMaterial, make?: () => Fresh
 	if (existing) return { library: lib, material: existing, created: false, shared: true };
 	const shared = lib.materials.some((m) => m.sha256 === input.sha256);
 	const f = fresh("mat", make);
-	const material: Material = { id: f.id, sha256: input.sha256, fileName, pageCount: input.pageCount, bytes: input.bytes, scope, addedAt: f.at };
+	const material: Material = { id: f.id, sha256: input.sha256, fileName, pageCount: input.pageCount, bytes: input.bytes, scope, addedAt: f.at, ...(input.kind ? { kind: input.kind } : {}) };
 	return { library: { ...lib, materials: [...lib.materials, material] }, material, created: true, shared };
 }
 
@@ -225,6 +265,17 @@ export function checkPlacement(lib: Library, raw: unknown): ChatPlacement {
 	const scope = checkScope(lib, { subjectId: r.subjectId, ...(typeof r.topicId === "string" ? { topicId: r.topicId } : {}) });
 	if (r.startMode !== "scratch" && r.startMode !== "check") return fail("Choose how to start: from scratch, or check what you know first.");
 	return { ...scope, startMode: r.startMode };
+}
+
+/**
+ * The other topics of the subject whose context may inform this chat (owner: a topic can draw on the subject
+ * and on neighbouring topics; a subject holds what all its topics know). Topics with nothing recorded are
+ * skipped; each context is shortened to `each` characters so neighbours never crowd out the chat's own layer.
+ */
+export function relatedContexts(lib: Library, placement: Pick<ChatPlacement, "subjectId" | "topicId">, each = 700): Array<{ name: string; context: string; id: string }> {
+	return topicsOf(lib, placement.subjectId)
+		.filter((t) => t.id !== placement.topicId && t.context.trim())
+		.map((t) => ({ id: t.id, name: t.name, context: t.context.trim().length > each ? t.context.trim().slice(0, each).trimEnd() + "…" : t.context.trim() }));
 }
 
 /** The scopes whose context applies to a chat placed at `placement`, most specific first. */

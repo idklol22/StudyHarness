@@ -8,6 +8,7 @@ import * as fsp from "node:fs/promises";
 import { pdfCanvasGeometry } from "../agent/subagents/headless.ts";
 import { standardFontsDir } from "../agent/subagents/pdf-ops.ts";
 import { documentToMarkdown } from "../agent/subagents/pdf-markdown.ts";
+import type { TextRun } from "../core/study/text-boxes.ts";
 
 export const MAX_TEXT = 8_000;
 export const MAX_RENDER_PAGES = 8;
@@ -43,6 +44,29 @@ export async function pdfPageTexts(absolute: string, pages: readonly number[]): 
 		const wanted = pages.filter((n) => Number.isInteger(n) && n >= 1 && n <= doc.numPages);
 		const out = await documentToMarkdown(doc, wanted);
 		return out.map((p) => ({ page: p.number, text: p.kind === "text" ? p.markdown.trim().slice(0, MAX_TEXT) : "" }));
+	} finally { await task.destroy().catch(() => {}); }
+}
+
+/**
+ * Every text run on a page with its box as fractions of the page (0 = left/top, 1 = right/bottom), from pdf.js's
+ * own layout — exact positions for annotations instead of a model's guess. Empty for image-only pages.
+ */
+export async function pdfTextBoxes(absolute: string, pageNumber: number): Promise<TextRun[]> {
+	const { task, doc } = await openPdf(absolute);
+	try {
+		if (!Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > doc.numPages) return [];
+		const page = await doc.getPage(pageNumber);
+		const { width: W, height: H } = page.getViewport({ scale: 1 });
+		const content = await page.getTextContent();
+		const out: TextRun[] = [];
+		for (const item of content.items) {
+			if (!("str" in item) || !item.str.trim()) continue;
+			const [, , c, d, e, f] = item.transform as number[];
+			const h = item.height || Math.hypot(c!, d!) || 10;
+			out.push({ text: item.str, x: e! / W, y: (H - f! - h) / H, w: (item.width || item.str.length * h * 0.5) / W, h: (h * 1.2) / H });
+		}
+		page.cleanup();
+		return out;
 	} finally { await task.destroy().catch(() => {}); }
 }
 

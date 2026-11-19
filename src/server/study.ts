@@ -15,15 +15,22 @@ import {
 	addMaterial, createSubject, createTopic, deleteSubject, deleteTopic, moveMaterial, removeMaterial, renameSubject,
 	renameTopic, setContext, type Library, type Material, type StudyScope, type Removal,
 } from "../core/study/model.ts";
-import { lookup, recordPages, type MaterialMemory } from "../core/study/material-memory.ts";
+import { lookup, recordBatch, recordPages, type MaterialMemory } from "../core/study/material-memory.ts";
+import { isTextName, textOutline, textPages } from "../core/study/text-material.ts";
+import { acceptSuggestion, addSuggestion, dismissSuggestion, ideasOf, mergeIdeas, setIdeas, tidyLibrary, type IncomingIdea } from "../core/study/ideas.ts";
+import type { SuggestedTopic } from "../core/study/model.ts";
+import type { TextRun } from "../core/study/text-boxes.ts";
 import { sha256Of, type PageImage, type StudyStore } from "../store/study.ts";
 
 export const MAX_MATERIAL_BYTES = 150 * 1024 * 1024;
+export const MAX_TEXT_BYTES = 5 * 1024 * 1024;
 const PDF_MAGIC = Buffer.from("%PDF-");
 
 export interface StudyPdf {
 	pageCount(absolute: string): Promise<number>;
 	texts(absolute: string, pages: readonly number[]): Promise<Array<{ page: number; text: string }>>;
+	/** Text runs with their boxes (fractions of the page) — for placing annotations exactly. Optional. */
+	textBoxes?(absolute: string, page: number): Promise<TextRun[]>;
 	render(absolute: string, options: { pages: readonly number[]; dpi?: number; format?: "jpeg" | "png" }): Promise<Array<{ page: number; image: string; mimeType: "image/jpeg" | "image/png"; width: number; height: number; text: string }>>;
 }
 
@@ -32,7 +39,7 @@ export class StudyInputError extends Error {}
 export function createStudyService(store: StudyStore, pdf: StudyPdf) {
 	function change<T>(fn: (lib: Library) => { library: Library; result: T; orphaned?: string[] }): T {
 		const { library, result, orphaned } = fn(store.readLibrary());
-		store.writeLibrary(library);
+		store.writeLibrary(tidyLibrary(library));
 		for (const hash of orphaned ?? []) store.deleteFile(hash);
 		return result;
 	}
@@ -40,8 +47,39 @@ export function createStudyService(store: StudyStore, pdf: StudyPdf) {
 		try { return fn(); } catch (error) { throw error instanceof StudyInputError ? error : new StudyInputError(error instanceof Error ? error.message : String(error)); }
 	};
 	/** Notebooks and cards belong to a scope; deleting the scope deletes them (the files they pinned go with the library). */
-	const dropScopeDocs = (ids: string[]) => { for (const id of ids) for (const kind of ["notes", "cards"] as const) store.deleteDoc(kind, id); };
+	const dropScopeDocs = (ids: string[]) => {
+		for (const id of ids) {
+			// Every notebook of the scope (its index lists them), then the index, the default notebook and the cards.
+			for (const entry of store.readDoc<Array<{ id: string }>>("notes", `index_${id}`, [])) store.deleteDoc("notes", entry.id);
+			store.deleteDoc("notes", `index_${id}`);
+			for (const kind of ["notes", "cards"] as const) store.deleteDoc(kind, id);
+		}
+	};
 	const withRemoval = (r: Removal) => ({ library: r.library, result: undefined, orphaned: r.orphaned });
+
+	/** A markdown / plain-text file: cut into virtual pages and remembered straight away (the text is the content, no model read). */
+	async function addText(bytes: Buffer, input: { fileName: string; scope: StudyScope }): Promise<{ material: Material; created: boolean; alreadyStored: boolean }> {
+		if (!isTextName(input.fileName)) throw new StudyInputError("Only PDF, Markdown (.md) and text (.txt) files can be added. Export slides (PowerPoint, Keynote) to PDF first.");
+		if (bytes.length > MAX_TEXT_BYTES) throw new StudyInputError(`That text file is larger than ${MAX_TEXT_BYTES / 1024 / 1024} MB.`);
+		if (bytes.includes(0)) throw new StudyInputError("That file is not text.");
+		const hash = sha256Of(bytes);
+		const wasStored = store.hasMaterial(hash);
+		const stored = store.saveMaterial(hash, bytes, "txt");
+		const pages = textPages(bytes.toString("utf8"));
+		if (!store.readMemory(hash).read.length) {
+			const outline = textOutline(pages);
+			store.writeMemory(hash, recordBatch(store.readMemory(hash), { pages: pages.map((text, i) => ({ n: i + 1, text })), summary: outline.summary, concepts: outline.concepts, toc: outline.toc }));
+		}
+		try {
+			return guard(() => change((lib) => {
+				const r = addMaterial(lib, { sha256: hash, fileName: path.basename(input.fileName.replace(/\\/g, "/")), pageCount: pages.length, bytes: bytes.length, scope: input.scope, kind: "text" });
+				return { library: r.library, result: { material: r.material, created: r.created, alreadyStored: wasStored || r.shared } };
+			}));
+		} catch (error) {
+			if (stored && !store.readLibrary().materials.some((m) => m.sha256 === hash)) store.deleteFile(hash);
+			throw error;
+		}
+	}
 
 	const api = {
 		library: (): Library => store.readLibrary(),
@@ -63,7 +101,7 @@ export function createStudyService(store: StudyStore, pdf: StudyPdf) {
 		async addMaterial(input: { bytes: Uint8Array; fileName: string; scope: StudyScope }): Promise<{ material: Material; created: boolean; alreadyStored: boolean }> {
 			const bytes = Buffer.from(input.bytes);
 			if (bytes.length > MAX_MATERIAL_BYTES) throw new StudyInputError(`That file is larger than ${MAX_MATERIAL_BYTES / 1024 / 1024} MB.`);
-			if (!bytes.subarray(0, 1024).includes(PDF_MAGIC)) throw new StudyInputError("Only PDF files can be added. Export slides (PowerPoint, Keynote) to PDF first.");
+			if (!bytes.subarray(0, 1024).includes(PDF_MAGIC)) return addText(bytes, input);
 			const hash = sha256Of(bytes);
 			const wasStored = store.hasMaterial(hash);
 			const stored = store.saveMaterial(hash, bytes);
@@ -84,6 +122,12 @@ export function createStudyService(store: StudyStore, pdf: StudyPdf) {
 				throw error;
 			}
 		},
+		/** Ideas: fold new ones into a topic's (or the subject's) list. */
+		addIdeas: (target: { subjectId: string; topicId?: string }, incoming: readonly IncomingIdea[]) => guard(() => change((lib) => ({ library: setIdeas(lib, target, mergeIdeas(ideasOf(lib, target), incoming)), result: undefined }))),
+		/** Topic suggestions for a subject-wide file. */
+		suggestTopics: (materialId: string, topics: readonly SuggestedTopic[]) => guard(() => change((lib) => { const r = addSuggestion(lib, materialId, topics); return { library: r.library, result: r.suggestion }; })),
+		acceptSuggestion: (id: string, renames?: Record<number, string>) => guard(() => change((lib) => { const r = acceptSuggestion(lib, id, renames); return { library: r.library, result: r.topics }; })),
+		dismissSuggestion: (id: string) => guard(() => change((lib) => ({ library: dismissSuggestion(lib, id), result: undefined }))),
 		removeMaterial: (id: string) => guard(() => change((lib) => withRemoval(removeMaterial(lib, id)))),
 		moveMaterial: (id: string, scope: StudyScope) => guard(() => change((lib) => ({ library: moveMaterial(lib, id, scope), result: undefined }))),
 
@@ -120,6 +164,17 @@ export function createStudyService(store: StudyStore, pdf: StudyPdf) {
 		},
 		savePageImages(hash: string, pages: Array<{ page: number; image: string; mimeType: "image/jpeg" | "image/png"; width: number; height: number }>): void {
 			for (const p of pages) store.savePage(hash, p.page, { bytes: Buffer.from(p.image, "base64"), mimeType: p.mimeType, width: p.width, height: p.height });
+		},
+		/** Extract the text of pages (no model) into the file's memory; returns how many pages had text. */
+		async extractText(hash: string, pages: readonly number[]): Promise<number> {
+			const fetched = await pdf.texts(store.materialPath(hash), pages);
+			store.writeMemory(hash, recordPages(store.readMemory(hash), fetched.map((p) => ({ n: p.page, text: p.text }))));
+			return fetched.filter((p) => p.text.trim()).length;
+		},
+		/** Where each piece of text sits on a page (empty for text files, scanned pages, or no engine support). */
+		async pageTextRuns(hash: string, n: number): Promise<TextRun[]> {
+			if (!pdf.textBoxes || !store.hasMaterial(hash)) return [];
+			try { return await pdf.textBoxes(store.materialPath(hash), n); } catch { return []; }
 		},
 		prunePages: (hash: string, pinned: ReadonlySet<number>) => store.prunePages(hash, pinned),
 		materialPath: (hash: string) => store.materialPath(hash),

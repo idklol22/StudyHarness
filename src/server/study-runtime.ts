@@ -4,6 +4,6 @@
  */
 import { studyStore } from "../store/study.ts";
 import { createStudyService } from "./study.ts";
-import { pdfPageCount, pdfPageTexts, renderPdfPages } from "./pdf-pages.ts";
+import { pdfPageCount, pdfPageTexts, pdfTextBoxes, renderPdfPages } from "./pdf-pages.ts";
 
-export const study = createStudyService(studyStore, { pageCount: pdfPageCount, texts: pdfPageTexts, render: renderPdfPages });
+export const study = createStudyService(studyStore, { pageCount: pdfPageCount, texts: pdfPageTexts, render: renderPdfPages, textBoxes: pdfTextBoxes });

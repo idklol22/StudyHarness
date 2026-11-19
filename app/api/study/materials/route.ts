@@ -3,7 +3,7 @@
  * "topicId"). Each file is hashed; a file already stored is referenced, never copied again. Slides in other
  * formats must be exported to PDF first. Returns {materials:[{material, created, alreadyStored}], errors:[...]}.
  */
-import { MAX_MATERIAL_BYTES, StudyInputError, study } from "@/src/server";
+import { MAX_MATERIAL_BYTES, StudyInputError, digestMaterial, resolveEngine, study } from "@/src/server";
 import { FormBodyLimitError, readBoundedFormData } from "@/lib/bounded-form-data.ts";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +27,12 @@ export async function POST(request: Request) {
 	const materials = [];
 	const errors: Array<{ fileName: string; error: string }> = [];
 	for (const file of files) {
-		try { materials.push(await study.addMaterial({ bytes: new Uint8Array(await file.arrayBuffer()), fileName: file.name, scope })); }
+		try {
+			const added = await study.addMaterial({ bytes: new Uint8Array(await file.arrayBuffer()), fileName: file.name, scope });
+			materials.push(added);
+			// Understood at once, in the background (visible in the activity dock).
+			if (added.created) digestMaterial(added.material.id, { engineFor: resolveEngine });
+		}
 		catch (error) {
 			if (!(error instanceof StudyInputError)) console.error("[study] material upload failed:", error);
 			errors.push({ fileName: file.name, error: error instanceof StudyInputError ? error.message : "Could not store that file." });
