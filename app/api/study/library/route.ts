@@ -74,6 +74,8 @@ export async function POST(request: Request) {
 			case "set-color": study.setColor(text(raw.id, "id"), raw.color === null ? null : Number(raw.color)); break;
 			case "assign-material": case "link-material": {
 				const r = (raw.action === "link-material" ? study.linkMaterial : study.assignMaterial)(text(raw.id, "id"), { ...(typeof raw.topicId === "string" && raw.topicId ? { topicId: raw.topicId } : {}), ...(typeof raw.newTopicName === "string" ? { newTopicName: raw.newTopicName } : {}) });
+				// Ideas the learner typed while choosing the topic are kept as theirs; the rest are found in the background.
+				if (Array.isArray(raw.ideas)) for (const n of raw.ideas.slice(0, 20)) if (typeof n === "string" && n.trim()) study.addIdea({ subjectId: r.material.scope.subjectId, topicId: r.topicId }, { name: n });
 				// The file's ideas for that topic are found in the background (activity panel).
 				digestMaterial(r.material.id, { engineFor: resolveEngine });
 				return Response.json({ topicId: r.topicId, library: study.library() });

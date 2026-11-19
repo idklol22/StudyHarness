@@ -15,20 +15,17 @@ import { emptyLibrary, topicsOf, type ChatPlacement, type Library } from "@/src/
 import { InteractionLayerOwner, useInteractionLayer, useInteractionLayers, useOptionalInteractionLayers } from "../interaction-layers";
 import { INTERACTION_LAYER_Z_BASE } from "../host-dialog";
 import { isInteractionScopeEligible } from "../plugin-input-focus";
-import type { StartMode } from "./placement";
 import type { PlacementState } from "./placement-picker";
 
 /** Accepts a Choice (new chat) OR a ChatPlacement (existing chat): both carry scope + start mode. */
-type ChipChoice = { subjectId: string; topicId?: string; startMode: StartMode | "" };
-
-const MODE_LABEL: Record<StartMode, string> = { scratch: "From scratch", check: "Check what I know first" };
+type ChipChoice = { subjectId: string; topicId?: string; startMode?: string };
 
 /** Pure: the chip's text. Mirrors placementLabel, adding the (never-defaulted) start mode. */
 export function contextChipLabel(library: Library, choice: ChipChoice, practice = false): string {
 	const subject = library.subjects.find((s) => s.id === choice.subjectId)?.name;
 	const topic = choice.topicId ? library.topics.find((t) => t.id === choice.topicId)?.name : undefined;
 	const scope = [subject, topic].filter(Boolean).join(" › ");
-	const mode = practice ? "Practice" : choice.startMode ? MODE_LABEL[choice.startMode] : "";
+	const mode = practice ? "Practice" : "";
 	return [scope, mode].filter(Boolean).join(" · ");
 }
 
@@ -160,26 +157,6 @@ export function ContextChipPopover({ state, practice = false, showMissing = fals
 							<button type="submit" disabled={!name.trim()} className="h-7 shrink-0 rounded-md border border-border/60 px-2 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40">Add</button>
 						</form>
 					)}
-				</>
-			)}
-			{!practice && (
-				<>
-					<div className="my-1 border-t border-border/60" />
-					<div role="radiogroup" aria-label="How to start" data-testid="context-chip-start-mode" className="flex flex-wrap gap-0.5">
-						{([["scratch", "From scratch"], ["check", "Check what I know first"]] as const).map(([mode, label]) => (
-							<button
-								key={mode}
-								type="button"
-								role="radio"
-								aria-checked={state.choice.startMode === mode}
-								data-testid={`context-chip-mode-${mode}`}
-								onClick={() => state.setStartMode(mode)}
-								className={`rounded-sm px-2 py-0.5 text-[11px] transition-colors ${state.choice.startMode === mode ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-							>
-								{label}
-							</button>
-						))}
-					</div>
 				</>
 			)}
 			{state.choice.subjectId && (

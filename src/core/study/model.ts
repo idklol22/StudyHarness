@@ -267,8 +267,8 @@ export function checkPlacement(lib: Library, raw: unknown): ChatPlacement {
 	const r = (raw ?? {}) as Partial<ChatPlacement>;
 	if (typeof r.subjectId !== "string") return fail("Choose a subject for this chat.");
 	const scope = checkScope(lib, { subjectId: r.subjectId, ...(typeof r.topicId === "string" ? { topicId: r.topicId } : {}) });
-	if (r.startMode !== "scratch" && r.startMode !== "check") return fail("Choose how to start: from scratch, or check what you know first.");
-	return { ...scope, startMode: r.startMode };
+	// No upfront choice any more: a chat that does not say how to start simply starts teaching.
+	return { ...scope, startMode: r.startMode === "check" ? "check" : "scratch" };
 }
 
 /**

@@ -112,7 +112,7 @@ describe("context and placement", () => {
 	it("a chat placement needs a real subject/topic and an explicit start mode", () => {
 		const { lib, ml, dp } = setup();
 		assert.deepEqual(checkPlacement(lib, { subjectId: ml.id, topicId: dp.id, startMode: "scratch" }), { subjectId: ml.id, topicId: dp.id, startMode: "scratch" });
-		assert.throws(() => checkPlacement(lib, { subjectId: ml.id }), /how to start/);
+		assert.equal(checkPlacement(lib, { subjectId: ml.id }).startMode, "scratch");
 		assert.throws(() => checkPlacement(lib, { startMode: "check" }), /Choose a subject/);
 		assert.throws(() => checkPlacement(lib, { subjectId: ml.id, topicId: "top_gone", startMode: "check" }), /no longer exists/);
 	});

@@ -152,23 +152,6 @@ export function PlacementPickerView({ state, practice = false, showMissing = fal
 					<button type="submit" disabled={!name.trim()} className="h-7 rounded-md border border-border/60 px-2 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40">Add</button>
 				</form>
 			)}
-			{!practice && (
-				<div role="radiogroup" aria-label="How to start" data-testid="placement-start-mode" className="flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5">
-					{([["scratch", "From scratch"], ["check", "Check what I know first"]] as const).map(([mode, label]) => (
-						<button
-							key={mode}
-							type="button"
-							role="radio"
-							aria-checked={state.choice.startMode === mode}
-							data-testid={`start-mode-${mode}`}
-							onClick={() => state.setStartMode(mode)}
-							className={`rounded-sm px-2 py-0.5 text-[11px] transition-colors ${state.choice.startMode === mode ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-						>
-							{label}
-						</button>
-					))}
-				</div>
-			)}
 			{state.choice.subjectId && (
 				<Link
 					href={`/subjects/${state.choice.subjectId}${state.choice.topicId ? `/${state.choice.topicId}` : ""}#files`}

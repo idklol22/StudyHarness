@@ -35,7 +35,7 @@ export function ScopeTabs({ tabs, active, onChange }: { tabs: readonly ScopeTab[
 	};
 
 	return (
-		<div role="tablist" aria-label="Sections" className="mt-4 flex gap-1 overflow-x-auto border-b" data-testid="scope-tabs">
+		<div role="tablist" aria-label="Sections" className="mt-4 flex flex-wrap gap-x-1 border-b" data-testid="scope-tabs">
 			{tabs.map((t) => (
 				<button
 					key={t.id}

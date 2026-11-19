@@ -220,15 +220,21 @@ export function ScopePage({ subjectId, topicId }: { subjectId: string; topicId?:
 										const tNotes = notebooks.filter((n) => n.topicId === t.id).length;
 										const lastChat = group?.topics.find((gt) => gt.topic.id === t.id)?.chats[0];
 										return (
-											<li key={t.id}>
-												<Link href={`/subjects/${subjectId}/${t.id}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm transition-colors hover:bg-accent/60">
-													<span className="truncate">{t.name}</span>
-													<span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-														<span>{tFiles} files</span><span>{tIdeas} ideas</span><span>{tNotes} notes</span>
-														<span>{lastChat ? `Chat · ${fmtDate(lastChat.updatedAt)}` : "No chats yet"}</span>
-													</span>
-												</Link>
-											</li>
+											<li key={t.id} className="rounded-lg border transition-colors hover:bg-accent/40">
+													<Link href={`/subjects/${subjectId}/${t.id}`} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 px-3 py-2 text-sm">
+														<span className="min-w-0 truncate font-medium">{t.name}</span>
+														<span className="flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
+															<span>{tFiles} files</span><span>{tIdeas} ideas</span><span>{tNotes} notes</span>
+															<span>{lastChat ? `Chat · ${fmtDate(lastChat.updatedAt)}` : "No chats yet"}</span>
+														</span>
+													</Link>
+													{tIdeas > 0 && (
+														<div className="flex flex-wrap gap-1 px-3 pb-2" data-testid="topic-ideas">
+															{(t.ideas ?? []).slice(0, 8).map((i) => <Link key={i.id} href={`/subjects/${subjectId}/${t.id}#ideas`} title={i.summary} className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground">{i.name}</Link>)}
+															{tIdeas > 8 && <Link href={`/subjects/${subjectId}/${t.id}#ideas`} className="px-1 py-0.5 text-[11px] text-muted-foreground hover:text-foreground">+{tIdeas - 8} more</Link>}
+														</div>
+													)}
+												</li>
 										);
 									})}
 									{topicsOf(library, subjectId).length === 0 && <li className="text-sm text-muted-foreground">No topics yet. A topic groups one part of the subject: its files, notes and chats.</li>}

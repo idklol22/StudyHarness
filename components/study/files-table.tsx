@@ -161,15 +161,15 @@ export function FilesTable({
 				><UploadIcon className="size-3.5" />{busy ? "Uploading…" : "Add files"}</button>
 			</div>
 
-			<div className="overflow-x-auto rounded-lg border">
+			<div className="rounded-lg border">
 				<table className="w-full text-left text-xs" data-testid="files-table-grid">
 					<thead className="bg-muted/40 text-[11px] uppercase tracking-wider text-muted-foreground">
 						<tr>
 							<th className="px-3 py-2 font-medium">Name</th>
-							<th className="px-3 py-2 font-medium">Topic</th>
-							<th className="px-3 py-2 text-right font-medium">Pages</th>
-							<th className="px-3 py-2 font-medium">Covered by notes</th>
-							<th className="px-3 py-2 font-medium">Added</th>
+							<th className="hidden px-3 py-2 font-medium sm:table-cell">Topic</th>
+							<th className="hidden px-3 py-2 text-right font-medium md:table-cell">Pages</th>
+							<th className="hidden px-3 py-2 font-medium lg:table-cell">Covered by notes</th>
+							<th className="hidden px-3 py-2 font-medium md:table-cell">Added</th>
 							<th className="w-10 px-2 py-2"><span className="sr-only">Actions</span></th>
 						</tr>
 					</thead>
@@ -182,7 +182,7 @@ export function FilesTable({
 							const open = menuFor === m.id;
 							return (
 								<tr key={m.id} className="border-t align-top hover:bg-accent/40" data-testid="file-row">
-									<td className="max-w-[22rem] px-3 py-2">
+									<td className="max-w-0 px-3 py-2">
 										<div className="flex items-center gap-1.5">
 											<FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" />
 											<button type="button" onClick={() => setViewing({ material: m, page: m.pages?.from ?? 1 })} data-testid="open-file" title="View pages" className="min-w-0 truncate text-left hover:underline">{m.fileName}</button>
@@ -193,13 +193,13 @@ export function FilesTable({
 											</div>
 										)}
 									</td>
-									<td className="px-3 py-2">
+									<td className="hidden px-3 py-2 sm:table-cell">
 										{row.topicName
 											? <Link href={`/subjects/${subjectId}/${m.scope.topicId}`} className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-accent">{row.topicName}</Link>
 											: <span className="text-[11px] text-muted-foreground">Subject-wide</span>}
 									</td>
-									<td className="px-3 py-2 text-right tabular-nums">{m.pages ? `${m.pages.from}–${m.pages.to}` : m.pageCount}</td>
-									<td className="px-3 py-2" data-testid="file-coverage">
+									<td className="hidden px-3 py-2 text-right tabular-nums md:table-cell">{m.pages ? `${m.pages.from}–${m.pages.to}` : m.pageCount}</td>
+									<td className="hidden px-3 py-2 lg:table-cell" data-testid="file-coverage">
 										{cov?.parts.length ? (
 											<div className="flex flex-col gap-0.5">
 												{cov.parts.map((p, i) => <Link key={i} href={p.href} className="truncate hover:text-foreground hover:underline">pp. {p.from}–{p.to} → {p.title}</Link>)}
@@ -207,7 +207,7 @@ export function FilesTable({
 											</div>
 										) : <span className="text-[11px] text-muted-foreground">Not covered yet</span>}
 									</td>
-									<td className="whitespace-nowrap px-3 py-2 tabular-nums text-muted-foreground">{fmtDate(row.addedAt)}</td>
+									<td className="hidden whitespace-nowrap px-3 py-2 tabular-nums text-muted-foreground md:table-cell">{fmtDate(row.addedAt)}</td>
 									<td className="relative px-2 py-2 text-right">
 										<button
 											type="button"

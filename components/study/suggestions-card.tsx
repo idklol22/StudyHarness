@@ -82,13 +82,20 @@ export function PutInTopic({ library, subjectId, materialId, act, onDone, mode =
 	const topics = topicsOf(library, subjectId).filter((t) => !library.materials.some((m) => m.sha256 === file?.sha256 && m.scope.topicId === t.id));
 	const [topicId, setTopicId] = useState(topics[0]?.id ?? "");
 	const [name, setName] = useState("");
+	const [ideas, setIdeas] = useState<string[]>([]);
+	const [idea, setIdea] = useState("");
+	const addIdea = () => { const v = idea.trim(); if (v && !ideas.includes(v)) setIdeas((l) => [...l, v]); setIdea(""); };
 	return (
-		<form className="mt-2 flex flex-wrap items-center gap-2 text-xs" data-testid="put-in-topic" onSubmit={(e) => { e.preventDefault(); void act({ action: mode === "link" ? "link-material" : "assign-material", id: materialId, ...(topicId ? { topicId } : { newTopicName: name }) }).then(onDone); }}>
+		<form className="mt-2 flex flex-wrap items-center gap-2 text-xs" data-testid="put-in-topic" onSubmit={(e) => { e.preventDefault(); void act({ action: mode === "link" ? "link-material" : "assign-material", id: materialId, ...(topicId ? { topicId } : { newTopicName: name }), ...(ideas.length ? { ideas } : {}) }).then(onDone); }}>
 			<select value={topicId} onChange={(e) => setTopicId(e.target.value)} aria-label="Topic" className={`${input} text-xs`}>
 				{topics.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
 				<option value="">New topic…</option>
 			</select>
 			{!topicId && <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Topic name" maxLength={80} aria-label="New topic name" className={`${input} w-48`} />}
+			<div className="flex basis-full flex-wrap items-center gap-1" data-testid="put-in-topic-ideas">
+				{ideas.map((n) => <span key={n} className={chip}>{n}<button type="button" aria-label={`Remove ${n}`} onClick={() => setIdeas((l) => l.filter((x) => x !== n))} className="text-muted-foreground hover:text-destructive"><XIcon className="size-3" /></button></span>)}
+				<input value={idea} onChange={(e) => setIdea(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addIdea(); } }} placeholder="+ key idea (optional, Enter to add)" aria-label="Add a key idea" maxLength={60} className="h-6 w-60 rounded-full border border-dashed bg-transparent px-2 text-[11px] outline-none focus-visible:border-ring" />
+			</div>
 			<button type="submit" disabled={!topicId && !name.trim()} className="h-7 rounded-md bg-primary px-3 font-medium text-primary-foreground disabled:opacity-50">{mode === "link" ? "Add to topic" : "Move here"}</button>
 			<button type="button" onClick={onDone} className="h-7 rounded-md border px-2 hover:bg-accent">Cancel</button>
 			<span className="basis-full text-muted-foreground">{mode === "link" ? "The file stays where it is and also joins this topic (one stored copy); its ideas for this topic are found too." : "The file moves into the topic and its ideas are found for it (you can edit them after)."}</span>

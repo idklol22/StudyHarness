@@ -249,10 +249,10 @@ export function Knowledge3D() {
 				</div>
 				</>
 			)}
-			{picked && <div className="lh-no-drag absolute bottom-3 left-3 top-16 z-10 flex w-[380px] max-w-[calc(100%-1.5rem)] flex-col gap-2"><IdeaCard picked={picked} onClose={() => setSelected(null)} /><button type="button" onClick={() => void removeSelected()} data-testid="knowledge-remove" className="inline-flex h-8 w-fit shrink-0 items-center gap-1 rounded-md border bg-card/95 px-3 text-xs text-muted-foreground shadow hover:text-destructive"><Trash2Icon className="size-3.5" />Remove idea</button></div>}
+			{picked && <div className="lh-no-drag absolute bottom-3 left-3 z-10 flex max-h-[min(26rem,calc(100%-5rem))] w-[380px] max-w-[calc(100%-1.5rem)] flex-col gap-2"><IdeaCard picked={picked} onClose={() => setSelected(null)} /><button type="button" onClick={() => void removeSelected()} data-testid="knowledge-remove" className="inline-flex h-8 w-fit shrink-0 items-center gap-1 rounded-md border bg-card/95 px-3 text-xs text-muted-foreground shadow hover:text-destructive"><Trash2Icon className="size-3.5" />Remove idea</button></div>}
 			{notice && <p role="alert" className="lh-no-drag absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-md border bg-card px-3 py-1.5 text-xs text-destructive shadow">{notice}</p>}
 			{scopeCard && (
-				<div className="lh-no-drag absolute bottom-3 left-3 top-16 z-10 flex w-[380px] max-w-[calc(100%-1.5rem)] flex-col rounded-xl border bg-card/95 p-4 text-sm shadow-xl backdrop-blur" data-testid="knowledge-scope-card">
+				<div className="lh-no-drag absolute bottom-3 left-3 z-10 flex max-h-[min(20rem,calc(100%-5rem))] w-[380px] max-w-[calc(100%-1.5rem)] flex-col overflow-y-auto rounded-xl border bg-card/95 p-4 text-sm shadow-xl backdrop-blur" data-testid="knowledge-scope-card">
 					<div className="mb-1 flex items-start justify-between gap-2">
 						<div className="min-w-0"><div className="truncate text-xs text-muted-foreground">{scopeCard.over}</div><div className="mt-0.5 text-base font-medium text-card-foreground">{scopeCard.title}</div></div>
 						<button type="button" aria-label="Close details" onClick={() => setSelected(null)} className="rounded-md px-2 py-1 text-muted-foreground hover:bg-accent hover:text-foreground">×</button>

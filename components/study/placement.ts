@@ -21,8 +21,7 @@ export const emptyChoice: Choice = { subjectId: "", topicId: "", startMode: "" }
  *  needs no start mode (it quizzes), so it counts as "check". */
 export function placementFromChoice(library: Library, choice: Choice, practice = false): ChatPlacement | null {
 	if (!choice.subjectId) return null;
-	const startMode = practice ? "check" : choice.startMode;
-	if (!startMode) return null;
+	const startMode = practice ? "check" : choice.startMode || "scratch";
 	try {
 		return checkPlacement(library, { subjectId: choice.subjectId, ...(choice.topicId ? { topicId: choice.topicId } : {}), startMode });
 	} catch { return null; }
@@ -31,7 +30,6 @@ export function placementFromChoice(library: Library, choice: Choice, practice =
 /** Why the Start button is disabled, in the learner's words (empty when ready). */
 export function missingPlacement(library: Library, choice: Choice, practice = false): string {
 	if (!choice.subjectId || !library.subjects.some((s) => s.id === choice.subjectId)) return "Choose a subject for this chat.";
-	if (!practice && !choice.startMode) return "Choose how to start: from scratch, or check what you know first.";
 	return placementFromChoice(library, choice, practice) ? "" : "That subject or topic no longer exists.";
 }
 

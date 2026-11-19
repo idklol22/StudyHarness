@@ -32,13 +32,13 @@ function state(over: Partial<PlacementState> = {}): PlacementState {
 describe("contextChipLabel — the chip's pure text", () => {
 	it("subject › topic · start mode", () => {
 		const { lib, ml, dp } = library();
-		assert.equal(contextChipLabel(lib, { subjectId: ml, topicId: dp, startMode: "scratch" }), "Machine Learning › Dynamic programming · From scratch");
-		assert.equal(contextChipLabel(lib, { subjectId: ml, topicId: dp, startMode: "check" }), "Machine Learning › Dynamic programming · Check what I know first");
+		assert.equal(contextChipLabel(lib, { subjectId: ml, topicId: dp, startMode: "scratch" }), "Machine Learning › Dynamic programming");
+		assert.equal(contextChipLabel(lib, { subjectId: ml, topicId: dp, startMode: "check" }), "Machine Learning › Dynamic programming");
 	});
 
 	it("the whole subject drops the topic segment", () => {
 		const { lib, ml } = library();
-		assert.equal(contextChipLabel(lib, { subjectId: ml, topicId: "", startMode: "scratch" }), "Machine Learning · From scratch");
+		assert.equal(contextChipLabel(lib, { subjectId: ml, topicId: "", startMode: "scratch" }), "Machine Learning");
 	});
 
 	it("practice uses its own label, not a start mode", () => {
@@ -54,7 +54,7 @@ describe("contextChipLabel — the chip's pure text", () => {
 
 	it("a ChatPlacement from the core (required startMode) is accepted directly", () => {
 		const { lib, ml } = library();
-		assert.equal(contextChipLabel(lib, { subjectId: ml, startMode: "check" }), "Machine Learning · Check what I know first");
+		assert.equal(contextChipLabel(lib, { subjectId: ml, startMode: "check" }), "Machine Learning");
 	});
 });
 
@@ -64,7 +64,7 @@ describe("context chip markup", () => {
 		const html = renderToStaticMarkup(<ContextChip state={state({ library: lib, choice: { subjectId: ml, topicId: "", startMode: "scratch" } })} />);
 		assert.match(html, /data-testid="context-chip"/);
 		assert.match(html, /aria-expanded="false"/);
-		assert.match(html, /Machine Learning · From scratch/);
+		assert.match(html, /Machine Learning/);
 		assert.ok(!html.includes("context-chip-hint"));
 		const missing = renderToStaticMarkup(<ContextChip state={state({ missing: "Choose how to start." })} showMissing />);
 		assert.match(missing, /data-testid="context-chip-hint"/);
@@ -86,14 +86,10 @@ describe("context chip markup", () => {
 		assert.match(html, /\+ New topic/);
 	});
 
-	it("both start modes render, unselected until asked, and the chosen one is marked", () => {
+	it("no start-mode choice is shown: a new chat just starts", () => {
 		const html = renderToStaticMarkup(<ContextChipPopover state={state()} />);
-		assert.match(html, /data-testid="context-chip-start-mode"/);
-		assert.match(html, /From scratch/);
-		assert.match(html, /Check what I know first/);
-		assert.equal((html.match(/aria-checked="true"/g) ?? []).length, 0);
-		const chosen = renderToStaticMarkup(<ContextChipPopover state={state({ choice: { subjectId: library().ml, topicId: "", startMode: "scratch" } })} />);
-		assert.match(chosen, /aria-checked="true"[^>]*data-testid="context-chip-mode-scratch"|data-testid="context-chip-mode-scratch"[^>]*aria-checked="true"/);
+		assert.ok(!html.includes("context-chip-start-mode"));
+		assert.ok(!html.includes("Check what I know first"));
 	});
 
 	it("practice shows no start-mode choice", () => {

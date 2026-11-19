@@ -27,7 +27,8 @@ describe("placement choice", () => {
 		const { lib, ml, dp } = library();
 		assert.equal(placementFromChoice(lib, emptyChoice), null);
 		assert.match(missingPlacement(lib, emptyChoice), /Choose a subject/);
-		assert.match(missingPlacement(lib, { subjectId: ml, topicId: "", startMode: "" }), /how to start/);
+		assert.equal(missingPlacement(lib, { subjectId: ml, topicId: "", startMode: "" }), "");
+		assert.equal(placementFromChoice(lib, { subjectId: ml, topicId: "", startMode: "" })?.startMode, "scratch");
 		assert.deepEqual(placementFromChoice(lib, { subjectId: ml, topicId: dp, startMode: "scratch" }), { subjectId: ml, topicId: dp, startMode: "scratch" });
 		assert.deepEqual(placementFromChoice(lib, { subjectId: ml, topicId: "", startMode: "check" }), { subjectId: ml, startMode: "check" });
 		assert.equal(missingPlacement(lib, { subjectId: ml, topicId: "", startMode: "" }, true), "");
@@ -102,16 +103,12 @@ describe("placement picker view", () => {
 		assert.match(html, /Whole subject/);
 		assert.match(html, /Dynamic programming/);
 		assert.match(html, /New topic…/);
-		assert.match(html, /From scratch/);
-		assert.match(html, /Check what I know first/);
-		assert.equal((html.match(/aria-checked="true"/g) ?? []).length, 0, "the start mode is asked every time: nothing preselected");
+		assert.ok(!html.includes("Check what I know first"), "no start-mode choice any more");
 	});
 
-	it("marks the chosen start mode and shows the missing-choice hint only when asked", () => {
-		const chosen = renderToStaticMarkup(<PlacementPickerView state={state({ choice: { subjectId: library().ml, topicId: "", startMode: "scratch" } })} />);
-		assert.match(chosen, /aria-checked="true"[^>]*data-testid="start-mode-scratch"|data-testid="start-mode-scratch"[^>]*aria-checked="true"/);
+	it("shows the missing-choice hint only when asked", () => {
 		assert.ok(!renderToStaticMarkup(<PlacementPickerView state={state()} />).includes("placement-hint"));
-		assert.match(renderToStaticMarkup(<PlacementPickerView state={state()} showMissing />), /Choose how to start/);
+		assert.match(renderToStaticMarkup(<PlacementPickerView state={state({ missing: "Choose a subject for this chat." })} showMissing />), /Choose a subject/);
 	});
 
 	it("a practice chat shows no start-mode choice; with no subject yet, only the subject picker shows", () => {
