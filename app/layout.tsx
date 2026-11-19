@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { JetBrains_Mono, Source_Sans_3 } from "next/font/google";
+import { JetBrains_Mono, Kalam, Source_Sans_3 } from "next/font/google";
 import { connection } from "next/server";
 import "katex/dist/katex.min.css";
 import "./globals.css";
@@ -15,6 +15,8 @@ import { readThemeBoot } from "@/src/server";
 // Serif (the bundled lh-cmu @font-face in globals.css — no CDN).
 const ui = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains" });
 const prose = Source_Sans_3({ subsets: ["latin"], variable: "--font-sans3" });
+// Handwriting for the Study notes pages (components/study/notes-view.tsx).
+const hand = Kalam({ subsets: ["latin"], weight: ["300", "400", "700"], variable: "--font-hand" });
 
 export const metadata: Metadata = {
 	title: "Learning Harness",
@@ -31,7 +33,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 	return (
 		<html
 			lang="en"
-			className={`${theme.mode} ${ui.variable} ${prose.variable}`}
+			className={`${theme.mode} ${ui.variable} ${prose.variable} ${hand.variable}`}
 			style={vars as React.CSSProperties}
 			suppressHydrationWarning
 		>

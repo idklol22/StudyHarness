@@ -3,7 +3,7 @@
  * or a topic of one, and every new chat asks how to start ("from scratch" or "check what I know first").
  * No React, no fetch: the picker component and its tests both use these.
  */
-import { checkPlacement, topicsOf, type ChatPlacement, type Library } from "@/src/core/study/model";
+import { checkPlacement, topicsOf, type ChatPlacement, type Library } from "@/src/core";
 
 export type StartMode = "scratch" | "check";
 

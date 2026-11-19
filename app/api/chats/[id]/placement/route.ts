@@ -1,5 +1,5 @@
 import { getChat, stores, study } from "@/src/server";
-import { checkPlacement } from "@/src/core/study/model";
+import { checkPlacement } from "@/src/core";
 
 /**
  * PUT /api/chats/:id/placement — file a session under a subject (optionally a topic of it), or clear it

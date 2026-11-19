@@ -1,4 +1,4 @@
-import type { ChatPlacement } from "@/src/core/study/model";
+import type { ChatPlacement } from "@/src/core";
 import { clearOpeningPrompt, OPENING_PROMPT_FAILURE, stashOpeningPrompt } from "./opening-prompt";
 
 interface SessionCreation {

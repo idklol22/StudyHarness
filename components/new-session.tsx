@@ -18,7 +18,7 @@ import { ComposerActions, NodePickerControl } from "@/components/composer-action
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter } from "@/components/start-session";
 import { StudyPlacementPicker, useStudyPlacement } from "@/components/study/placement-picker";
-import type { ChatPlacement } from "@/src/core/study/model";
+import type { ChatPlacement } from "@/src/core";
 import type { ChatSettings, GraphSnapshot } from "@/src/core";
 
 /** The draft's pick set (owner round 10): the SAME shape the home pick

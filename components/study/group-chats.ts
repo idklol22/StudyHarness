@@ -3,7 +3,7 @@
  * plus a "Not filed" bucket for chats with no (or a stale) placement. Pure, so the sidebar tree and its
  * keyboard walk share one display order.
  */
-import { topicsOf, type Library, type Subject, type Topic } from "@/src/core/study/model";
+import { topicsOf, type Library, type Subject, type Topic } from "@/src/core";
 
 export interface ChatLike { id: string; updatedAt: string; placement?: { subjectId: string; topicId?: string } }
 

@@ -13,10 +13,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FileTextIcon, MessageSquarePlusIcon, Trash2Icon, UploadIcon } from "lucide-react";
 import { TopBar } from "@/components/top-bar";
-import { materialsIn, subjectOf, topicOf, topicsOf, type Library, type Material } from "@/src/core/study/model";
+import { materialsIn, subjectOf, topicOf, topicsOf, type Library, type Material } from "@/src/core";
 import type { ChatListItem } from "@/src/core";
 import { LAST_CHOICE_KEY } from "./placement";
 import { groupChats } from "./group-chats";
+import { NotesPanel } from "./notes-view";
 
 const fmtBytes = (n: number) => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
 
@@ -164,6 +165,8 @@ export function ScopePage({ subjectId, topicId }: { subjectId: string; topicId?:
 							<p className="whitespace-pre-wrap rounded-lg border bg-card px-3 py-2 text-sm text-muted-foreground">{context}</p>
 						</section>
 					)}
+
+					<NotesPanel subjectId={subjectId} topicId={topicId} label={title} />
 
 					<section className={section} data-testid="chats-section">
 						<h2 className={h}>Chats</h2>

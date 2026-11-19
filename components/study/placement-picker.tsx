@@ -7,7 +7,7 @@
  * The last subject/topic is remembered; the start mode is not.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { emptyLibrary, topicsOf, type ChatPlacement, type Library } from "@/src/core/study/model";
+import { emptyLibrary, topicsOf, type ChatPlacement, type Library } from "@/src/core";
 import { emptyChoice, LAST_CHOICE_KEY, missingPlacement, placementFromChoice, restoreChoice, type Choice, type StartMode } from "./placement";
 
 const NEW = "__new__";

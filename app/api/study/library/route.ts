@@ -7,8 +7,7 @@
  *   {action:"delete-subject", id} · {action:"delete-topic", id}     (cascade; unreferenced stored PDFs are removed)
  *   {action:"remove-material", id} · {action:"move-material", id, subjectId, topicId?}
  */
-import { StudyInputError, study } from "@/src/server";
-import { readOrganizationAction } from "@/src/server/source-organization";
+import { StudyInputError, readOrganizationAction, study } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 

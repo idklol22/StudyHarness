@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ChevronRightIcon, PlusIcon } from "lucide-react";
-import { emptyLibrary, type Library } from "@/src/core/study/model";
+import { emptyLibrary, type Library } from "@/src/core";
 import type { ChatLike, Grouped } from "./group-chats";
 
 const COLLAPSED_KEY = "lh.sidebar.collapsed.v1";
