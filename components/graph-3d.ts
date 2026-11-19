@@ -551,10 +551,10 @@ export class Graph3DRenderer {
 	// ── Camera ───────────────────────────────────────────────────────────────────
 
 	private fitTarget(): { pos: THREE.Vector3; target: THREE.Vector3; dist: number } {
-		// Knowledge (the origin) is the centre; with the centre hidden, the middle of what is visible is.
-		const shown = this.real.filter((li) => this.nodeVisible[li]);
-		const b = this.showCentre ? null : this.layout.bounds(shown.length ? shown : undefined);
-		const target = b ? new THREE.Vector3(b.cx, b.cy, b.cz) : new THREE.Vector3(0, 0, 0);
+		// Frame everything that is visible (the centre included when shown): its middle is the orbit centre.
+		const shown = this.real.filter((li) => this.nodeVisible[li] && (this.showCentre || this.layout.kind[li] !== NODE_ROOT));
+		const b = this.layout.bounds(shown.length ? shown : undefined);
+		const target = new THREE.Vector3(b.cx, b.cy, b.cz);
 		let radius = 40;
 		for (const li of shown) radius = Math.max(radius, Math.hypot(this.layout.pos[li * 3]! - target.x, this.layout.pos[li * 3 + 1]! - target.y, this.layout.pos[li * 3 + 2]! - target.z));
 		this.fogRadius = radius;

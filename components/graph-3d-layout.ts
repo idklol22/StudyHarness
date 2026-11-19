@@ -100,7 +100,8 @@ export function placeBalls(radii: ReadonlyMap<string, number>, weights: Readonly
 	// Seed: an even spread (linked topics already neighbours), tilted off any axis so nothing starts flat.
 	const sizes = new Map(keys.map((key, i) => [key, R[i]!]));
 	const seed = placeTopics(sizes, weights);
-	const spread = maxR * 3 + L * 2;
+	// Field-anchored (Study) balls sit closer in, so a subject's own branches stay readable at the fitted zoom.
+	const spread = anchors.size ? maxR * 1.7 + L * 1.4 : maxR * 3 + L * 2;
 	const tilt = (v: readonly number[]): [number, number, number] => [v[0]! * 0.94 + v[1]! * 0.2, v[1]! * 0.94 - v[0]! * 0.2 + v[2]! * 0.27, v[2]! * 0.96 - v[1]! * 0.27];
 	// A ball with an anchor (Study: the subject's field) starts on, and is pulled toward, its anchor's direction.
 	const A = keys.map((key) => anchors.get(key));
@@ -140,6 +141,8 @@ export function placeBalls(radii: ReadonlyMap<string, number>, weights: Readonly
 		}
 		for (let a = 0; a < k; a++) { const p = P[a]!, q = F[a]!; p[0] += q[0]!; p[1] += q[1]!; p[2] += q[2]!; }
 	}
+	// Study: balls placed by their fields already surround the centre, which stays at the origin.
+	if (anchors.size) { keys.forEach((key, i) => out.set(key, [P[i]![0], P[i]![1], P[i]![2]])); return out; }
 	// Where Knowledge goes.
 	let cx = 0, cy = 0, cz = 0;
 	for (const p of P) { cx += p[0]; cy += p[1]; cz += p[2]; }
@@ -463,7 +466,7 @@ export class Layout3D {
 				const len = Math.hypot(...o);
 				const out: [number, number, number] = len > 1e-6 ? [o[0] / len, o[1] / len, o[2] / len] : (() => { const c = centre(key), l = Math.hypot(...c) || 1; return [c[0] / l, c[1] / l, c[2] / l] as [number, number, number]; })();
 				// Many children (a Study topic's ideas) open a wider cone further out, so they never bunch up.
-				const step = twigs.length > 3 ? twigStep * (1.2 + 0.08 * twigs.length) : twigStep;
+				const step = twigs.length > 3 ? L * (0.62 + 0.05 * Math.min(twigs.length, 12)) : twigStep;
 				const cone = twigs.length === 1 ? 0 : twigs.length > 3 ? Math.min(1.25, 0.55 + 0.07 * twigs.length) : 0.7;
 				coneDirections(out, cone, twigs.length).forEach((td, t) => {
 					const tw = twigs[t]!;
