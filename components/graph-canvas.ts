@@ -148,6 +148,10 @@ export interface CanvasData {
 	 *  the premises/conclusion midpoint (owner, 2026-09-30). */
 	impLinks?: ReadonlyArray<{ id: string; premises: ReadonlyArray<string>; conclusion: string }>;
 	clusters: CanvasCluster[];
+	/** 3D only (Study): explicit tree parent per node id (an idea's topic). */
+	parents?: Readonly<Record<string, string>>;
+	/** 3D only (Study): each group's preferred direction from the centre (unit vector). */
+	anchors?: Readonly<Record<string, readonly [number, number, number]>>;
 	colors: CanvasColors;
 	/** Body font family (labels must match the app typography). */
 	fontFamily: string;

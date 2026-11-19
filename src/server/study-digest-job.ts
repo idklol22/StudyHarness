@@ -9,7 +9,8 @@
  *   5. the owning scope's context learns what the file contains.
  * After a suggestion is accepted, each topic's context is seeded from its pages.
  */
-import { suggestTopics } from "../agent/subagents/study-workers.ts";
+import { fieldOf, suggestTopics } from "../agent/subagents/study-workers.ts";
+import { FIELDS, isField } from "../core/study/fields.ts";
 import { ideasOf } from "../core/study/ideas.ts";
 import { parseRange } from "../core/study/material-memory.ts";
 import { subjectOf, topicOf, topicsOf, type Material, type SuggestedTopic } from "../core/study/model.ts";
@@ -103,4 +104,14 @@ export function seedAcceptedTopics(accepted: ReadonlyArray<{ topicId: string; ma
 			await refreshContext({ subjectId: topic.subjectId, topicId }, `This topic now holds ${material.fileName}, pages ${suggested.pages.from}–${suggested.pages.to}.\nSummary: ${suggested.summary}\nIdeas: ${ideas}\nOutline of its pages:\n${outline}`, deps, undefined, "Building the topic");
 		}
 	})().catch((error) => console.error("[study] could not seed accepted topics:", error));
+}
+
+/** File a new subject under its broad field with a cheap model (the keyword guess stands until then). Never throws. */
+export function classifySubject(subjectId: string, deps: StudyDeps): void {
+	void (async () => {
+		const subject = subjectOf(study.library(), subjectId);
+		if (!subject) return;
+		const field = await fieldOf(subject.name, FIELDS, { engine: deps.engineFor("extractor"), signal: deps.signal });
+		if (isField(field)) study.setField(subjectId, field);
+	})().catch((error) => console.error("[study] could not classify a subject:", error));
 }

@@ -18,6 +18,8 @@ import type { ChatListItem } from "@/src/core";
 import { LAST_CHOICE_KEY } from "./placement";
 import { groupChats } from "./group-chats";
 import { IdeasSection, SuggestionsCard } from "./suggestions-card";
+import { FileList } from "./file-list";
+import { SubjectMap } from "./subject-map";
 import { useServerEvent } from "@/components/server-events";
 import { NotesPanel } from "./notes-view";
 import { CardsPanel } from "./cards-panel";
@@ -132,21 +134,7 @@ export function ScopePage({ subjectId, topicId }: { subjectId: string; topicId?:
 					<section id="files" className={`${section} scroll-mt-4 rounded-xl border-2 border-dashed border-primary/40 bg-primary/5 p-4`} data-testid="materials-section">
 						<h2 className={h}>{topic ? "Topic files" : "Subject files"}</h2>
 						<p className="mb-2 text-xs text-muted-foreground">{topic ? "Files here give the agent topic-wide context, and also appear in the subject's files." : "Everything in the subject: files added here are subject-wide, and every topic's files are listed too."} Drop PDF, Markdown or text files anywhere on this page, or attach them in a chat.</p>
-						<ul className="flex flex-col gap-1">
-							{files.map((m) => (
-								<li key={m.id} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm">
-									<FileTextIcon className="size-4 shrink-0 text-muted-foreground" />
-									<span className="min-w-0 flex-1 truncate">{m.fileName}</span>
-									{!topic && materialTopicName(library, m) && <Link href={`/subjects/${subjectId}/${m.scope.topicId}`} className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-accent">{materialTopicName(library, m)}</Link>}
-										<span className="shrink-0 text-xs text-muted-foreground">{m.pageCount} {m.kind === "text" ? "text pages" : "pages"} · {fmtBytes(m.bytes)}</span>
-									{!m.scope.topicId && !(library.suggestions ?? []).some((s) => s.materialId === m.id) && (
-										<button type="button" title="Read this file again and suggest topics for it" onClick={() => { void run({ action: "understand-material", id: m.id }).then(() => setMessage(`Understanding ${m.fileName} — watch the activity panel; suggested topics will appear here.`)); }} className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-primary hover:bg-accent">Find topics</button>
-									)}
-									<button type="button" aria-label={`Remove ${m.fileName}`} title="Remove" onClick={() => void run({ action: "remove-material", id: m.id })} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive"><Trash2Icon className="size-3.5" /></button>
-								</li>
-							))}
-							{files.length === 0 && <li className="text-sm text-muted-foreground">No files yet.</li>}
-						</ul>
+						<FileList library={library} subjectId={subjectId} files={files} topicPage={!!topic} act={async (body) => { await run(body); }} onMessage={setMessage} />
 						<input ref={picker} type="file" accept=".pdf,.md,.markdown,.txt,application/pdf,text/markdown,text/plain" multiple hidden data-testid="material-input" onChange={(e) => { const list = e.currentTarget.files; if (list?.length) void upload(list); e.currentTarget.value = ""; }} />
 						<button type="button" disabled={busy} onClick={() => picker.current?.click()} className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50" data-testid="add-material"><UploadIcon className="size-3.5" />{busy ? "Uploading…" : "Add files"}</button>
 					</section>
@@ -180,9 +168,16 @@ export function ScopePage({ subjectId, topicId }: { subjectId: string; topicId?:
 						</section>
 					)}
 
-					<IdeasSection library={library} subjectId={subjectId} topicId={topic?.id} chatTitles={new Map(chats.map((c) => [c.id, c.title]))} />
+					{!topic && (subjectOf(library, subjectId)?.ideas?.length || topicsOf(library, subjectId).length > 0) && (
+						<section className={section} data-testid="subject-map-section">
+							<h2 className={h}>Map of {subject.name}</h2>
+							<div className="relative h-[480px] overflow-hidden rounded-xl border bg-card/40"><SubjectMap subjectId={subjectId} /></div>
+						</section>
+					)}
 
-					<NotesPanel subjectId={subjectId} topicId={topicId} label={title} />
+					<IdeasSection library={library} subjectId={subjectId} topicId={topic?.id} chatTitles={new Map(chats.map((c) => [c.id, c.title]))} act={async (body) => { await run(body); }} />
+
+					<NotesPanel subjectId={subjectId} topicId={topicId} label={title} files={topic ? [...materialsIn(library, scope), ...materialsIn(library, { subjectId })] : files} chats={here.map(({ chat }) => ({ id: chat.id, title: chat.title }))} />
 
 					<CardsPanel subjectId={subjectId} topicId={topicId} />
 

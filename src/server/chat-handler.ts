@@ -36,6 +36,8 @@ import { effectiveSettings, stores } from "./stores.ts";
 import { getPluginAgentContributions, getPluginHost } from "./plugins.ts";
 import { keepContextAfterTurn, studyContributions } from "./study-agent.ts";
 import { digestMaterial } from "./study-digest-job.ts";
+/** The chat → proposition-graph extraction after each turn (retired with the Study graph; kept switchable). */
+const EXTRACT_PROPOSITIONS = false;
 import { adoptAttachments } from "./study-attachments.ts";
 import { titleAfterFirstTurn } from "./chat-title.ts";
 import { preparePluginQuestionSubmission, reconcilePluginQuestionCompatibility, type QuestionTypeResolver } from "./plugin-questions.ts";
@@ -925,7 +927,9 @@ export async function handleChatInput(
 				// PRACTICE (owner, 2026-10-04): practice sessions write nothing —
 				// no extraction, no graph, no coverage (v1: the session itself
 				// is the deliverable).
-				if ((!requestCycle || requestCycle.dispatched) && record.kind !== "practice" && extractionEnabled(effective.graph)) {
+				// RETIRED (owner 2026-11-19): the proposition graph is replaced by the Study graph (subjects → topics → ideas,
+				// ideas kept from files and chats by keepContextAfterTurn). The extraction pipeline stays in the code, unused.
+				if (EXTRACT_PROPOSITIONS && (!requestCycle || requestCycle.dispatched) && record.kind !== "practice" && extractionEnabled(effective.graph)) {
 					// Fresh per-turn read of the graph section's chunk budget
 					// (extraction-UX redesign, 2026-09-24): the trigger compares
 					// against it and the pipeline's batches share it.

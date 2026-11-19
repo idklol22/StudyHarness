@@ -116,3 +116,6 @@ export * from "./study/map.ts";
 export * from "./study/map-layout.ts";
 export * from "./study/diagram.ts";
 export * from "./study/ideas.ts";
+export * from "./study/coverage.ts";
+export * from "./study/fields.ts";
+export * from "./study/knowledge-graph.ts";

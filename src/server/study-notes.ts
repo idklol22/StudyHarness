@@ -15,7 +15,8 @@ import { addLearnerSticky, addStroke, appendBlocks, editElement, emptyNotebook, 
 import { materialsIn, materialsUnder, subjectOf, topicOf, topicsOf, type Material, type StudyScope } from "../core/study/model.ts";
 import { studyStore } from "../store/study.ts";
 import { study } from "./study-runtime.ts";
-import { scopeChatDigest } from "./study-digest.ts";
+import { chatsInScope, scopeChatDigest } from "./study-digest.ts";
+import { coveredPages, normalizeCoverage, type Coverage } from "../core/study/coverage.ts";
 import { readMaterialPages } from "./study-reading.ts";
 import { skimPageCount } from "../core/study/outline.ts";
 import { beginStudyWork, type WorkHandle } from "./study-activity.ts";
@@ -29,7 +30,7 @@ export interface NotesDeps {
 /** A scope plus, optionally, which of its notebooks (absent = the newest). */
 export type NotesScope = StudyScope & { notebookId?: string };
 /** One notebook of a subject/topic: at most MAX_NOTE_PAGES pages (one exported PDF). */
-export interface NotebookEntry { id: string; title: string; createdAt: string; /** Pages asked for when it was created. */ target?: number }
+export interface NotebookEntry { id: string; title: string; createdAt: string; /** Pages asked for when it was created. */ target?: number; /** The file pages it summarises (at most MAX_SOURCE_PAGES). */ covers?: Coverage[]; /** The chats it drew on. */ chats?: string[] }
 
 const scopeKey = (scope: StudyScope): string => scope.topicId ?? scope.subjectId;
 const indexKey = (scope: StudyScope): string => `index_${scopeKey(scope)}`;
@@ -52,10 +53,10 @@ export function notebooksOf(scope: StudyScope): NotebookEntry[] {
 const writeIndex = (scope: StudyScope, list: NotebookEntry[]) => studyStore.writeDoc("notes", indexKey(scope), list);
 
 /** Start a new, empty notebook in the scope (becomes the newest). */
-export function createNotebook(scope: StudyScope, title: string, target?: number): NotebookEntry {
+export function createNotebook(scope: StudyScope, title: string, target?: number, extra: { covers?: Coverage[]; chats?: string[] } = {}): NotebookEntry {
 	checkedScope(scope);
 	const list = notebooksOf(scope);
-	const entry: NotebookEntry = { id: `nb_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, title: title.replace(/\s+/g, " ").trim().slice(0, 80) || `Notes ${list.length + 1}`, createdAt: new Date().toISOString(), ...(target ? { target } : {}) };
+	const entry: NotebookEntry = { id: `nb_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, title: title.replace(/\s+/g, " ").trim().slice(0, 80) || `Notes ${list.length + 1}`, createdAt: new Date().toISOString(), ...(target ? { target } : {}), ...(extra.covers?.length ? { covers: extra.covers } : {}), ...(extra.chats?.length ? { chats: extra.chats } : {}) };
 	writeIndex(scope, [...list, entry]);
 	return entry;
 }
@@ -156,8 +157,11 @@ const MAX_SECTIONS_PER_FILE = 6;
  * What a file holds, cut into sections the note-taker reads one at a time: a text file is its own pages
  * (grouped up to ~12k characters); a PDF is its page-range summaries, concepts and figures worth showing.
  */
-function fileSections(m: Material, topicName: string): Section[] {
-	const memory = studyStore.readMemory(m.sha256);
+function fileSections(m: Material, topicName: string, range?: { from: number; to: number }): Section[] {
+	const full = studyStore.readMemory(m.sha256);
+	// Only the pages this notebook covers.
+	const inRange = (n: number) => !range || (n >= range.from && n <= range.to);
+	const memory = { ...full, pages: Object.fromEntries(Object.entries(full.pages).filter(([n]) => inRange(Number(n)))), chunks: full.chunks.filter((c) => inRange(c.from) || inRange(c.to)) };
 	const where = topicName ? ` (topic: ${topicName})` : " (subject-wide)";
 	const head = `${m.fileName} [id ${m.id}]${where}`;
 	const groups: string[][] = [[]];
@@ -188,10 +192,10 @@ function fileSections(m: Material, topicName: string): Section[] {
 
 
 /** Before summarising, make sure the files have been looked at: the first pages of each, within a total budget. */
-async function readForNotes(scope: StudyScope, deps: NotesDeps, work: WorkHandle): Promise<void> {
+async function readForNotes(files: readonly Material[], deps: NotesDeps, work: WorkHandle): Promise<void> {
 	// Files are normally understood on upload; anything older (or interrupted) gets its text now — no model needed —
 	// plus the same short skim (20% of the file, at most 8 pages).
-	for (const m of notesMaterials(scope).filter((x) => x.kind !== "text")) {
+	for (const m of files.filter((x) => x.kind !== "text")) {
 		if (deps.signal?.aborted) return;
 		const memory = studyStore.readMemory(m.sha256);
 		const missing = Array.from({ length: m.pageCount }, (_, i) => i + 1).filter((n) => memory.pages[n] === undefined);
@@ -220,11 +224,19 @@ const pageFull = (book: Notebook): boolean => { const last = book.pages.at(-1); 
 const depth = (blocks: number) => `Write thorough, descriptive notes for this pass (up to about ${blocks} blocks): start with a heading for what it covers, give a mind map of its structure when it is a whole file or chapter, then explain each concept, define the terms, add flowcharts for processes and algorithms, worked steps for examples, and stickies for tips and exam warnings. Do not repeat what the notes already say.`;
 
 export interface NotesOptions {
-	/** How many pages the learner wants (1–MAX_NOTE_PAGES; default 8). */
+	/** How many pages the learner wants (MIN_NOTE_PAGES–MAX_NOTE_PAGES; default 8). */
 	pages?: number;
 	/** Title of the new notebook. */
 	title?: string;
+	/** Which file pages to summarise (at most MAX_SOURCE_PAGES in total; default: the scope's files in order up to the limit). */
+	coverage?: Coverage[];
+	/** Which of the scope's chats to draw on (default: all). */
+	chats?: string[];
+	/** Include what the agent knows (the topic/subject context). Default true. */
+	knowledge?: boolean;
 }
+
+export const MIN_NOTE_PAGES = 8;
 
 /**
  * Create a NEW notebook for the scope and write about `pages` pages into it: a summary of ALL the scope's files and
@@ -237,17 +249,19 @@ export function generateNotes(scope: StudyScope, lesson: string, deps: NotesDeps
 	return (async () => {
 		const lib = study.library();
 		const ctx = contextFor(scope);
-		const target = Math.max(1, Math.min(MAX_NOTE_PAGES, Math.round(options.pages ?? 8)));
-		const files = notesMaterials(scope);
-		const chats = scopeChatDigest(scope, scope.topicId ? 16000 : 24000);
-		const work = beginStudyWork(`Writing notes: ${ctx.name}`, `About ${target} page${target === 1 ? "" : "s"} from ${files.length} file${files.length === 1 ? "" : "s"} and ${chats.chats} conversation${chats.chats === 1 ? "" : "s"}`);
+		const target = Math.max(MIN_NOTE_PAGES, Math.min(MAX_NOTE_PAGES, Math.round(options.pages ?? 8)));
+		const coverage = normalizeCoverage(notesMaterials(scope), options.coverage);
+		const files = coverage.map((c) => lib.materials.find((m) => m.id === c.materialId)!);
+		const chats = scopeChatDigest(scope, scope.topicId ? 16000 : 24000, options.chats ? new Set(options.chats) : undefined);
+		if (options.knowledge === false) ctx.text = "";
+		const work = beginStudyWork(`Writing notes: ${ctx.name}`, `About ${target} pages from ${coveredPages(coverage)} source page${coveredPages(coverage) === 1 ? "" : "s"} in ${files.length} file${files.length === 1 ? "" : "s"}, ${chats.chats} conversation${chats.chats === 1 ? "" : "s"}${options.knowledge === false ? "" : " and what the agent knows"}`);
 		try {
-			await readForNotes(scope, deps, work);
+			await readForNotes(files, deps, work);
 			// Material sections, in file order.
 			const sections: Array<{ label: string; text: string; topicName: string; continued: boolean }> = [];
-			for (const m of files) {
+			for (const [k, m] of files.entries()) {
 				const topicName = m.scope.topicId ? topicOf(lib, m.scope.topicId)?.name ?? "" : "";
-				fileSections(m, topicName).forEach((s, i) => sections.push({ ...s, topicName, continued: i > 0 }));
+				fileSections(m, topicName, coverage[k]).forEach((s, i) => sections.push({ ...s, topicName, continued: i > 0 }));
 			}
 			const said = [lesson.trim(), chats.text].filter(Boolean).join("\n\n");
 			// No more passes than the pages allow (about two pages per pass); merged sections share one pass.
@@ -271,7 +285,7 @@ export function generateNotes(scope: StudyScope, lesson: string, deps: NotesDeps
 			if (!passes.length && ctx.text.trim()) passes.push({ label: "what is known so far", materials: "", lesson: "", instruction: depth(budget) });
 			if (!passes.length) throw new Error("There was nothing to add to the notes yet. Upload material or have a lesson first.");
 
-			const entry = createNotebook(scope, options.title?.trim() || `${ctx.name} — notes`, target);
+			const entry = createNotebook(scope, options.title?.trim() || `${ctx.name} — notes`, target, { covers: coverage, chats: options.chats ?? chatsInScope(scope).map((c) => c.id) });
 			const here: NotesScope = { ...scope, notebookId: entry.id };
 			let notebook = readNotebook(here);
 			let added = 0;
@@ -292,4 +306,16 @@ export function generateNotes(scope: StudyScope, lesson: string, deps: NotesDeps
 			return { notebook, notebookId: entry.id, added };
 		} finally { work.done(); }
 	})();
+}
+
+/** Every notebook of a subject and its topics, with what each covers (for the file list's coverage marks). */
+export function subjectNotebooks(subjectId: string): Array<NotebookEntry & { scopeName: string; href: string; topicId?: string }> {
+	const lib = study.library();
+	const subject = subjectOf(lib, subjectId);
+	if (!subject) throw new Error("That subject no longer exists.");
+	const scopes: Array<{ scope: StudyScope; name: string; href: string }> = [
+		{ scope: { subjectId }, name: subject.name, href: `/subjects/${subjectId}#notes` },
+		...topicsOf(lib, subjectId).map((t) => ({ scope: { subjectId, topicId: t.id }, name: t.name, href: `/subjects/${subjectId}/${t.id}#notes` })),
+	];
+	return scopes.flatMap(({ scope, name, href }) => notebooksOf(scope).map((e) => ({ ...e, scopeName: name, href, ...(scope.topicId ? { topicId: scope.topicId } : {}) })));
 }

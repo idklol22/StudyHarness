@@ -12,14 +12,15 @@
  */
 import path from "node:path";
 import {
-	addMaterial, createSubject, createTopic, deleteSubject, deleteTopic, moveMaterial, removeMaterial, renameSubject,
+	addMaterial, createSubject, createTopic, setField, deleteSubject, deleteTopic, moveMaterial, removeMaterial, renameSubject,
 	renameTopic, setContext, type Library, type Material, type StudyScope, type Removal,
 } from "../core/study/model.ts";
 import { lookup, recordBatch, recordPages, type MaterialMemory } from "../core/study/material-memory.ts";
 import { isTextName, textOutline, textPages } from "../core/study/text-material.ts";
-import { acceptSuggestion, addSuggestion, dismissSuggestion, ideasOf, mergeIdeas, setIdeas, tidyLibrary, type IncomingIdea } from "../core/study/ideas.ts";
+import { acceptSuggestion, addIdea, addSuggestion, assignMaterial, dismissSuggestion, editIdea, ideasOf, mergeIdeas, removeIdea, setIdeas, tidyLibrary, type IncomingIdea, type SuggestionEdit } from "../core/study/ideas.ts";
 import type { SuggestedTopic } from "../core/study/model.ts";
 import type { TextRun } from "../core/study/text-boxes.ts";
+import { guessField } from "../core/study/fields.ts";
 import { sha256Of, type PageImage, type StudyStore } from "../store/study.ts";
 
 export const MAX_MATERIAL_BYTES = 150 * 1024 * 1024;
@@ -84,7 +85,8 @@ export function createStudyService(store: StudyStore, pdf: StudyPdf) {
 	const api = {
 		library: (): Library => store.readLibrary(),
 
-		createSubject: (name: unknown) => guard(() => change((lib) => { const r = createSubject(lib, name); return { library: r.library, result: r.subject }; })),
+		createSubject: (name: unknown) => guard(() => change((lib) => { const r = createSubject(lib, name); const field = r.created ? guessField(r.subject.name) : undefined; return { library: field ? setField(r.library, r.subject.id, field) : r.library, result: r.subject }; })),
+		setField: (subjectId: string, field: string) => guard(() => change((lib) => ({ library: setField(lib, subjectId, field), result: undefined }))),
 		createTopic: (subjectId: string, name: unknown) => guard(() => change((lib) => { const r = createTopic(lib, subjectId, name); return { library: r.library, result: r.topic }; })),
 		renameSubject: (id: string, name: unknown) => guard(() => change((lib) => ({ library: renameSubject(lib, id, name), result: undefined }))),
 		renameTopic: (id: string, name: unknown) => guard(() => change((lib) => ({ library: renameTopic(lib, id, name), result: undefined }))),
@@ -126,7 +128,11 @@ export function createStudyService(store: StudyStore, pdf: StudyPdf) {
 		addIdeas: (target: { subjectId: string; topicId?: string }, incoming: readonly IncomingIdea[]) => guard(() => change((lib) => ({ library: setIdeas(lib, target, mergeIdeas(ideasOf(lib, target), incoming)), result: undefined }))),
 		/** Topic suggestions for a subject-wide file. */
 		suggestTopics: (materialId: string, topics: readonly SuggestedTopic[]) => guard(() => change((lib) => { const r = addSuggestion(lib, materialId, topics); return { library: r.library, result: r.suggestion }; })),
-		acceptSuggestion: (id: string, renames?: Record<number, string>) => guard(() => change((lib) => { const r = acceptSuggestion(lib, id, renames); return { library: r.library, result: r.topics }; })),
+		acceptSuggestion: (id: string, edits?: Record<number, string | SuggestionEdit>) => guard(() => change((lib) => { const r = acceptSuggestion(lib, id, edits); return { library: r.library, result: r.topics }; })),
+		addIdea: (target: { subjectId: string; topicId?: string }, idea: { name: string; summary?: string }) => guard(() => change((lib) => ({ library: addIdea(lib, target, idea), result: undefined }))),
+		editIdea: (target: { subjectId: string; topicId?: string }, id: string, patch: { name?: string; summary?: string }) => guard(() => change((lib) => ({ library: editIdea(lib, target, id, patch), result: undefined }))),
+		removeIdea: (target: { subjectId: string; topicId?: string }, id: string) => guard(() => change((lib) => ({ library: removeIdea(lib, target, id), result: undefined }))),
+		assignMaterial: (materialId: string, to: { topicId?: string; newTopicName?: string }) => guard(() => change((lib) => { const r = assignMaterial(lib, materialId, to); return { library: r.library, result: { topicId: r.topicId, material: r.material } }; })),
 		dismissSuggestion: (id: string) => guard(() => change((lib) => ({ library: dismissSuggestion(lib, id), result: undefined }))),
 		removeMaterial: (id: string) => guard(() => change((lib) => withRemoval(removeMaterial(lib, id)))),
 		moveMaterial: (id: string, scope: StudyScope) => guard(() => change((lib) => ({ library: moveMaterial(lib, id, scope), result: undefined }))),

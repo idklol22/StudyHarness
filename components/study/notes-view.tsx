@@ -2,78 +2,79 @@
 
 /**
  * The notes viewer (Study overhaul, Phase E): iPad-style class-note pages for a topic or a subject.
- * The agent's elements render as paper-and-pen handwriting (headings, bullets, stickies, boxes, worked steps and
+ * Dark paper, light ink (owner 2026-11-19, on screen and in the PDF). The agent's elements render as handwriting (headings, bullets, stickies, boxes, worked steps and
  * screenshots of the material with circles/arrows/highlights); the learner draws on top (pen, highlighter) and adds
  * their own stickies. Their ink is stored apart from the agent's pages, so regenerating or editing notes never touches it.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useServerEvent } from "@/components/server-events";
 import { DownloadIcon, EraserIcon, HighlighterIcon, MousePointer2Icon, PenLineIcon, SparklesIcon, StickyNoteIcon, Undo2Icon } from "lucide-react";
-import { MAX_NOTE_PAGES, PAGE_H, PAGE_W, drawDiagram, type Element, type Notebook, type NotePage } from "@/src/core";
+import { MAX_NOTE_PAGES, MAX_SOURCE_PAGES, PAGE_H, PAGE_W, drawDiagram, normalizeCoverage, type Material, type Element, type Notebook, type NotePage } from "@/src/core";
 import { markShapes } from "./notes-geometry";
 import { RichText, renderLatex } from "./rich-text";
 
+const MIN_NOTE_PAGES = 8;
 const HAND = "var(--font-hand), 'Segoe Print', 'Bradley Hand', cursive";
 
 type Tool = "view" | "pen" | "highlighter" | "sticky";
-const INK = "#1d4ed8";
+const INK = "#93c5fd";
 const BOX: Record<string, { label: string; color: string }> = {
-	definition: { label: "Definition", color: "#2563eb" }, exam: { label: "Exam!", color: "#dc2626" }, revisit: { label: "Revisit", color: "#d97706" },
-	mistake: { label: "Mistake", color: "#be123c" }, idea: { label: "Idea", color: "#059669" },
+	definition: { label: "Definition", color: "#60a5fa" }, exam: { label: "Exam!", color: "#f87171" }, revisit: { label: "Revisit", color: "#fbbf24" },
+	mistake: { label: "Mistake", color: "#fb7185" }, idea: { label: "Idea", color: "#34d399" },
 };
 
 function ElementView({ el, imageUrl }: { el: Element; imageUrl: (materialId: string, page: number) => string }) {
 	const box: React.CSSProperties = { position: "absolute", left: el.x, top: el.y, width: el.w, minHeight: el.h };
 	switch (el.type) {
-		case "heading": return <div style={{ ...box, fontSize: 30, fontWeight: 700, lineHeight: "36px", color: "#111827", borderBottom: "3px solid #fde047" }}>{el.text}</div>;
+		case "heading": return <div style={{ ...box, fontSize: 30, fontWeight: 700, lineHeight: "36px", color: "#f3f4f6", borderBottom: "3px solid #a16207" }}>{el.text}</div>;
 		case "text": return <div style={{ ...box, fontSize: 20, lineHeight: "26px", color: INK, whiteSpace: "pre-wrap" }}><RichText text={el.text} /></div>;
 		case "bullets": return <ul style={{ ...box, fontSize: 20, lineHeight: "26px", color: INK, listStyle: "none", margin: 0, padding: 0 }}>{el.items.map((t, i) => <li key={i} style={{ paddingLeft: 28, position: "relative" }}><span style={{ position: "absolute", left: 6 }}>•</span><RichText text={t} /></li>)}</ul>;
 		case "box": {
 			const k = BOX[el.kind] ?? BOX.idea!;
 			return (
-				<div style={{ ...box, border: `2.5px solid ${k.color}`, borderRadius: 14, padding: "10px 14px", fontSize: 20, lineHeight: "26px", color: "#1f2937", background: `${k.color}12` }}>
+				<div style={{ ...box, border: `2.5px solid ${k.color}`, borderRadius: 14, padding: "10px 14px", fontSize: 20, lineHeight: "26px", color: "#e5e7eb", background: `${k.color}12` }}>
 					<div style={{ color: k.color, fontWeight: 700, fontSize: 17 }}>{el.title ?? k.label}</div><RichText text={el.text} />
 				</div>
 			);
 		}
 		case "steps": return (
-			<div style={{ ...box, border: "2px dashed #94a3b8", borderRadius: 12, padding: "8px 12px", fontSize: 20, lineHeight: "26px", color: INK }}>
-				{el.title && <div style={{ fontWeight: 700, color: "#334155" }}>{el.title}</div>}
+			<div style={{ ...box, border: "2px dashed #71717a", borderRadius: 12, padding: "8px 12px", fontSize: 20, lineHeight: "26px", color: INK }}>
+				{el.title && <div style={{ fontWeight: 700, color: "#cbd5e1" }}>{el.title}</div>}
 				<ol style={{ margin: 0, paddingLeft: 26 }}>{el.steps.map((s, i) => <li key={i} style={{ marginBottom: 4 }}><RichText text={s} /></li>)}</ol>
 			</div>
 		);
-		case "sticky": return <div style={{ ...box, transform: `rotate(${el.tilt}deg)`, background: "#fef08a", padding: "10px 12px", fontSize: 17, lineHeight: "23px", color: "#422006", boxShadow: "2px 3px 6px rgba(0,0,0,.18)" }}><RichText text={el.text} /></div>;
+		case "sticky": return <div style={{ ...box, transform: `rotate(${el.tilt}deg)`, background: "#4a3f0b", padding: "10px 12px", fontSize: 17, lineHeight: "23px", color: "#fef3c7", boxShadow: "2px 3px 6px rgba(0,0,0,.18)" }}><RichText text={el.text} /></div>;
 		case "math": return (
-			<div style={{ ...box, color: "#111827" }}>
+			<div style={{ ...box, color: "#f3f4f6" }}>
 				<div style={{ fontSize: 22, fontFamily: "initial", overflowX: "auto" }} dangerouslySetInnerHTML={{ __html: renderLatex(el.latex, true) }} />
 				{el.text && <div style={{ fontSize: 17, lineHeight: "23px", color: INK }}><RichText text={el.text} /></div>}
 			</div>
 		);
 		case "diagram": {
 			const shapes = drawDiagram(el.diagram, el.w);
-			const TONES = ["#1d4ed8", "#059669", "#d97706", "#be123c", "#7c3aed", "#0e7490"];
+			const TONES = ["#93c5fd", "#34d399", "#fbbf24", "#fb7185", "#a78bfa", "#22d3ee"];
 			const arrowId = `ah-${el.id}`;
 			return (
 				<div style={{ ...box }}>
-					{el.title && <div style={{ fontSize: 20, fontWeight: 700, color: "#334155", lineHeight: "26px", marginBottom: 4 }}>{el.title}</div>}
+					{el.title && <div style={{ fontSize: 20, fontWeight: 700, color: "#cbd5e1", lineHeight: "26px", marginBottom: 4 }}>{el.title}</div>}
 					<svg width={el.w} height={shapes.h} viewBox={`0 0 ${el.w} ${shapes.h}`} role="img" aria-label={el.title ?? `${el.diagram.kind === "flow" ? "Flowchart" : "Mind map"}`} fontFamily={HAND} style={{ overflow: "visible" }}>
-						<defs><marker id={arrowId} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#475569" /></marker></defs>
+						<defs><marker id={arrowId} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a1a1aa" /></marker></defs>
 						{shapes.arrows.map((a, i) => (
 							<g key={i}>
-								<polyline points={a.points.map((p) => p.join(",")).join(" ")} fill="none" stroke="#64748b" strokeWidth={2} strokeLinecap="round" markerEnd={a.arrow ? `url(#${arrowId})` : undefined} />
-								{a.label && <text x={a.lx} y={a.ly} fontSize={14} fill="#475569">{a.label}</text>}
+								<polyline points={a.points.map((p) => p.join(",")).join(" ")} fill="none" stroke="#a1a1aa" strokeWidth={2} strokeLinecap="round" markerEnd={a.arrow ? `url(#${arrowId})` : undefined} />
+								{a.label && <text x={a.lx} y={a.ly} fontSize={14} fill="#a1a1aa">{a.label}</text>}
 							</g>
 						))}
 						{shapes.boxes.map((b, i) => {
-							const color = b.shape === "center" ? "#111827" : TONES[b.tone % TONES.length]!;
-							const fill = b.shape === "center" ? "#fde047" : b.shape === "decision" ? "#fef3c7" : `${color}14`;
+							const color = b.shape === "center" ? "#f3f4f6" : TONES[b.tone % TONES.length]!;
+							const fill = b.shape === "center" ? "#a16207" : b.shape === "decision" ? "#3b2a06" : `${color}14`;
 							const size = b.shape === "leaf" ? 12 : b.shape === "branch" ? 14 : 15;
 							return (
 								<g key={i}>
 									{b.shape === "decision"
-										? <polygon points={`${b.x + b.w / 2},${b.y} ${b.x + b.w},${b.y + b.h / 2} ${b.x + b.w / 2},${b.y + b.h} ${b.x},${b.y + b.h / 2}`} fill={fill} stroke="#d97706" strokeWidth={2} />
+										? <polygon points={`${b.x + b.w / 2},${b.y} ${b.x + b.w},${b.y + b.h / 2} ${b.x + b.w / 2},${b.y + b.h} ${b.x},${b.y + b.h / 2}`} fill={fill} stroke="#fbbf24" strokeWidth={2} />
 										: <rect x={b.x} y={b.y} width={b.w} height={b.h} rx={b.shape === "box" ? 10 : b.h / 2} fill={fill} stroke={color} strokeWidth={b.shape === "leaf" ? 1.5 : 2.2} />}
-									<text textAnchor="middle" fontSize={size} fill="#1f2937" fontWeight={b.shape === "center" ? 700 : 500}>
+									<text textAnchor="middle" fontSize={size} fill="#e5e7eb" fontWeight={b.shape === "center" ? 700 : 500}>
 										{b.lines.map((line, li) => <tspan key={li} x={b.x + b.w / 2} y={b.y + b.h / 2 + (li - (b.lines.length - 1) / 2) * (size + 2) + size * 0.35}>{line}</tspan>)}
 									</text>
 								</g>
@@ -87,16 +88,16 @@ function ElementView({ el, imageUrl }: { el: Element; imageUrl: (materialId: str
 			const figH = Math.round(el.w / el.aspect);
 			return (
 				<div style={{ ...box }}>
-					<div style={{ position: "relative", width: el.w, height: figH, border: "1px solid #cbd5e1", background: "#fff", boxShadow: "1px 2px 5px rgba(0,0,0,.12)" }}>
+					<div style={{ position: "relative", width: el.w, height: figH, border: "1px solid #3f3f46", background: "#fff", boxShadow: "1px 2px 5px rgba(0,0,0,.12)" }}>
 						{/* eslint-disable-next-line @next/next/no-img-element */}
 						<img src={imageUrl(el.materialId, el.page)} alt={el.caption ?? `Page ${el.page}`} width={el.w} height={figH} style={{ display: "block", width: "100%", height: "100%" }} />
-						<svg width={el.w} height={figH} viewBox={`0 0 ${el.w} ${figH}`} style={{ position: "absolute", inset: 0, overflow: "visible" }} fill="none" stroke="#dc2626" strokeLinecap="round" strokeLinejoin="round">
+						<svg width={el.w} height={figH} viewBox={`0 0 ${el.w} ${figH}`} style={{ position: "absolute", inset: 0, overflow: "visible" }} fill="none" stroke="#f87171" strokeLinecap="round" strokeLinejoin="round">
 							{el.marks.flatMap((m, mi) => markShapes(m, el.w, figH).map((s, si) => s.kind === "path"
-								? <path key={`${mi}-${si}`} d={s.d} strokeWidth={s.width ?? 3} fill={s.fill ?? "none"} fillOpacity={s.opacity} stroke={s.fill ? "none" : "#dc2626"} />
-								: <text key={`${mi}-${si}`} x={s.x} y={s.y} fill="#dc2626" stroke="none" fontSize={18} fontWeight={700} style={{ fontFamily: "inherit" }}>{s.text}</text>))}
+								? <path key={`${mi}-${si}`} d={s.d} strokeWidth={s.width ?? 3} fill={s.fill ?? "none"} fillOpacity={s.opacity} stroke={s.fill ? "none" : "#f87171"} />
+								: <text key={`${mi}-${si}`} x={s.x} y={s.y} fill="#f87171" stroke="none" fontSize={18} fontWeight={700} style={{ fontFamily: "inherit" }}>{s.text}</text>))}
 						</svg>
 					</div>
-					{el.caption && <div style={{ fontSize: 15, color: "#475569", marginTop: 4 }}><RichText text={el.caption} /></div>}
+					{el.caption && <div style={{ fontSize: 15, color: "#a1a1aa", marginTop: 4 }}><RichText text={el.caption} /></div>}
 				</div>
 			);
 		}
@@ -119,20 +120,20 @@ export function NotePageView({ page, number, notebook, scale, tool, handlers, im
 		return [(e.clientX - r.left) / scale, (e.clientY - r.top) / scale];
 	};
 	const drawingTool = tool === "pen" || tool === "highlighter";
-	const color = tool === "highlighter" ? "#facc15" : "#111827";
+	const color = tool === "highlighter" ? "#facc15" : "#f3f4f6";
 	const width = tool === "highlighter" ? 18 : 2.5;
 	const path = (pts: Array<[number, number]>) => "M" + pts.map(([x, y]) => `${x},${y}`).join(" L");
 	return (
 		<div style={{ width: PAGE_W * scale, height: PAGE_H * scale }} className="mx-auto mb-6 shrink-0 overflow-hidden rounded-sm shadow-lg print:mb-0 print:shadow-none" data-testid="note-page">
 			<div
 				ref={ref}
-				style={{ fontFamily: HAND, width: PAGE_W, height: PAGE_H, transform: `scale(${scale})`, transformOrigin: "top left", position: "relative", background: "#fffdf7", backgroundImage: "repeating-linear-gradient(transparent 0 25px, #e5e7eb 25px 26px)", backgroundPositionY: 48, touchAction: drawingTool ? "none" : "auto" }}
+				style={{ fontFamily: HAND, width: PAGE_W, height: PAGE_H, transform: `scale(${scale})`, transformOrigin: "top left", position: "relative", background: "#17181c", backgroundImage: "repeating-linear-gradient(transparent 0 25px, #262830 25px 26px)", backgroundPositionY: 48, touchAction: drawingTool ? "none" : "auto" }}
 			>
-				<div style={{ position: "absolute", left: 40, top: 0, bottom: 0, width: 2, background: "#fca5a5", opacity: 0.6 }} />
+				<div style={{ position: "absolute", left: 40, top: 0, bottom: 0, width: 2, background: "#7f3b3b", opacity: 0.6 }} />
 				{page.elements.map((el) => <ElementView key={el.id} el={el} imageUrl={imageUrl} />)}
-				<div style={{ position: "absolute", right: 24, bottom: 14, fontSize: 14, color: "#94a3b8" }}>{number}</div>
+				<div style={{ position: "absolute", right: 24, bottom: 14, fontSize: 14, color: "#71717a" }}>{number}</div>
 				{layer?.stickies.map((s) => (
-					<button key={s.id} type="button" title="Click to remove" onClick={() => handlers?.onRemoveSticky(page.id, s.id)} style={{ position: "absolute", left: s.x, top: s.y, maxWidth: 200, background: "#bbf7d0", padding: "8px 10px", fontSize: 16, lineHeight: "21px", textAlign: "left", color: "#14532d", boxShadow: "2px 3px 6px rgba(0,0,0,.18)", cursor: handlers ? "pointer" : "default" }}>{s.text}</button>
+					<button key={s.id} type="button" title="Click to remove" onClick={() => handlers?.onRemoveSticky(page.id, s.id)} style={{ position: "absolute", left: s.x, top: s.y, maxWidth: 200, background: "#14532d", padding: "8px 10px", fontSize: 16, lineHeight: "21px", textAlign: "left", color: "#bbf7d0", boxShadow: "2px 3px 6px rgba(0,0,0,.18)", cursor: handlers ? "pointer" : "default" }}>{s.text}</button>
 				))}
 				<svg
 					width={PAGE_W} height={PAGE_H} viewBox={`0 0 ${PAGE_W} ${PAGE_H}`}
@@ -172,7 +173,7 @@ interface NotebookTab { id: string; title: string; createdAt: string; target?: n
  * 32 pages): tabs switch between them; "New notes" asks how many pages (a slider) and writes a new notebook from all
  * the scope's files and chats. Pen, highlighter and stickies draw on the open notebook; Export prints it as a PDF.
  */
-export function NotesPanel({ subjectId, topicId, label }: { subjectId: string; topicId?: string; label: string }) {
+export function NotesPanel({ subjectId, topicId, label, files = [], chats = [] }: { subjectId: string; topicId?: string; label: string; /** The files the notes may cover. */ files?: readonly Material[]; /** The chats they may draw on. */ chats?: ReadonlyArray<{ id: string; title: string }> }) {
 	const scope = { subjectId, ...(topicId ? { topicId } : {}) };
 	const [book, setBook] = useState<Notebook | null>(null);
 	const [notebooks, setNotebooks] = useState<NotebookTab[]>([]);
@@ -181,8 +182,23 @@ export function NotesPanel({ subjectId, topicId, label }: { subjectId: string; t
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
 	const [composing, setComposing] = useState(false);
-	const [pages, setPages] = useState(8);
+	const [pages, setPages] = useState(MIN_NOTE_PAGES);
 	const [title, setTitle] = useState("");
+	// What the notes cover: picked files with page ranges (≤ MAX_SOURCE_PAGES in total), chats, and what the agent knows.
+	const [picked, setPicked] = useState<Record<string, { on: boolean; from: number; to: number }>>({});
+	const [chatOn, setChatOn] = useState<Record<string, boolean>>({});
+	const [knowledge, setKnowledge] = useState(true);
+	const range = (m: Material) => ({ from: m.pages?.from ?? 1, to: m.pages?.to ?? m.pageCount });
+	// Default selection: the files in order, from their first page, up to the limit (the learner adjusts from there).
+	const fileKey = files.map((m) => m.id).join(",");
+	useEffect(() => {
+		const defaults = normalizeCoverage(files);
+		setPicked(Object.fromEntries(files.map((m) => { const c = defaults.find((d) => d.materialId === m.id); return [m.id, c ? { on: true, from: c.from, to: c.to } : { on: false, from: m.pages?.from ?? 1, to: m.pages?.to ?? m.pageCount }]; })));
+	}, [fileKey]);
+	const pick = (m: Material) => picked[m.id] ?? { on: false, ...range(m) };
+	const selection = files.filter((m) => pick(m).on).map((m) => ({ materialId: m.id, from: pick(m).from, to: pick(m).to }));
+	const total = selection.reduce((n, c) => n + Math.max(0, c.to - c.from + 1), 0);
+	const chosenChats = chats.filter((c) => chatOn[c.id] ?? true).map((c) => c.id);
 	const holder = useRef<HTMLDivElement>(null);
 	const [scale, setScale] = useState(0.8);
 	const base = { subjectId, ...(topicId ? { topicId } : {}) };
@@ -219,7 +235,7 @@ export function NotesPanel({ subjectId, topicId, label }: { subjectId: string; t
 	};
 	const create = async () => {
 		setBusy(true);
-		const r = await call({ ...scope, action: "generate", pages, ...(title.trim() ? { title: title.trim() } : {}) }) as { notebook?: Notebook; notebooks?: NotebookTab[]; notebookId?: string | null; added?: number; error?: string };
+		const r = await call({ ...scope, action: "generate", pages, coverage: selection, chats: chosenChats, knowledge, ...(title.trim() ? { title: title.trim() } : {}) }) as { notebook?: Notebook; notebooks?: NotebookTab[]; notebookId?: string | null; added?: number; error?: string };
 		setBusy(false);
 		take(r);
 		if (r.added) { setComposing(false); setTitle(""); setTool("view"); }
@@ -249,16 +265,47 @@ export function NotesPanel({ subjectId, topicId, label }: { subjectId: string; t
 				<form className="mb-3 flex flex-col gap-2 rounded-lg border bg-card p-3 text-sm" data-testid="new-notes-form" onSubmit={(e) => { e.preventDefault(); void create(); }}>
 					<label className="flex items-center gap-3">
 						<span className="w-28 shrink-0 text-xs text-muted-foreground">How many pages?</span>
-						<input type="range" min={1} max={MAX_NOTE_PAGES} step={1} value={pages} onChange={(e) => setPages(Number(e.target.value))} aria-label="Pages" data-testid="notes-pages" className="flex-1 accent-primary" />
-						<span className="w-16 shrink-0 text-right tabular-nums">{pages} page{pages === 1 ? "" : "s"}</span>
+						<input type="range" min={MIN_NOTE_PAGES} max={MAX_NOTE_PAGES} step={1} value={pages} onChange={(e) => setPages(Number(e.target.value))} aria-label="Pages" data-testid="notes-pages" className="flex-1 accent-primary" />
+						<span className="w-16 shrink-0 text-right tabular-nums">{pages} pages</span>
 					</label>
 					<label className="flex items-center gap-3">
 						<span className="w-28 shrink-0 text-xs text-muted-foreground">Title (optional)</span>
 						<input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={`${label} — notes`} maxLength={80} className="h-8 flex-1 rounded-md border border-border bg-background px-2 text-sm outline-none focus-visible:border-ring" />
 					</label>
-					<p className="text-xs text-muted-foreground">A new notebook from every file and chat {topicId ? "in this topic" : "in this subject and its topics"}. One notebook holds up to {MAX_NOTE_PAGES} pages; make another for more. Progress shows in the activity panel.</p>
+					<fieldset className="flex flex-col gap-1" data-testid="notes-coverage">
+						<legend className="mb-1 flex w-full items-center justify-between text-xs text-muted-foreground">
+							<span>Files to cover (at most {MAX_SOURCE_PAGES} pages or slides per notebook)</span>
+							<span className={`tabular-nums ${total > MAX_SOURCE_PAGES ? "font-medium text-destructive" : ""}`} data-testid="notes-coverage-total">{total} / {MAX_SOURCE_PAGES}</span>
+						</legend>
+						{files.length === 0 && <span className="text-xs text-muted-foreground">No files yet.</span>}
+						{files.map((m) => {
+							const p = pick(m), r = range(m);
+							const set = (patch: Partial<typeof p>) => setPicked((cur) => ({ ...cur, [m.id]: { ...p, ...patch } }));
+							return (
+								<div key={m.id} className="flex flex-wrap items-center gap-2 text-xs">
+									<label className="flex min-w-0 flex-1 items-center gap-2">
+										<input type="checkbox" checked={p.on} onChange={(e) => set({ on: e.target.checked })} />
+										<span className="truncate">{m.fileName}</span>
+									</label>
+									<span className="text-muted-foreground">pages</span>
+									<input type="number" min={r.from} max={p.to} value={p.from} disabled={!p.on} onChange={(e) => set({ from: Math.max(r.from, Math.min(p.to, Number(e.target.value) || r.from)) })} aria-label={`First page of ${m.fileName}`} className="h-7 w-16 rounded-md border border-border bg-background px-1.5 tabular-nums disabled:opacity-50" />
+									<span className="text-muted-foreground">to</span>
+									<input type="number" min={p.from} max={r.to} value={p.to} disabled={!p.on} onChange={(e) => set({ to: Math.min(r.to, Math.max(p.from, Number(e.target.value) || r.to)) })} aria-label={`Last page of ${m.fileName}`} className="h-7 w-16 rounded-md border border-border bg-background px-1.5 tabular-nums disabled:opacity-50" />
+								</div>
+							);
+						})}
+					</fieldset>
+					<fieldset className="flex flex-col gap-1 text-xs" data-testid="notes-sources">
+						<legend className="mb-1 text-muted-foreground">Also use</legend>
+						<label className="flex items-center gap-2"><input type="checkbox" checked={knowledge} onChange={(e) => setKnowledge(e.target.checked)} />What the agent knows about {label}</label>
+						{chats.map((c) => (
+							<label key={c.id} className="flex items-center gap-2"><input type="checkbox" checked={chatOn[c.id] ?? true} onChange={(e) => setChatOn((cur) => ({ ...cur, [c.id]: e.target.checked }))} /><span className="truncate">Chat: {c.title}</span></label>
+						))}
+						{chats.length === 0 && <span className="text-muted-foreground">No chats here yet.</span>}
+					</fieldset>
+					<p className="text-xs text-muted-foreground">A new notebook of about {pages} pages. Progress shows in the activity panel; the files list shows which pages each notebook covers.</p>
 					<div className="flex gap-2">
-						<button type="submit" disabled={busy} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"><SparklesIcon className="size-3.5" />{busy ? "Writing notes…" : `Write ${pages} page${pages === 1 ? "" : "s"}`}</button>
+						<button type="submit" disabled={busy || total > MAX_SOURCE_PAGES || (!total && !chosenChats.length && !knowledge)} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"><SparklesIcon className="size-3.5" />{busy ? "Writing notes…" : `Write ${pages} page${pages === 1 ? "" : "s"}`}</button>
 						<button type="button" disabled={busy} onClick={() => setComposing(false)} className={btn}>Cancel</button>
 					</div>
 				</form>

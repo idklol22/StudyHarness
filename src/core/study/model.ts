@@ -31,6 +31,8 @@ export interface Subject {
 	contextUpdatedAt?: string;
 	/** Ideas from subject-wide files and chats (see ideas.ts). */
 	ideas?: Idea[];
+	/** Broad field of study (fields.ts): places related subjects near each other in the 3D graph. */
+	field?: string;
 }
 
 export interface Topic {
@@ -286,4 +288,10 @@ export function contextScopes(lib: Library, placement: Pick<ChatPlacement, "subj
 	const subject = subjectOf(lib, placement.subjectId);
 	if (subject) out.push({ level: "subject", name: subject.name, context: subject.context, id: subject.id });
 	return out;
+}
+
+/** Record a subject's broad field (fields.ts). */
+export function setField(lib: Library, subjectId: string, field: string): Library {
+	if (!subjectOf(lib, subjectId)) fail("That subject no longer exists.");
+	return { ...lib, subjects: lib.subjects.map((s) => (s.id === subjectId ? { ...s, field } : s)) };
 }

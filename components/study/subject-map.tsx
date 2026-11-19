@@ -10,12 +10,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useServerEvent } from "@/components/server-events";
 import { fitGraphView, fitZoomFor, zoomedGraphView, type Viewport } from "@/components/pan-zoom";
-import Link from "next/link";
+import { IdeaCard } from "./idea-card";
 import { findMapIdea, layoutStudyMap, type MapLink, type MapNode, type StudyMap } from "@/src/core";
 
 const KIND_LABEL: Record<MapNode["kind"], string> = { subject: "Subject", topic: "Topic", idea: "Idea" };
 
-export function SubjectMap() {
+/** `subjectId`: show only that subject (the subject page); otherwise every subject. */
+export function SubjectMap({ subjectId }: { subjectId?: string } = {}) {
+	const [hoverNode, setHoverNode] = useState<MapNode | null>(null);
 	const router = useRouter();
 	const [map, setMap] = useState<StudyMap | null>(null);
 	const [failed, setFailed] = useState(false);
@@ -31,7 +33,9 @@ export function SubjectMap() {
 		try {
 			const res = await fetch("/api/study/map", { cache: "no-store" });
 			if (!res.ok) throw new Error("bad");
-			setMap(((await res.json()) as { map: StudyMap }).map); setFailed(false);
+			const full = ((await res.json()) as { map: StudyMap }).map;
+			setMap(subjectId ? { subjects: full.subjects.filter((s) => s.id === subjectId), links: [] } : full);
+			setFailed(false);
 		} catch { setFailed(true); }
 	}, []);
 	useEffect(() => { void load(); }, [load]);
@@ -135,14 +139,17 @@ export function SubjectMap() {
 						})}
 						{layout.nodes.map((n) => {
 							const faded = dim(n.subjectId);
-							const labelled = n.kind === "subject" || n.kind === "topic" || focusSubject === n.subjectId || view.zoom >= 1.4;
+							// Declutter: an idea's name shows only for the topic you point at (or the idea you picked), or when zoomed in.
+							const topicInFocus = hoverNode ? (hoverNode.kind === "topic" ? hoverNode.id : hoverNode.parentId) : picked?.topic?.id;
+							const labelled = n.kind === "subject" || n.kind === "topic" || selected === n.id || (n.kind === "idea" && (n.parentId === topicInFocus || hoverNode?.id === n.id)) || view.zoom >= 1.6;
+							const shown = n.label.length > 24 ? `${n.label.slice(0, 23).trimEnd()}…` : n.label;
 							return (
 								<g
 									key={n.id}
 									opacity={faded ? 0.2 : 1}
 									className="cursor-pointer"
-									onPointerEnter={() => setHover(n.kind === "subject" ? n.id : n.subjectId)}
-									onPointerLeave={() => setHover(null)}
+									onPointerEnter={() => { setHover(n.kind === "subject" ? n.id : n.subjectId); setHoverNode(n); }}
+									onPointerLeave={() => { setHover(null); setHoverNode(null); }}
 									onClick={() => open(n)}
 									role="link"
 									aria-label={`${KIND_LABEL[n.kind]}: ${n.label}`}
@@ -160,7 +167,7 @@ export function SubjectMap() {
 											style={{ paintOrder: "stroke" }}
 											stroke="var(--background)"
 											strokeWidth={4}
-										>{n.label}</text>
+										>{shown}</text>
 									)}
 								</g>
 							);
@@ -169,7 +176,7 @@ export function SubjectMap() {
 				</svg>
 			)}
 			{layout && layout.nodes.length > 0 && (
-				<div className="lh-no-drag absolute bottom-24 left-3 z-10 flex max-w-xs flex-col gap-2 text-xs">
+				<div className={`lh-no-drag absolute ${subjectId ? "bottom-3" : "bottom-24"} left-3 z-10 flex max-w-xs flex-col gap-2 text-xs`}>
 					{hoverLinks.length > 0 && (
 						<div className="rounded-xl border bg-card/90 p-2.5 shadow-lg backdrop-blur" data-testid="map-links">
 							{hoverLinks.map((l) => (
@@ -177,26 +184,7 @@ export function SubjectMap() {
 							))}
 						</div>
 					)}
-					{picked && (
-						<div className="max-h-[50vh] overflow-y-auto rounded-xl border bg-card/95 p-3 shadow-lg backdrop-blur" data-testid="map-idea-card">
-							<div className="mb-1 flex items-start justify-between gap-2">
-								<div className="min-w-0">
-									<div className="truncate text-[11px] text-muted-foreground">{picked.subject.name}{picked.topic ? ` › ${picked.topic.name}` : ""}</div>
-									<div className="font-medium text-card-foreground">{picked.idea.name}</div>
-								</div>
-								<button type="button" aria-label="Close" onClick={() => setSelected(null)} className="rounded px-1 text-muted-foreground hover:text-foreground">×</button>
-							</div>
-							{picked.idea.summary && <p className="mb-2 text-muted-foreground">{picked.idea.summary}</p>}
-							<div className="mb-1 font-medium">Files</div>
-							{picked.idea.files.length ? (
-								<ul className="mb-2 flex flex-col gap-0.5">{picked.idea.files.map((f) => <li key={f.materialId}><Link href={f.href} className="hover:underline">{f.label}</Link>{f.pages && <span className="text-muted-foreground"> · pages {f.pages}</span>}</li>)}</ul>
-							) : <p className="mb-2 text-muted-foreground">None yet.</p>}
-							<div className="mb-1 font-medium">Chats</div>
-							{picked.idea.chats.length ? (
-								<ul className="flex flex-col gap-0.5">{picked.idea.chats.map((c) => <li key={c.id}><Link href={c.href} className="hover:underline">{c.title}</Link></li>)}</ul>
-							) : <p className="text-muted-foreground">No chat about it yet.</p>}
-						</div>
-					)}
+					{picked && <IdeaCard picked={picked} onClose={() => setSelected(null)} />}
 					<button type="button" onClick={refit} className="w-fit rounded-md border bg-card/90 px-2.5 py-1 text-muted-foreground shadow transition-colors hover:text-foreground">Fit to screen</button>
 				</div>
 			)}

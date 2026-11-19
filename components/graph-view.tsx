@@ -289,7 +289,7 @@ function cssColorToHex(css: string): string {
 		.join("")}`;
 }
 
-function tokenHex(cssVar: string): string {
+export function tokenHex(cssVar: string): string {
 	const value = getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim();
 	return value ? cssColorToHex(value) : "#888888";
 }

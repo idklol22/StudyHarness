@@ -2,14 +2,15 @@
  * GET  /api/study/notes?subjectId=…[&topicId=…][&notebookId=…]  — a notebook (default: the newest) and the scope's list
  *      of notebooks {notebook, notebookId, notebooks}. A notebook holds at most 32 pages; a scope can have several.
  * POST /api/study/notes                          — one action per request:
- *   {action:"generate", subjectId, topicId?, pages?, title?, lesson?}  a NEW notebook of about `pages` pages (1–32) summarising
+ *   {action:"generate", subjectId, topicId?, pages? (8–32), title?, coverage?: [{materialId, from, to}] (≤ 32 source pages),
+ *     chats?: string[], knowledge?: boolean, lesson?}  a NEW notebook summarising
  *                                                         the scope's files and chats; every other action takes notebookId?
  *   {action:"stroke", subjectId, topicId?, pageId, stroke}  the learner draws (pen / highlighter)
  *   {action:"undo", …, pageId} · {action:"sticky", …, pageId, x, y, text} · {action:"remove-sticky", …, pageId, id}
  *   {action:"edit", …, elementId, text?, items?}            reword an agent element (the old text is kept in its history)
  * The learner's ink is stored beside the agent's pages and is never changed by "generate" or "edit".
  */
-import { StudyInputError, checkedNotesScope, editNote, generateNotes, learnerInk, notebooksOf, readNotebook, resolveEngine } from "@/src/server";
+import { StudyInputError, checkedNotesScope, editNote, generateNotes, learnerInk, notebooksOf, readNotebook, resolveEngine, subjectNotebooks } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 const LIMIT = 2 * 1024 * 1024;
@@ -31,6 +32,8 @@ const view = (scope: ReturnType<typeof scopeOf>, notebook = readNotebook(scope))
 export function GET(request: Request) {
 	try {
 		const q = new URL(request.url).searchParams;
+		// ?view=coverage&subjectId=…: every notebook of the subject and its topics with the file pages each covers.
+		if (q.get("view") === "coverage") return Response.json({ notebooks: subjectNotebooks(String(q.get("subjectId") ?? "")) });
 		return Response.json(view(scopeOf({ subjectId: q.get("subjectId") ?? undefined, topicId: q.get("topicId") ?? undefined, notebookId: q.get("notebookId") ?? undefined })));
 	} catch (error) { return fail(error); }
 }
@@ -47,7 +50,13 @@ export async function POST(request: Request) {
 		switch (raw.action) {
 			case "generate": {
 				const { subjectId, topicId } = scope;
-				const { notebook, notebookId, added } = await generateNotes({ subjectId, ...(topicId ? { topicId } : {}) }, typeof raw.lesson === "string" ? raw.lesson.slice(-12000) : "", { engineFor: resolveEngine, signal: request.signal }, { pages: Number(raw.pages) || undefined, title: typeof raw.title === "string" ? raw.title : undefined });
+				const { notebook, notebookId, added } = await generateNotes({ subjectId, ...(topicId ? { topicId } : {}) }, typeof raw.lesson === "string" ? raw.lesson.slice(-12000) : "", { engineFor: resolveEngine, signal: request.signal }, {
+					pages: Number(raw.pages) || undefined,
+					title: typeof raw.title === "string" ? raw.title : undefined,
+					coverage: Array.isArray(raw.coverage) ? raw.coverage.flatMap((c: unknown) => { const r = (c ?? {}) as Record<string, unknown>; return typeof r.materialId === "string" ? [{ materialId: r.materialId, from: Number(r.from), to: Number(r.to) }] : []; }) : undefined,
+					chats: Array.isArray(raw.chats) ? raw.chats.filter((c: unknown): c is string => typeof c === "string") : undefined,
+					knowledge: typeof raw.knowledge === "boolean" ? raw.knowledge : undefined,
+				});
 				return Response.json({ ...view({ ...scope, notebookId }, notebook), added });
 			}
 			case "stroke": return Response.json(view(scope, await learnerInk(scope, { kind: "stroke", pageId: String(raw.pageId), stroke: raw.stroke })));

@@ -34,6 +34,8 @@ export interface Camera3DState { position: [number, number, number]; target: [nu
 export interface Graph3DCallbacks extends RendererCallbacks {
 	/** Debounced-friendly: fired once a camera gesture ends, with the state to persist. */
 	onCamera3D?: (state: Camera3DState) => void;
+	/** Study: a group's hub (a subject) was clicked. */
+	onHub?: (groupId: string) => void;
 	/** The GPU context was lost and cannot be used: the caller should fall back to 2D. */
 	onUnavailable?: (reason: string) => void;
 }
@@ -197,7 +199,7 @@ export class Graph3DRenderer {
 		// A node belongs to the FIRST group that lists it — the same rule as the 2D view and the legend.
 		const firstGroup: (string | null)[] = nodeIds.map(() => null);
 		for (const c of data.clusters) for (const m of c.members) { const i = nodeIndex.get(m); if (i !== undefined && firstGroup[i] === null) firstGroup[i] = c.id; }
-		this.layout.setGraph(data.nodes.map((n, i) => ({ id: n.id, x: n.x, y: n.y, cluster: firstGroup[i] ?? null })), data.edges);
+		this.layout.setGraph(data.nodes.map((n, i) => ({ id: n.id, x: n.x, y: n.y, cluster: firstGroup[i] ?? null, ...(data.parents?.[n.id] ? { parent: data.parents[n.id] } : {}) })), data.edges, new Map(Object.entries(data.anchors ?? {})));
 		// Layout index space: the input nodes first (same order), then the topic hubs, then the centre.
 		const L = this.layout, n = L.count, ids = L.ids, index = new Map(ids.map((id, i) => [id, i]));
 		this.clusterOf = L.group.slice();
@@ -627,6 +629,7 @@ export class Graph3DRenderer {
 		this.applySelected(this.layout.ids[i]!);
 		this.centreOn(i);
 		// The centre and topic hubs are structure, not ideas: they focus their branch but open no card.
+		if (this.layout.kind[i] === NODE_HUB && this.callbacks.onHub) { this.callbacks.onHub(this.layout.group[i]!); return; }
 		if (this.layout.kind[i] === NODE_HUB || this.layout.kind[i] === NODE_ROOT) { this.callbacks.onStageClick(); return; }
 		// The card anchors where the idea is gliding to: the middle of the view.
 		const k = this.instanceOf[i]!, s = this.screen[k], rect = this.canvas.getBoundingClientRect();

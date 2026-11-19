@@ -34,6 +34,8 @@ export interface Layout3DNode {
 	x: number;
 	y: number;
 	cluster: string | null;
+	/** Explicit tree parent (Study: an idea's topic). When any node has one, the tree is taken as given, not derived. */
+	parent?: string;
 }
 
 export interface Layout3DEdge { from: string; to: string }
@@ -88,7 +90,7 @@ export function ballRadius(k: number): number {
  *  three topics it sits OFF the line/plane the balls form (two topics and Knowledge make a triangle, never
  *  a straight line); with more, the balls are kept clear of their middle and Knowledge sits there.
  *  `weights` maps "a|b" (sorted) to the number of interconnections between topics. */
-export function placeBalls(radii: ReadonlyMap<string, number>, weights: ReadonlyMap<string, number> = new Map()): Map<string, [number, number, number]> {
+export function placeBalls(radii: ReadonlyMap<string, number>, weights: ReadonlyMap<string, number> = new Map(), anchors: ReadonlyMap<string, readonly [number, number, number]> = new Map()): Map<string, [number, number, number]> {
 	const L = LAYOUT_LINK_DISTANCE;
 	const keys = [...radii.keys()].sort((a, b) => (radii.get(b)! - radii.get(a)!) || (a < b ? -1 : 1));
 	const k = keys.length, out = new Map<string, [number, number, number]>();
@@ -100,7 +102,9 @@ export function placeBalls(radii: ReadonlyMap<string, number>, weights: Readonly
 	const seed = placeTopics(sizes, weights);
 	const spread = maxR * 3 + L * 2;
 	const tilt = (v: readonly number[]): [number, number, number] => [v[0]! * 0.94 + v[1]! * 0.2, v[1]! * 0.94 - v[0]! * 0.2 + v[2]! * 0.27, v[2]! * 0.96 - v[1]! * 0.27];
-	const P = keys.map((key) => tilt(seed.get(key)!).map((x) => x * spread) as [number, number, number]);
+	// A ball with an anchor (Study: the subject's field) starts on, and is pulled toward, its anchor's direction.
+	const A = keys.map((key) => anchors.get(key));
+	const P = keys.map((key, i) => (A[i] ? (A[i]!.map((x, j) => x * spread + (hash01(key + j) - 0.5) * L) as [number, number, number]) : (tilt(seed.get(key)!).map((x) => x * spread) as [number, number, number])));
 	const many = k >= 4;
 	for (let it = 0; it < 500; it++) {
 		const F = P.map(() => [0, 0, 0]);
@@ -127,6 +131,12 @@ export function placeBalls(radii: ReadonlyMap<string, number>, weights: Readonly
 				const dx = P[a]![0] - cx, dy = P[a]![1] - cy, dz = P[a]![2] - cz, d = Math.hypot(dx, dy, dz) + 1e-6, clear = R[a]! + L * 2.5;
 				if (d < clear) { const f = (clear - d) * 0.2; F[a]![0]! += (dx / d) * f; F[a]![1]! += (dy / d) * f; F[a]![2]! += (dz / d) * f; }
 			}
+		}
+		for (let a = 0; a < k; a++) {
+			const anchor = A[a];
+			if (!anchor) continue;
+			const d = Math.max(Math.hypot(P[a]![0], P[a]![1], P[a]![2]), spread * 0.8);
+			for (let j = 0; j < 3; j++) F[a]![j]! += (anchor[j]! * d - P[a]![j]!) * 0.05;
 		}
 		for (let a = 0; a < k; a++) { const p = P[a]!, q = F[a]!; p[0] += q[0]!; p[1] += q[1]!; p[2] += q[2]!; }
 	}
@@ -240,7 +250,7 @@ export interface KnowledgeTree {
 }
 
 /** Derive the centre → topic → idea tree (see the module doc). Pure and deterministic. */
-export function buildKnowledgeTree(nodes: readonly { id: string; cluster: string | null }[], edges: readonly Layout3DEdge[]): KnowledgeTree {
+export function buildKnowledgeTree(nodes: readonly { id: string; cluster: string | null; parent?: string }[], edges: readonly Layout3DEdge[]): KnowledgeTree {
 	const ids = nodes.map((n) => n.id);
 	const group: (string | null)[] = nodes.map((n) => (isImpId(n.id) ? null : n.cluster));
 	const kind: number[] = nodes.map((n) => (isImpId(n.id) ? NODE_JUNCTION : NODE_IDEA));
@@ -271,8 +281,15 @@ export function buildKnowledgeTree(nodes: readonly { id: string; cluster: string
 	// topic's hub (one spoke each, all about the same length); an idea linked to exactly ONE other
 	// idea of its topic, which itself has other links there, sits as a short twig on that idea.
 	// Everything else is an interconnection (shown on hover / selection only).
+	const explicit = nodes.some((n) => n.parent !== undefined);
 	for (const [g, members] of byGroup) {
 		const top = g === null ? root : hubIndex.get(g)!;
+		if (explicit) {
+			// Study: the tree is given (subject hub → topic → idea).
+			for (const i of members) { const p = nodes[i]!.parent !== undefined ? index.get(nodes[i]!.parent!) : undefined; parent[i] = p !== undefined && p !== i ? p : top; }
+			for (const i of members) depth[i] = parent[i] === top ? depth[top]! + 1 : depth[top]! + 2;
+			continue;
+		}
 		const inTopic = (i: number) => [...adj[i]!].filter((j) => kind[j] === NODE_IDEA && group[j] === g);
 		const twigCount = new Map<number, number>();
 		for (const i of [...members].sort((a, b) => (ids[a]! < ids[b]! ? -1 : 1))) {
@@ -320,7 +337,11 @@ export class Layout3D {
 	private random(): number { this.rng = (Math.imul(this.rng, 1664525) + 1013904223) >>> 0; return this.rng / 4294967296; }
 
 	/** Replace the graph. Existing nodes keep their position; new ones start at their branch target. */
-	setGraph(nodes: Layout3DNode[], edges: Layout3DEdge[]): void {
+	/** Study: each group's preferred direction from the centre (its field). */
+	private anchors: ReadonlyMap<string, readonly [number, number, number]> = new Map();
+
+	setGraph(nodes: Layout3DNode[], edges: Layout3DEdge[], anchors: ReadonlyMap<string, readonly [number, number, number]> = new Map()): void {
+		this.anchors = anchors;
 		const previous = new Map<string, [number, number, number]>();
 		for (let i = 0; i < this.ids.length; i++) previous.set(this.ids[i]!, [this.pos[i * 3]!, this.pos[i * 3 + 1]!, this.pos[i * 3 + 2]!]);
 		const tree = buildKnowledgeTree(nodes, edges);
@@ -387,7 +408,7 @@ export class Layout3D {
 			weights.set(key, (weights.get(key) ?? 0) + 1);
 		}
 		const ball = new Map([...ideas].map(([k, c]) => [k, ballRadius(c)]));
-		const centres = placeBalls(ball, weights);
+		const centres = placeBalls(ball, weights, this.anchors);
 		this.radius = Math.max(L * 4, ...[...centres].map(([k, c]) => Math.hypot(...c) + ball.get(k)!));
 		const centre = (k: string): [number, number, number] => centres.get(k)!;
 		const setTarget = (i: number, p: readonly number[]) => { this.target[i * 3] = p[0]!; this.target[i * 3 + 1] = p[1]!; this.target[i * 3 + 2] = p[2]!; };
@@ -441,12 +462,15 @@ export class Layout3D {
 				// Twigs: just outside their idea, pointing away from the ball's centre.
 				const len = Math.hypot(...o);
 				const out: [number, number, number] = len > 1e-6 ? [o[0] / len, o[1] / len, o[2] / len] : (() => { const c = centre(key), l = Math.hypot(...c) || 1; return [c[0] / l, c[1] / l, c[2] / l] as [number, number, number]; })();
-				coneDirections(out, twigs.length === 1 ? 0 : 0.7, twigs.length).forEach((td, t) => {
+				// Many children (a Study topic's ideas) open a wider cone further out, so they never bunch up.
+				const step = twigs.length > 3 ? twigStep * (1.2 + 0.08 * twigs.length) : twigStep;
+				const cone = twigs.length === 1 ? 0 : twigs.length > 3 ? Math.min(1.25, 0.55 + 0.07 * twigs.length) : 0.7;
+				coneDirections(out, cone, twigs.length).forEach((td, t) => {
 					const tw = twigs[t]!;
 					this.isTwig[tw] = true;
-					for (let k = 0; k < 3; k++) this.twigOffset[tw * 3 + k] = td[k]! * twigStep;
-					setTarget(tw, [c[0] + o[0] + td[0] * twigStep, c[1] + o[1] + td[1] * twigStep, c[2] + o[2] + td[2] * twigStep]);
-					guard(tw, key, twigStep);
+					for (let k = 0; k < 3; k++) this.twigOffset[tw * 3 + k] = td[k]! * step;
+					setTarget(tw, [c[0] + o[0] + td[0] * step, c[1] + o[1] + td[1] * step, c[2] + o[2] + td[2] * step]);
+					guard(tw, key, step);
 				});
 			});
 		};

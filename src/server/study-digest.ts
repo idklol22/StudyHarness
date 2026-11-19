@@ -34,10 +34,10 @@ export function chatsInScope(scope: StudyScope): ChatRecord[] {
  * ~1.2k) and keeps its most recent part when it is longer. Labels name the topic so a subject's digest
  * can be grouped by topic.
  */
-export function scopeChatDigest(scope: StudyScope, budget = 16000): { text: string; chats: number } {
+export function scopeChatDigest(scope: StudyScope, budget = 16000, only?: ReadonlySet<string>): { text: string; chats: number } {
 	const lib = study.library();
 	if (!subjectOf(lib, scope.subjectId)) return { text: "", chats: 0 };
-	const records = chatsInScope(scope).map((r) => ({ record: r, lines: chatLines(r) })).filter((r) => r.lines.length);
+	const records = chatsInScope(scope).filter((r) => !only || only.has(r.id)).map((r) => ({ record: r, lines: chatLines(r) })).filter((r) => r.lines.length);
 	if (!records.length) return { text: "", chats: 0 };
 	const share = Math.max(MIN_PER_CHAT, Math.floor(budget / records.length));
 	const parts = records.map(({ record, lines }) => {

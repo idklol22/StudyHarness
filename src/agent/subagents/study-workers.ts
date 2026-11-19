@@ -264,3 +264,19 @@ export async function keepIdeas(input: { scopeName: string; existing: ReadonlyAr
 	});
 	return out.ideas.slice(0, 4);
 }
+
+// ── a subject's broad field (places related subjects near each other in the 3D graph) ───────────────────────────
+
+const FIELD_PROMPT = `You file a school or university subject under ONE broad field. Answer with the field whose subjects it is most related to.`;
+
+export async function fieldOf(subject: string, fields: readonly string[], env: WorkerEnv): Promise<string> {
+	const schema = Type.Object({ field: Type.Union(fields.map((f) => Type.Literal(f))) });
+	const out = await runSubmitAgent<{ field: string }>({
+		role: "extractor", toolName: "submit_field", toolDescription: "Submit the field.", parameters: schema,
+		fill: (i) => ({ field: String(i.field ?? "") }), systemPrompt: FIELD_PROMPT,
+		prompt: `Subject: ${subject}
+Fields: ${fields.join(", ")}`,
+		engine: env.engine, signal: env.signal, chatId: env.chatId, onStep: (usage, model) => env.onUsage?.(usage, model), neverSubmitted: "The field classifier did not submit.",
+	});
+	return out.field;
+}

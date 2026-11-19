@@ -24,6 +24,8 @@ export interface MapSubject {
 	topics: MapTopic[];
 	/** Ideas of the subject as a whole (from subject-wide files and chats). */
 	ideas: MapIdea[];
+	/** Broad field (fields.ts), for placing related subjects near each other. */
+	field?: string;
 }
 /** Two subjects that share ideas (same idea name, or overlapping idea-graph propositions). */
 export interface MapLink { a: string; b: string; weight: number; ideas: string[] }
@@ -64,6 +66,7 @@ export function buildStudyMap({ library, chats, graph }: MapInput): StudyMap {
 		href: `/subjects/${s.id}`,
 		topics: topicsOf(library, s.id).map((t) => ({ id: t.id, name: t.name, href: `/subjects/${s.id}/${t.id}`, ideas: toMap(s.id, t.ideas) })),
 		ideas: toMap(s.id, s.ideas),
+		...(s.field ? { field: s.field } : {}),
 	}));
 	const known = new Set(subjects.map((s) => s.id));
 

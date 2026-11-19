@@ -7,7 +7,7 @@
 import type { MapLink, StudyMap } from "./map.ts";
 
 export type MapNodeKind = "subject" | "topic" | "idea";
-export interface MapNode { id: string; kind: MapNodeKind; label: string; x: number; y: number; r: number; subjectId: string; href: string }
+export interface MapNode { id: string; kind: MapNodeKind; label: string; x: number; y: number; r: number; subjectId: string; href: string; /** An idea's topic. */ parentId?: string }
 export interface MapEdge { from: string; to: string; subjectId: string }
 export interface MapLayout {
 	nodes: MapNode[];
@@ -28,35 +28,58 @@ const MARGIN = 80;
 
 interface Cluster { subjectId: string; nodes: MapNode[]; edges: MapEdge[]; radius: number }
 
+const IDEA_GAP = 44; // minimum distance between neighbouring ideas of one fan
+const FAN_SPREAD = 1.5; // the widest a topic's fan of ideas may open (radians)
+const FIRST_ROW = 66;
+const ROW_STEP = 42;
+
+/** A topic's ideas as rows of a fan: each row holds as many ideas as fit with IDEA_GAP between them. */
+function fanRows(count: number): Array<{ dist: number; n: number; spread: number }> {
+	const rows: Array<{ dist: number; n: number; spread: number }> = [];
+	let left = count;
+	for (let r = 0; left > 0; r++) {
+		const dist = FIRST_ROW + r * ROW_STEP;
+		const capacity = Math.max(1, Math.floor((FAN_SPREAD * dist) / IDEA_GAP) + 1);
+		const n = Math.min(left, capacity);
+		rows.push({ dist, n, spread: n === 1 ? 0 : ((n - 1) * IDEA_GAP) / dist });
+		left -= n;
+	}
+	return rows;
+}
+
 function layoutCluster(subject: StudyMap["subjects"][number]): Cluster {
 	const nodes: MapNode[] = [{ id: subject.id, kind: "subject", label: subject.name, x: 0, y: 0, r: SUBJECT_R, subjectId: subject.id, href: subject.href }];
 	const edges: MapEdge[] = [];
 	const branches = [
-		...subject.topics.map((t) => ({ kind: "topic" as const, id: t.id, label: t.name, href: t.href, items: t.ideas.map((i) => ({ id: i.id, kind: "idea" as const, label: i.name, href: "" })) })),
-		...subject.ideas.map((i) => ({ kind: "idea" as const, id: i.id, label: i.name, href: "", items: [] as Array<{ id: string; kind: "idea"; label: string; href: string }> })),
+		...subject.topics.map((t) => ({ kind: "topic" as const, id: t.id, label: t.name, href: t.href, items: t.ideas.map((i) => ({ id: i.id, label: i.name })) })),
+		...subject.ideas.map((i) => ({ kind: "idea" as const, id: i.id, label: i.name, href: "", items: [] as Array<{ id: string; label: string }> })),
 	];
-	const ring = Math.max(MIN_RING, (branches.length * BRANCH_SPACING) / (2 * Math.PI));
+	// Each branch claims a wedge as wide as its fan of ideas (plus label room), so neighbouring fans never meet.
+	const fans = branches.map((b) => fanRows(b.items.length));
+	const widths = fans.map((rows) => Math.max(BRANCH_SPACING, ...rows.map((r) => 2 * r.dist * Math.sin(Math.min(Math.PI / 2, r.spread / 2)) + 70)));
+	const total = widths.reduce((a, b) => a + b, 0);
+	const ring = Math.max(MIN_RING, total / (2 * Math.PI));
 	let extent = branches.length ? ring + TOPIC_R : SUBJECT_R;
+	let before = 0;
 	branches.forEach((branch, k) => {
-		const theta = -Math.PI / 2 + (2 * Math.PI * k) / branches.length;
+		const theta = -Math.PI / 2 + (2 * Math.PI * (before + widths[k]! / 2)) / Math.max(total, 1);
+		before += widths[k]!;
 		const bx = Math.cos(theta) * ring, by = Math.sin(theta) * ring;
-		const r = branch.kind === "topic" ? TOPIC_R : LEAF_R + 2;
-		nodes.push({ id: branch.id, kind: branch.kind, label: branch.label, x: bx, y: by, r, subjectId: subject.id, href: branch.href });
+		nodes.push({ id: branch.id, kind: branch.kind, label: branch.label, x: bx, y: by, r: branch.kind === "topic" ? TOPIC_R : LEAF_R + 2, subjectId: subject.id, href: branch.href });
 		edges.push({ from: subject.id, to: branch.id, subjectId: subject.id });
-		// A topic's ideas fan out beyond it, eight to a ring.
-		const count = branch.items.length;
-		branch.items.forEach((item, j) => {
-			const row = Math.floor(j / 8), inRow = j % 8, rowCount = Math.min(8, count - row * 8);
-			const spread = Math.min(Math.PI * 0.95, Math.max(0.5, rowCount * 0.5));
-			const phi = rowCount === 1 ? theta : theta - spread / 2 + (spread * inRow) / (rowCount - 1);
-			const dist = 52 + row * 30;
-			const x = bx + Math.cos(phi) * dist, y = by + Math.sin(phi) * dist;
-			nodes.push({ id: item.id, kind: item.kind, label: item.label, x, y, r: LEAF_R, subjectId: subject.id, href: item.href });
-			edges.push({ from: branch.id, to: item.id, subjectId: subject.id });
-			extent = Math.max(extent, Math.hypot(x, y) + LEAF_R);
-		});
+		let j = 0;
+		for (const row of fans[k]!) {
+			for (let i = 0; i < row.n; i++, j++) {
+				const item = branch.items[j]!;
+				const phi = row.n === 1 ? theta : theta - row.spread / 2 + (row.spread * i) / (row.n - 1);
+				const x = bx + Math.cos(phi) * row.dist, y = by + Math.sin(phi) * row.dist;
+				nodes.push({ id: item.id, kind: "idea", label: item.label, x, y, r: LEAF_R, subjectId: subject.id, href: "", parentId: branch.id });
+				edges.push({ from: branch.id, to: item.id, subjectId: subject.id });
+				extent = Math.max(extent, Math.hypot(x, y) + LEAF_R);
+			}
+		}
 	});
-	return { subjectId: subject.id, nodes, edges, radius: extent + 36 /* label room */ };
+	return { subjectId: subject.id, nodes, edges, radius: extent + 50 /* label room */ };
 }
 
 /** Subjects in ring order: a greedy walk that always steps to the most related unvisited subject. */
