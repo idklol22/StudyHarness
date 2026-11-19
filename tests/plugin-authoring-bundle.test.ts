@@ -156,7 +156,7 @@ it("refuses unsafe example contents, source symlinks and output symlinks without
 	});
 });
 it("rejects every curated source-file symlink before replacing existing outputs", () => {
-	for (const relative of ["skills/learnharness-plugins/SKILL.md", "package.json", "LICENSE", "docs/plugin-authoring.md", "skills/learnharness-plugins/README.md", "examples/plugins/hello-plugin/README.md", "examples/plugins/hello-plugin/dist/manifest.json", "examples/plugins/hello-plugin/dist/main.js", "scripts/build-plugin-types.mjs", "scripts/build-plugin-api-reference.mjs", "scripts/install-plugin-local.mjs", "plugins/flashcards/src/main.js", "plugins/ui-showcase/README.md"]) fixture(root => {
+	for (const relative of ["skills/learnharness-plugins/SKILL.md", "package.json", "LICENSE", "docs/plugin-authoring.md", "skills/learnharness-plugins/README.md", "examples/plugins/hello-plugin/README.md", "examples/plugins/hello-plugin/dist/manifest.json", "examples/plugins/hello-plugin/dist/main.js", "scripts/build-plugin-types.mjs", "scripts/build-plugin-api-reference.mjs", "scripts/install-plugin-local.mjs", "plugins/coding-questions/src/main.js", "plugins/ui-showcase/README.md"]) fixture(root => {
 		const built = buildPluginAuthoring({ root });
 		const archive = fs.readFileSync(built.archive), skill = fs.readFileSync(path.join(built.directory, "SKILL.md"));
 		const external = fs.mkdtempSync(path.join(os.tmpdir(), "lh-authoring-external-file-"));
@@ -171,7 +171,7 @@ it("rejects every curated source-file symlink before replacing existing outputs"
 	});
 });
 it("rejects source ancestor-directory symlinks before replacing existing outputs", () => {
-	for (const relative of ["docs", "skills", "skills/learnharness-plugins", "examples", "examples/plugins", "examples/plugins/hello-plugin", "examples/plugins/hello-plugin/dist", "scripts", "plugins", "plugins/flashcards", "plugins/flashcards/src"]) fixture(root => {
+	for (const relative of ["docs", "skills", "skills/learnharness-plugins", "examples", "examples/plugins", "examples/plugins/hello-plugin", "examples/plugins/hello-plugin/dist", "scripts", "plugins", "plugins/coding-questions", "plugins/coding-questions/src"]) fixture(root => {
 		const built = buildPluginAuthoring({ root });
 		const archive = fs.readFileSync(built.archive), skill = fs.readFileSync(path.join(built.directory, "SKILL.md"));
 		const external = fs.mkdtempSync(path.join(os.tmpdir(), "lh-authoring-external-directory-"));
@@ -187,13 +187,13 @@ it("rejects source ancestor-directory symlinks before replacing existing outputs
 });
 it("excludes local official-project outputs but rejects private material inside curated source", () => fixture(root => {
 	for (const directory of ["dist", "data", "node_modules", ".sdk", ".git"]) {
-		const target = path.join(root, "plugins/flashcards", directory);
+		const target = path.join(root, "plugins/coding-questions", directory);
 		fs.mkdirSync(target, { recursive: true }); fs.writeFileSync(path.join(target, "keep.txt"), "EXCLUDED_LOCAL_PROJECT_SENTINEL");
 	}
 	const built = buildPluginAuthoring({ root });
 	assert.equal(fs.readFileSync(built.archive).includes(Buffer.from("EXCLUDED_LOCAL_PROJECT_SENTINEL")), false);
 	const archive = fs.readFileSync(built.archive);
-	fs.writeFileSync(path.join(root, "plugins/flashcards/src/auth.json"), "PRIVATE_CURATED_SOURCE_SENTINEL");
+	fs.writeFileSync(path.join(root, "plugins/coding-questions/src/auth.json"), "PRIVATE_CURATED_SOURCE_SENTINEL");
 	assert.throws(() => buildPluginAuthoring({ root }), /Refusing non-authoring file/);
 	assert.deepEqual(fs.readFileSync(built.archive), archive);
 }));

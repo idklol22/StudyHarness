@@ -11,7 +11,6 @@ building or exercising it: plugins are trusted local code, not sandboxed extensi
 | --- | --- | --- |
 | [Hello plugin](../examples/plugins/hello-plugin/README.md) | Minimal starter; no build | Frontend activation, a view, explicit action placements, a host button/dialog and per-mount cleanup |
 | [UI Showcase](../plugins/ui-showcase/README.md) | Runnable Community developer gallery | All 15 public UI methods, controlled values, family-local Reset and overlay ownership |
-| [Flashcards](../plugins/flashcards/README.md) | Core source reference | A complete feature: knowledge/document input, durable worker outcomes, plugin-owned storage, tree, review surfaces and settings |
 | [Coding questions](../plugins/coding-questions/README.md) | Core source reference | Teaching questions and repeated practice submissions, controlled editors, processing observations and saved-result rendering |
 | [Drawing Pad](../plugins/drawing-pad/README.md) | Core source reference | Session-context actions, shortcuts, surfaces, learner-submission image attachment and acknowledgment-aware draft consumption |
 | [Rich code blocks](../plugins/rich-code-blocks/README.md) | Core source reference | Conditional fence renderers, additive instructions, settings synchronization, local assets and bounded rendering |
@@ -24,7 +23,7 @@ of replacing these primary examples.
 
 ## Core references are not Community packages
 
-The four IDs **`flashcards`**, **`coding-questions`**, **`drawing-pad`** and
+The three IDs **`coding-questions`**, **`drawing-pad`** and
 **`rich-code-blocks`** are reserved for app-shipped Core plugins, even when a Core
 package is disabled, broken or missing. Their sources are included for study and
 adaptation, not installation as Community duplicates. Enable the app-supplied features
@@ -56,7 +55,6 @@ The downloaded authoring kit preserves the repository layout:
     managed-agent/
     teaching-extension/
   plugins/
-    flashcards/
     coding-questions/
     drawing-pad/
     rich-code-blocks/
@@ -108,40 +106,9 @@ and copies required assets/notices. Build cleanup refuses symlinked `dist/` and
 misplaced `dist/data/` and preserves sibling `data/`. It does not start/build the host,
 install/enable a plugin, call a model or update Core code. For a newly identified
 Community fork or UI Showcase, follow the [Community installation guide](plugin-authoring.md#package-and-installation);
-do not install the four reserved-ID references.
+do not install the three reserved-ID references.
 
 ## Reading routes
-
-### Flashcards: a complete frontend/backend feature
-
-Start with the [README](../plugins/flashcards/README.md) for generation, deck membership,
-review/practice distinctions and the data lifecycle.
-
-1. [`src/main.js`](../plugins/flashcards/src/main.js): view/action/settings
-   registrations, controlled host widgets, explicit graph/file confirmation,
-   `ctx.documents.toMarkdown` and frontend/backend calls.
-2. [`src/library-tree.js`](../plugins/flashcards/src/library-tree.js): logical items
-   versus tree occurrences, selection, stable rich content and local editing state.
-   Then [`src/review.js`](../plugins/flashcards/src/review.js) for surface/content
-   lifetime separation and keyboard-aware review controls.
-3. [`src/backend.cjs`](../plugins/flashcards/src/backend.cjs): public learning reads,
-   worker registration/start/subscribe/wait, validation, cancellation and durable
-   outcome application. [`src/file-generation.cjs`](../plugins/flashcards/src/file-generation.cjs)
-   and [`src/generation-prompts.cjs`](../plugins/flashcards/src/generation-prompts.cjs)
-   separate chunking/protocol mechanics from model instructions.
-4. [`src/store.cjs`](../plugins/flashcards/src/store.cjs) for plugin-owned persistence;
-   [`src/scheduler.cjs`](../plugins/flashcards/src/scheduler.cjs),
-   [`src/statistics.cjs`](../plugins/flashcards/src/statistics.cjs),
-   [`src/dashboard.js`](../plugins/flashcards/src/dashboard.js) and
-   [`src/practice-queue.js`](../plugins/flashcards/src/practice-queue.js) for product
-   algorithms and presentation. Those algorithms are example policy, not host APIs.
-5. [`tests/`](../plugins/flashcards/tests/) and
-   [`scripts/build.mjs`](../plugins/flashcards/scripts/build.mjs): mocked host seams,
-   domain regressions and packaging.
-
-Generation can incur configured-model cost when explicitly confirmed. Reviewing,
-manual writing and extra practice do not make model calls. Do not start generation
-merely to inspect these sources.
 
 ### Coding questions: native teaching and practice contracts
 

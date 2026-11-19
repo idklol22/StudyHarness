@@ -124,15 +124,15 @@ describe("desktop standalone payload", () => {
 			assert.equal(fs.existsSync(path.join(root, STANDALONE, "dist")), false);
 			assert.equal(fs.existsSync(path.join(root, STANDALONE, "plugins")), false);
 			assert.ok(fs.existsSync(path.join(root, "plugins", "rich-code-blocks", "tests", "browser.mjs")));
-			assert.deepEqual(fs.readdirSync(path.join(root, STANDALONE, "core-plugins")).sort(), ["coding-questions", "drawing-pad", "flashcards", "rich-code-blocks"]);
-			assert.equal(fs.readFileSync(path.join(root, STANDALONE, "core-plugins", "flashcards", "assets", "font.woff"), "utf8"), "bundled-font");
+			assert.deepEqual(fs.readdirSync(path.join(root, STANDALONE, "core-plugins")).sort(), ["coding-questions", "drawing-pad", "rich-code-blocks"]);
+			assert.equal(fs.readFileSync(path.join(root, STANDALONE, "core-plugins", "drawing-pad", "assets", "font.woff"), "utf8"), "bundled-font");
 			assert.equal(fs.existsSync(path.join(root, STANDALONE, "node_modules", "electron")), false);
 			assert.ok(fs.existsSync(path.join(root, "dist", "old.app", "nested.dmg")));
 			assert.ok(fs.existsSync(path.join(root, "node_modules", "electron", "dist", "electron.exe")));
 			for (const file of runtime) assert.ok(fs.existsSync(path.join(root, STANDALONE, file)), file);
 			assert.ok(fs.existsSync(path.join(root, STANDALONE, ".next", "static", "runtime.js")));
 			assert.ok(fs.existsSync(path.join(root, STANDALONE, "public", "asset.txt")));
-			for (const asset of ["scripts/plugin-loader.cjs", "public/plugin-loader.js", "plugin-authoring/docs/plugin-authoring.md", "plugin-authoring/docs/plugin-question-contract.md", "plugin-authoring/docs/plugin-session-extension-contract.md", "plugin-authoring/docs/plugin-tree-contract.md", "plugin-authoring/types/index.d.ts", "plugin-authoring/examples/plugins/hello-plugin/dist/manifest.json", "plugin-authoring/examples/plugins/hello-plugin/dist/main.js", "plugin-authoring/SKILL.md", "plugin-authoring/README.md", "plugin-authoring/bundle.json", "plugin-authoring/tools/install-plugin-local.mjs", "plugin-authoring/docs/plugin-api/README.md", "plugin-authoring/plugins/flashcards/src/backend.cjs", "plugin-authoring/plugins/ui-showcase/src/gallery.ts", "public/plugin-authoring/learnharness-plugins.zip"]) {
+			for (const asset of ["scripts/plugin-loader.cjs", "public/plugin-loader.js", "plugin-authoring/docs/plugin-authoring.md", "plugin-authoring/docs/plugin-question-contract.md", "plugin-authoring/docs/plugin-session-extension-contract.md", "plugin-authoring/docs/plugin-tree-contract.md", "plugin-authoring/types/index.d.ts", "plugin-authoring/examples/plugins/hello-plugin/dist/manifest.json", "plugin-authoring/examples/plugins/hello-plugin/dist/main.js", "plugin-authoring/SKILL.md", "plugin-authoring/README.md", "plugin-authoring/bundle.json", "plugin-authoring/tools/install-plugin-local.mjs", "plugin-authoring/docs/plugin-api/README.md", "plugin-authoring/plugins/coding-questions/src/backend.ts", "plugin-authoring/plugins/ui-showcase/src/gallery.ts", "public/plugin-authoring/learnharness-plugins.zip"]) {
 				assert.ok(fs.existsSync(path.join(root, STANDALONE, asset)), asset);
 			}
 		});
@@ -195,7 +195,7 @@ describe("desktop standalone payload", () => {
 
 	it("refuses user data accidentally placed inside a Core plugin", () => {
 		withPayload(({ write, run }) => {
-			write(path.join("core-plugins", "flashcards", "data", "private.json"));
+			write(path.join("core-plugins", "drawing-pad", "data", "private.json"));
 			const result = run();
 			assert.equal(result.status, 1);
 			assert.match(String(result.stderr), /REFUSING.*Core plugin/);
@@ -204,7 +204,7 @@ describe("desktop standalone payload", () => {
 
 	it("refuses missing or extra Core packages instead of shipping an incomplete/stale set", () => {
 		for (const mode of ["missing", "extra"]) withPayload(({ root, write, run }) => {
-			if (mode === "missing") fs.rmSync(path.join(root, "core-plugins", "flashcards"), { recursive: true });
+			if (mode === "missing") fs.rmSync(path.join(root, "core-plugins", "drawing-pad"), { recursive: true });
 			else write("core-plugins/ui-showcase/main.js");
 			assert.equal(run().status, 1);
 		});
