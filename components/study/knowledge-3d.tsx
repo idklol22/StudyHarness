@@ -14,9 +14,10 @@ import { useAppearance } from "@/components/settings/appearance";
 import { CLUSTER_LIGHTNESS } from "@/components/graph-canvas";
 import { Graph3DRenderer } from "@/components/graph-3d";
 import { tokenHex } from "@/components/graph-view";
-import { DEFAULT_RENDER_SETTINGS, findMapIdea, knowledgeGraph, type StudyMap } from "@/src/core";
+import { DEFAULT_RENDER_SETTINGS, findMapIdea, knowledgeGraph, subjectColor, type StudyMap } from "@/src/core";
 import { IdeaCard } from "./idea-card";
 import { GraphTuningPanel, readTuning, saveTuning } from "./graph-tuning-panel";
+import { SubjectColor } from "./subject-color";
 import { DEFAULT_TUNING, type GraphTuning } from "@/components/graph-3d-layout";
 import { SubjectMap } from "./subject-map";
 
@@ -33,6 +34,8 @@ export function Knowledge3D() {
 	const [noGl, setNoGl] = useState("");
 	const [selected, setSelected] = useState<string | null>(null);
 	const [centre, setCentre] = useState(true);
+	/** Round 5: a short crossfade while the centre toggle re-places and re-fits the graph. */
+	const [transitioning, setTransitioning] = useState(false);
 	/** The subject the graph is narrowed to ("" = all). */
 	const [only, setOnly] = useState("");
 	const lastOnly = useRef("");
@@ -44,6 +47,13 @@ export function Knowledge3D() {
 	useEffect(() => { setTuning(readTuning()); }, []);
 	useEffect(() => { rendererRef.current?.setTuning(tuning); }, [tuning]);
 	const changeTuning = (t: GraphTuning) => { setTuning(t); saveTuning(t); };
+	const toggleCentre = () => {
+		const next = !centre;
+		setCentre(next);
+		setTransitioning(true);
+		window.setTimeout(() => setTransitioning(false), 480);
+		try { localStorage.setItem(CENTRE_KEY, next ? "on" : "off"); } catch { /* best-effort */ }
+	};
 	const { resolvedMode, colors } = useAppearance();
 	const mapRef = useRef<StudyMap | null>(null);
 	mapRef.current = map;
@@ -69,7 +79,7 @@ export function Knowledge3D() {
 
 	const graph = useMemo(() => (map ? knowledgeGraph(map) : null), [map]);
 	// A distinct colour per subject: hues spaced by the golden angle in name order (stable as subjects are added).
-	const subjectHues = useMemo(() => Object.fromEntries((map?.subjects ?? []).map((s, i) => [s.id, (i * 137.5 + 205) % 360])), [map]);
+	const subjectHues = useMemo(() => Object.fromEntries((map?.subjects ?? []).map((s) => [s.id, subjectColor(map!.subjects, s.id)])), [map]);
 
 	// Each renderer gets its OWN canvas: destroying a renderer kills its canvas's graphics context, so reusing the
 	// element (React mounts effects twice in development) would leave the next renderer with a dead context.
@@ -119,6 +129,7 @@ export function Knowledge3D() {
 			parents: graph.parents,
 			anchors: graph.anchors,
 			hues: subjectHues,
+			topicIds: new Set(graph.nodes.filter((n) => n.kind === "topic").map((n) => n.id)),
 			colors: { node: tokenHex("--primary"), edge: tokenHex("--muted-foreground"), label: tokenHex("--muted-foreground"), hoverText: tokenHex("--foreground"), clusterLightness: CLUSTER_LIGHTNESS[resolvedMode] },
 			fontFamily: getComputedStyle(document.body).fontFamily,
 		});
@@ -165,44 +176,72 @@ export function Knowledge3D() {
 	const empty = map && !map.subjects.length;
 	return (
 		<div className="absolute inset-0" data-testid="knowledge-3d">
-			<div ref={hostRef} className="absolute inset-0" />
+			<div ref={hostRef} className={`absolute inset-0 transition-opacity duration-300 ${transitioning ? "opacity-60" : "opacity-100"}`} />
 			{empty && (
 				<div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-muted-foreground" data-testid="knowledge-empty">
 					<p>Nothing here yet. Start a chat below and pick “New subject”, or add files to a subject: subjects, their topics and key ideas grow here.</p>
 				</div>
 			)}
 			{map && !empty && (
+				<>
 				<div className="lh-no-drag absolute right-3 top-14 z-10 flex flex-col items-end gap-1">
-					<button type="button" aria-pressed={centre} title={centre ? "Hide the centre" : "Show the centre"} onClick={() => { const next = !centre; setCentre(next); try { localStorage.setItem(CENTRE_KEY, next ? "on" : "off"); } catch { /* best-effort */ } }} data-testid="knowledge-centre-toggle" className={`flex size-9 items-center justify-center rounded-xl border bg-card/85 shadow-lg backdrop-blur transition-colors hover:bg-accent ${centre ? "text-foreground" : "text-muted-foreground"}`}><OrbitIcon className="size-4" /></button>
 					<button type="button" aria-pressed={tuningOpen} title="View settings" onClick={() => setTuningOpen((o) => !o)} data-testid="knowledge-tuning-toggle" className={`flex size-9 items-center justify-center rounded-xl border bg-card/85 shadow-lg backdrop-blur transition-colors hover:bg-accent ${tuningOpen ? "text-foreground" : "text-muted-foreground"}`}><SlidersHorizontalIcon className="size-4" /></button>
 					{tuningOpen && <div className="absolute right-12 top-0 z-20"><GraphTuningPanel tuning={tuning} onChange={changeTuning} onClose={() => setTuningOpen(false)} /></div>}
-					<button type="button" title="Fit everything in view" onClick={() => rendererRef.current?.fit()} className="flex size-9 items-center justify-center rounded-xl border bg-card/85 text-muted-foreground shadow-lg backdrop-blur transition-colors hover:bg-accent hover:text-foreground"><CrosshairIcon className="size-4" /></button>
 					<nav aria-label="Subjects" data-testid="knowledge-subjects" className="mt-2 flex max-h-[55vh] w-52 flex-col gap-0.5 overflow-y-auto rounded-xl border bg-card/85 p-1.5 text-xs shadow-lg backdrop-blur">
 						<div className="px-2 pb-1 pt-0.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">Subjects</div>
 						<button type="button" onClick={() => setOnly("")} aria-pressed={!only} className={`rounded-lg px-2 py-1 text-left transition-colors hover:bg-accent ${!only ? "bg-accent text-foreground" : "text-muted-foreground"}`}>All subjects</button>
 						{map.subjects.map((sub) => (
 							<div key={sub.id} className={`group flex items-center gap-1 rounded-lg transition-colors hover:bg-accent ${only === sub.id ? "bg-accent" : ""}`}>
 								<button type="button" onClick={() => setOnly(only === sub.id ? "" : sub.id)} aria-pressed={only === sub.id} title={`Show only ${sub.name}`} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left">
-									<span className="size-2.5 shrink-0 rounded-full" style={{ background: `hsl(${subjectHues[sub.id] ?? 0} 26% 58%)` }} />
 									<span className="truncate text-foreground">{sub.name}</span>
 								</button>
+								<SubjectColor subjectId={sub.id} color={sub.color} name={sub.name} onChanged={() => void load()} />
 								<button type="button" aria-label={`Open ${sub.name}`} title="Open the subject page" onClick={() => routerRef.current.push(sub.href)} className="mr-1 rounded p-1 text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"><ArrowUpRightIcon className="size-3.5" /></button>
 							</div>
 						))}
 					</nav>
 				</div>
+				{/* Round 5: prominent, labelled view controls in the bottom-right corner. */}
+				<div className="lh-no-drag absolute bottom-3 right-3 z-20 flex items-center gap-1 rounded-xl border bg-card/90 p-1.5 shadow-lg backdrop-blur">
+					<button
+						type="button"
+						aria-pressed={centre}
+						aria-label={centre ? "Hide the centre" : "Show the centre"}
+						title={centre ? "Hide the centre" : "Show the centre"}
+						onClick={toggleCentre}
+						data-testid="knowledge-centre-toggle"
+						className={`inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs transition-colors hover:bg-accent ${centre ? "bg-accent text-foreground" : "text-muted-foreground"}`}
+					>
+						<OrbitIcon className="size-4" />
+						<span>{centre ? "Centre on" : "Centre off"}</span>
+					</button>
+					<button
+						type="button"
+						aria-label="Fit everything in view"
+						title="Fit everything in view"
+						onClick={() => rendererRef.current?.fit()}
+						data-testid="knowledge-fit"
+						className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs text-foreground transition-colors hover:bg-accent"
+					>
+						<CrosshairIcon className="size-4" />
+						<span>Fit view</span>
+					</button>
+				</div>
+				</>
 			)}
-			{picked && <div className="lh-no-drag absolute bottom-24 left-3 z-10 flex w-80 max-w-[calc(100%-1.5rem)] flex-col gap-1"><IdeaCard picked={picked} onClose={() => setSelected(null)} /><button type="button" onClick={() => void removeSelected()} data-testid="knowledge-remove" className="inline-flex h-7 w-fit items-center gap-1 rounded-md border bg-card/95 px-2.5 text-xs text-muted-foreground shadow hover:text-destructive"><Trash2Icon className="size-3.5" />Remove idea</button></div>}
+			{picked && <div className="lh-no-drag absolute bottom-3 left-3 top-16 z-10 flex w-[380px] max-w-[calc(100%-1.5rem)] flex-col gap-2"><IdeaCard picked={picked} onClose={() => setSelected(null)} /><button type="button" onClick={() => void removeSelected()} data-testid="knowledge-remove" className="inline-flex h-8 w-fit shrink-0 items-center gap-1 rounded-md border bg-card/95 px-3 text-xs text-muted-foreground shadow hover:text-destructive"><Trash2Icon className="size-3.5" />Remove idea</button></div>}
 			{notice && <p role="alert" className="lh-no-drag absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-md border bg-card px-3 py-1.5 text-xs text-destructive shadow">{notice}</p>}
 			{scopeCard && (
-				<div className="lh-no-drag absolute bottom-24 left-3 z-10 w-72 max-w-[calc(100%-1.5rem)] rounded-xl border bg-card/95 p-3 text-xs shadow-lg backdrop-blur" data-testid="knowledge-scope-card">
+				<div className="lh-no-drag absolute bottom-3 left-3 top-16 z-10 flex w-[380px] max-w-[calc(100%-1.5rem)] flex-col rounded-xl border bg-card/95 p-4 text-sm shadow-xl backdrop-blur" data-testid="knowledge-scope-card">
 					<div className="mb-1 flex items-start justify-between gap-2">
-						<div className="min-w-0"><div className="truncate text-[11px] text-muted-foreground">{scopeCard.over}</div><div className="font-medium text-card-foreground">{scopeCard.title}</div></div>
-						<button type="button" aria-label="Close" onClick={() => setSelected(null)} className="rounded px-1 text-muted-foreground hover:text-foreground">×</button>
+						<div className="min-w-0"><div className="truncate text-xs text-muted-foreground">{scopeCard.over}</div><div className="mt-0.5 text-base font-medium text-card-foreground">{scopeCard.title}</div></div>
+						<button type="button" aria-label="Close details" onClick={() => setSelected(null)} className="rounded-md px-2 py-1 text-muted-foreground hover:bg-accent hover:text-foreground">×</button>
 					</div>
-					<p className="mb-2 text-muted-foreground">{scopeCard.line}</p>
-					<button type="button" onClick={() => routerRef.current.push(scopeCard.href)} className="inline-flex h-7 items-center gap-1 rounded-md border px-2.5 hover:bg-accent">Open<ArrowUpRightIcon className="size-3.5" /></button>
-					<span className="ml-2 text-muted-foreground">or double-click the node</span>
+					<p className="mb-3 leading-relaxed text-muted-foreground">{scopeCard.line}</p>
+					<div className="flex items-center gap-2">
+						<button type="button" onClick={() => routerRef.current.push(scopeCard.href)} className="inline-flex h-8 items-center gap-1 rounded-md border px-3 hover:bg-accent">Open<ArrowUpRightIcon className="size-3.5" /></button>
+						<span className="text-xs text-muted-foreground">or double-click the node</span>
+					</div>
 					<button type="button" onClick={() => void removeSelected()} data-testid="knowledge-remove" className="mt-2 flex items-center gap-1 text-muted-foreground hover:text-destructive"><Trash2Icon className="size-3.5" />Remove {pickedSubject ? "subject" : "topic"}</button>
 				</div>
 			)}

@@ -148,11 +148,18 @@ export const BUILTIN_THEMES: readonly Theme[] = [
 		mode: "dark",
 		builtin: true,
 		colors: {
-			background: "#141414", surface: "#1c1c1c", border: "#434343", text: "#e6e6e6", textMuted: "#8d8d8d",
-			accent: "#8d8d8d", bold: "#e6e6e6", italic: "#e6e6e6", code: "#e6e6e6",
-			error: "#ef4444", success: "#22c55e", warning: "#f59e0b",
+			// Minimal black & white (owner 2026-11-19): near-black page, white and shades of white, little colour.
+			background: "#0a0a0a", surface: "#121212", border: "#232323", text: "#f2f2f2", textMuted: "#8f8f8f",
+			accent: "#d4d4d4", bold: "#f2f2f2", italic: "#f2f2f2", code: "#f2f2f2",
+			error: "#e5484d", success: "#46a758", warning: "#e5a03b",
 		},
 	},
+	// The inverse of the minimal black/white Default (Round 5): kept as an option, never the default.
+	builtin("Default Light", "light", {
+		background: "#fafafa", surface: "#f0f0f0", border: "#dedede", text: "#111111", textMuted: "#6b6b6b",
+		accent: "#333333", bold: "#111111", italic: "#111111", code: "#111111",
+		error: "#c93038", success: "#2f7d43", warning: "#9a6a1f",
+	}),
 	builtin("Catppuccin Latte", "light", {
 		background: "#eff1f5", surface: "#e6e9ef", border: "#ccd0da", text: "#4c4f69", textMuted: "#6c6f85",
 		accent: "#8839ef", bold: "#7287fd", italic: "#ea76cb", code: "#fe640b",

@@ -154,6 +154,8 @@ export interface CanvasData {
 	anchors?: Readonly<Record<string, readonly [number, number, number]>>;
 	/** 3D only (Study): each group's hue in degrees (distinct colours per subject). */
 	hues?: Readonly<Record<string, number>>;
+	/** 3D only (Study): topic node ids — used to frame the right neighbourhood on click. */
+	topicIds?: ReadonlySet<string>;
 	colors: CanvasColors;
 	/** Body font family (labels must match the app typography). */
 	fontFamily: string;

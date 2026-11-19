@@ -33,21 +33,24 @@ it("reading utilities consume the live appearance variable, not a baked Source S
 		assert.equal(rules(selector).length, 1, selector);
 		assert.match(rules(selector)[0]!, /font-family:\s*var\(--font-prose\);/);
 	}
-	assert.match(css, /--font-prose:\s*var\(--font-sans3\), ui-sans-serif, system-ui, sans-serif;/,
-		"reset/unset retains the bundled default and its fallback stack");
+	assert.match(css, /--font-prose:\s*var\(--font-plex\), ui-sans-serif, system-ui, sans-serif;/,
+		"reset/unset retains the bundled Plex Sans default and its fallback stack");
 });
 
-it("no compiled font-family declaration bypasses the reading setting via the loading-face variable", () => {
-	assert.doesNotMatch(css, /(?:^|[;{])\s*font-family:[^;{}]*var\(--font-sans3\)/m);
-});
-
-it("mono chrome/code and the independent serif title remain separate font contracts", () => {
-	for (const selector of [".font-ui", ".font-mono"]) {
-		assert.match(rules(selector)[0]!, /font-family:\s*var\(--font-jetbrains\), ui-monospace, SFMono-Regular, monospace;/);
+it("no reading utility bypasses the reading setting via the mono loading-face variable", () => {
+	// Plex Mono is the legitimate code face (.font-mono), but prose/input utilities must
+	// always go through --font-prose so Appearance overrides keep working.
+	for (const selector of [".font-prose", ".font-sans", ".lh-prose", ".lh-input"]) {
+		assert.doesNotMatch(rules(selector).join("\n"), /var\(--font-plex-mono\)/, selector);
 	}
+});
+
+it("Plex Sans chrome, Plex Mono code and the Plex Sans title are separate font contracts (Round 5)", () => {
+	assert.match(rules(".font-ui")[0]!, /font-family:\s*var\(--font-plex\), ui-sans-serif, system-ui, sans-serif;/);
+	assert.match(rules(".font-mono")[0]!, /font-family:\s*var\(--font-plex-mono\), ui-monospace, SFMono-Regular, monospace;/);
 	assert.match(rules("body")[0]!, /font-family:\s*var\(--font-ui\);/);
 	assert.match(rules(".font-title").join("\n"), /font-family:\s*var\(--font-title\);/);
-	assert.match(css, /--font-title:\s*"lh-cmu", serif;/);
+	assert.match(css, /--font-title:\s*var\(--font-plex\), ui-sans-serif, system-ui, sans-serif;/);
 });
 
 it("reading-family repair does not change reading/input size, leading, or title weight", () => {
@@ -57,7 +60,7 @@ it("reading-family repair does not change reading/input size, leading, or title 
 	assert.match(rules(".lh-input")[0]!, /font-family:\s*var\(--font-prose\);/);
 	assert.match(rules(".lh-input")[0]!, /font-size:\s*var\(--lh-prose-size\);/);
 	assert.match(rules(".lh-input")[0]!, /line-height:\s*1\.25;/);
-	assert.match(rules(".font-title").join("\n"), /font-weight:\s*900;/);
+	assert.match(rules(".font-title").join("\n"), /font-weight:\s*600;/);
 	for (const selector of [".font-prose", ".font-sans"]) {
 		assert.doesNotMatch(rules(selector).join("\n"), /font-size:|line-height:/);
 	}

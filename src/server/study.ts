@@ -12,7 +12,7 @@
  */
 import path from "node:path";
 import {
-	addMaterial, createSubject, createTopic, setField, deleteSubject, deleteTopic, moveMaterial, removeMaterial, renameSubject,
+	addMaterial, createSubject, createTopic, setColor, setField, deleteSubject, deleteTopic, moveMaterial, removeMaterial, renameSubject,
 	renameTopic, setContext, type Library, type Material, type StudyScope, type Removal,
 } from "../core/study/model.ts";
 import { lookup, recordBatch, recordPages, type MaterialMemory } from "../core/study/material-memory.ts";
@@ -86,6 +86,7 @@ export function createStudyService(store: StudyStore, pdf: StudyPdf) {
 		library: (): Library => store.readLibrary(),
 
 		createSubject: (name: unknown) => guard(() => change((lib) => { const r = createSubject(lib, name); const field = r.created ? guessField(r.subject.name) : undefined; return { library: field ? setField(r.library, r.subject.id, field) : r.library, result: r.subject }; })),
+		setColor: (subjectId: string, color: number | null) => guard(() => change((lib) => ({ library: setColor(lib, subjectId, color), result: undefined }))),
 		setField: (subjectId: string, field: string) => guard(() => change((lib) => ({ library: setField(lib, subjectId, field), result: undefined }))),
 		createTopic: (subjectId: string, name: unknown) => guard(() => change((lib) => { const r = createTopic(lib, subjectId, name); return { library: r.library, result: r.topic }; })),
 		renameSubject: (id: string, name: unknown) => guard(() => change((lib) => ({ library: renameSubject(lib, id, name), result: undefined }))),

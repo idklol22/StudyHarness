@@ -49,6 +49,7 @@ import { isInteractionScopeEligible } from "./plugin-input-focus";
 import { JobsContext } from "@/components/jobs-context";
 import { StatsBar } from "@/components/stats-bar";
 import { useServerEvent, useServerResync } from "@/components/server-events";
+import { ReadOnlyContextChip } from "@/components/study/context-chip";
 import {
 	isProviderKeyRefusal,
 	firstSourceTextParts,
@@ -58,6 +59,7 @@ import {
 	sideSegmentId,
 	textPartMessageId,
 	kbdEventForAction as kbdEventForChat,
+	type ChatPlacement,
 	type ChatInput,
 	type ChatSettings,
 	type LhMessage,
@@ -274,6 +276,7 @@ export function Chat({
 	kind = "teach",
 	startMode,
 	notesHref,
+	placement,
 }: {
 	chatId: string;
 	title: string;
@@ -288,6 +291,8 @@ export function Chat({
 	startMode?: "scratch" | "check";
 	/** Study: where this chat's notes live (its topic or subject page). */
 	notesHref?: string;
+	/** Study: this chat's place in the library — the read-only context chip in the dock. */
+	placement?: ChatPlacement;
 	initialPrompt?: string;
 	/** A teacher turn is running server-side but attached to no client
 	 * (navigated away mid-turn, returned while in flight). */
@@ -2090,6 +2095,8 @@ export function Chat({
 					cliContextWindow={cliContextWindowOf(nativeMessages)}
 					pricing={pricing}
 					onReserve={setDockReserve}
+					placement={placement}
+					isPracticeChat={kind === "practice"}
 					dictationSlot={<DictationBar dictation={dictation} disabled={pluginOwnsDock && !pluginMicAvailable} />}
 					dictationCancel={dictation.cancel}
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
@@ -2409,6 +2416,8 @@ export function DockOverlay({
 	chatId,
 	onModelChange,
 	onReserve,
+	placement,
+	isPracticeChat,
 	plan,
 	onOpenPlan,
 	dictationSlot,
@@ -2473,6 +2482,10 @@ export function DockOverlay({
 	/** Reports the dock's settled height (block + gradient) — ChatView's
 	 *  dockReserve state feeds the transcript's spacer from it. */
 	onReserve: (h: number) => void;
+	/** The chat's placement (Study overhaul): the read-only context chip above the shell. */
+	placement?: ChatPlacement;
+	/** Practice chats label their chip "Practice" rather than a start mode. */
+	isPracticeChat?: boolean;
 	/** The plan marginalia's content (the bare diagram) — rendered only
 	 *  while a question owns the band. Null until a plan exists. */
 	plan?: React.ReactNode;
@@ -2857,6 +2870,8 @@ export function DockOverlay({
 					<div ref={viewportRef} data-dock-viewport="" className="pointer-events-auto">
 					<div ref={bodyRef}>
 					{setupCta}
+					{/* Study (round 5): the chat's place in the library, read-only — a link to its subject/topic page. */}
+					{placement && <ReadOnlyContextChip placement={placement} practice={isPracticeChat} />}
 					{reconciliation === "failed" && <div role="alert" className="mb-2 rounded-2xl border bg-card px-4 py-3 text-sm">Could not sync the saved session. <Button type="button" variant="ghost" onClick={onRetrySync}>Retry syncing</Button></div>}
 					{/* The queued-steer indicator (owner spec 2026-10-03): quiet
 					    one-liners above the shell - right-aligned to where its corner

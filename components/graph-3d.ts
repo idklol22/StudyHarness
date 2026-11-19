@@ -25,7 +25,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { CanvasData, GraphRenderSettings, RendererCallbacks } from "./graph-canvas.ts";
 import { clusterHue } from "./cluster-geometry.ts";
-import { DEFAULT_TUNING, Layout3D, NODE_HUB, NODE_JUNCTION, NODE_ROOT, hash01, hubId, fitDistance, pickNearest3D, placeLabels, type GraphTuning, type LabelCandidate } from "./graph-3d-layout.ts";
+import { DEFAULT_TUNING, Layout3D, NODE_HUB, NODE_JUNCTION, NODE_ROOT, hash01, hubId, fitDistance, focusGroup, focusSet, pickNearest3D, placeLabels, type GraphTuning, type LabelCandidate } from "./graph-3d-layout.ts";
 
 /** The centre node's name. */
 const ROOT_LABEL = "Knowledge";
@@ -76,6 +76,8 @@ export class Graph3DRenderer {
 	private degree: number[] = [];
 	private baseColor: THREE.Color[] = [];
 	private clusterOf: (string | null)[] = [];
+	/** Study: topic node ids (the renderer otherwise only knows idea/hub/root). */
+	private topicIds: ReadonlySet<string> = new Set();
 	private edgeIdx: Array<[number, number]> = [];
 	/** Per edge: true = a tree branch (always drawn), false = an interconnection (hover only). */
 	private edgeTree: boolean[] = [];
@@ -113,6 +115,8 @@ export class Graph3DRenderer {
 	private tween: { start: number; dur: number; fromPos: THREE.Vector3; toPos: THREE.Vector3; fromTarget: THREE.Vector3; toTarget: THREE.Vector3 } | null = null;
 	private hasInitialCamera = false;
 	private refitOnSettle = false;
+	/** Re-frame once the layout settles even after the learner moved the camera (centre toggled). */
+	private refitForce = false;
 	private reducedMotion: boolean;
 	private fitDist = 400;
 	private down: { x: number; y: number; t: number; button: number } | null = null;
@@ -207,6 +211,7 @@ export class Graph3DRenderer {
 
 	setData(data: CanvasData): void {
 		this.data = data;
+		this.topicIds = data.topicIds ?? new Set();
 		const nodeIds = data.nodes.map((n) => n.id);
 		const nodeIndex = new Map(nodeIds.map((id, i) => [id, i]));
 		// A node belongs to the FIRST group that lists it — the same rule as the 2D view and the legend.
@@ -394,6 +399,8 @@ export class Graph3DRenderer {
 	/** Show or hide the Knowledge centre and its spokes; the topic balls stay where they are. */
 	setCentreVisible(on: boolean): void {
 		this.showCentre = on;
+		// Study: without the centre, every subject becomes the centre of its own cluster (re-placed, then re-framed).
+		if (this.study && this.layout.setCentred(on)) { this.refitForce = true; this.kick(); }
 		if (!on && this.selectedId !== null && this.layout.kind[this.layout.indexOf(this.selectedId)] === NODE_ROOT) this.applySelected(null);
 		this.applyVisible(); this.geometryDirty = this.screenDirty = this.labelsDirty = this.colorsDirty = true; this.kick();
 	}
@@ -454,15 +461,7 @@ export class Graph3DRenderer {
 	private focusFor(): void {
 		const focus = this.hoverIdx >= 0 ? this.hoverIdx : this.selectedId ? this.layout.indexOf(this.selectedId) : -1;
 		if (focus < 0) { this.focusSet = null; return; }
-		const set = new Set<number>([focus]);
-		// Its tree parent and children, plus its interconnections (through junctions).
-		const parent = this.layout.parent[focus]!;
-		if (parent >= 0) set.add(parent);
-		for (const c of this.children[focus] ?? []) set.add(c);
-		for (const j of this.adjacency[focus]!) {
-			if (isImp(this.layout.ids[j]!)) { set.add(j); for (const k of this.adjacency[j]!) set.add(k); } else set.add(j);
-		}
-		this.focusSet = set;
+		this.focusSet = focusSet(this.layout, this.children, this.adjacency, focus, this.study);
 	}
 
 	private syncGeometry(): void {
@@ -497,11 +496,14 @@ export class Graph3DRenderer {
 			posAttr.setXYZ(e * 2, a.x, a.y, a.z); posAttr.setXYZ(e * 2 + 1, b.x, b.y, b.z);
 			const lit = !!focus && focus.has(from) && focus.has(to);
 			if (this.edgeTree[e]) {
-				const c = this.baseColor[from] ?? edgeColor;
+				// Study: edges are one quiet common colour; the nodes carry the subject colours.
+				const c = this.study ? edgeColor : this.baseColor[from] ?? edgeColor;
 				// Spokes (centre → topic) and first branches read strongest; deeper twigs fade a little.
 				const depthFade = (this.layout.depth[from] ?? 1) >= 3 ? 0.7 : 1;
 				const base = branchAlpha * depthFade;
-				const branch = !vis ? 0 : lit ? base + (0.9 - base) * shown : this.selectedId ? 0 : base * (focus ? 1 - 0.75 * shown : 1);
+				// With a selection, other subjects' branches hide; the selected node's own subject stays, dimmed.
+				const sameSubject = this.study && this.selectedId !== null && this.clusterOf[from] !== null && this.clusterOf[from] === this.clusterOf[this.layout.indexOf(this.selectedId)];
+				const branch = !vis ? 0 : lit ? base + (0.9 - base) * shown : this.selectedId ? (sameSubject ? base * 0.45 : 0) : base * (focus ? 1 - 0.75 * shown : 1);
 				colAttr.setXYZW(e * 2, c.r, c.g, c.b, branch); colAttr.setXYZW(e * 2 + 1, c.r, c.g, c.b, branch);
 				return;
 			}
@@ -582,18 +584,26 @@ export class Graph3DRenderer {
 		// A handful of the nearest names at fit; the rest fade in as you move closer (Obsidian-style).
 		const baseCount = Math.round(8 + (MAX_NODE_LABELS - 8) * Math.min(1, Math.max(0, (zoomIn - 1) / 1.3)));
 		let near = 0;
+		const shortText = new Map<number, string>();
 		for (const { li, k } of order) {
 			const forced = must.has(li); const s = this.screen[k]!;
 			// Study: subjects always; topics once you zoom in (or hover their subject); ideas only up close (or in focus).
 			// Study: names stay out of the way: only what you point at, then subjects as you zoom in a little, topics
 			// closer, ideas only up close. The centre is named only when pointed at.
+			// Names appear by how close each node is to you, so zooming into a subject names its topics, then its ideas.
 			if (this.study && !forced) {
 				const kind = this.layout.kind[li], depth = this.layout.depth[li] ?? 3;
 				if (kind === NODE_ROOT) continue;
-				if (kind === NODE_HUB ? !this.tune.subjectNames && zoomIn < 1.15 : depth <= 2 ? zoomIn < 1.7 : zoomIn < 2.6) continue;
+				const reach = this.fitDist * this.tune.labels;
+				if (kind === NODE_HUB ? !this.tune.subjectNames && s.depth > reach * 0.95 : depth <= 2 ? s.depth > reach * 0.72 : s.depth > reach * 0.5) continue;
 			}
 			if (!forced && near >= baseCount) continue;
-			const text = this.labels[li] ?? ""; if (!text) continue;
+			const rawText = this.labels[li] ?? "";
+			// Round 5: shorter names in Study so a zoomed-in subject's topics and ideas fit without collisions.
+			const limit = this.study ? (structural.has(li) ? 24 : 18) : 48;
+			const text = rawText.length > limit ? `${rawText.slice(0, limit - 1)}…` : rawText;
+			if (!text) continue;
+			shortText.set(li, text);
 			if (!forced) near++;
 			const wpx = Math.min(180, text.length * labelPx * 0.56 + 8);
 			cands.push({ id: String(li), x: s.x, y: s.y + s.r + 4 + labelPx / 2, w: wpx, h: labelPx + 3, priority: forced ? 1e6 - s.depth : 1000 - s.depth * 0.5 });
@@ -603,7 +613,7 @@ export class Graph3DRenderer {
 		placed.forEach((p, i) => {
 			const el = this.labelPool[i]!, li = Number(p.id), forced = must.has(li), hub = structural.has(li);
 			const g = this.clusterOf[li];
-			el.textContent = this.labels[li] ?? "";
+			el.textContent = shortText.get(li) ?? this.labels[li] ?? "";
 			Object.assign(el.style, { display: "block", left: `${p.x}px`, top: `${p.y - (labelPx + 3) / 2}px`, maxWidth: hub ? "220px" : "180px", fontFamily: font, fontSize: `${this.study ? (hub ? labelPx : labelPx - 1) : hub ? labelPx + 2 : labelPx}px`, fontWeight: forced && !this.study ? "600" : "500",
 				color: hub && g && this.data ? `hsl(${this.hueOf(g)} ${this.study ? 18 : 62}% ${this.data.colors.clusterLightness.label}%)` : forced ? strong : color,
 				opacity: forced ? "1" : String(Math.min(0.92, 0.5 + 0.5 * Math.min(1, 1.4 / Math.max(this.screen[this.instanceOf[li]!]?.depth ?? 1, 1) * this.fitDist * 0.5))) });
@@ -657,6 +667,33 @@ export class Graph3DRenderer {
 		if (this.reducedMotion) { this.camera.position.copy(pos); this.controls.target.copy(target); this.controls.update(); this.emitCamera(); return; }
 		this.tween = { start: performance.now(), dur: 650, fromPos: this.camera.position.clone(), toPos: pos, fromTarget: this.controls.target.clone(), toTarget: target };
 	}
+	/**
+	 * Round 5: clicking a node frames its NEIGHBOURHOOD, not the node alone — subject → whole
+	 * cluster, topic → topic + ideas, idea → idea + immediate neighbours. A padded fit distance
+	 * keeps the connecting edges in view (the old 0.62× fit distance clipped them).
+	 */
+	private focusOnNode(i: number): void {
+		const L = this.layout;
+		const group = focusGroup({ layout: L, children: this.children, adjacency: this.adjacency, topicIds: this.topicIds, focus: i, study: this.study });
+		const pts = group.length ? group : [i];
+		let cx = 0, cy = 0, cz = 0;
+		for (const k of pts) { cx += L.pos[k * 3]!; cy += L.pos[k * 3 + 1]!; cz += L.pos[k * 3 + 2]!; }
+		cx /= pts.length; cy /= pts.length; cz /= pts.length;
+		let radius = this.radiusOf(i) * 1.6;
+		for (const k of pts) radius = Math.max(radius, Math.hypot(L.pos[k * 3]! - cx, L.pos[k * 3 + 1]! - cy, L.pos[k * 3 + 2]! - cz));
+		const rect = this.canvas.getBoundingClientRect();
+		const padded = fitDistance(radius, FOV, Math.max(rect.width / Math.max(rect.height, 1), 0.3), 1.12);
+		// Owner (2026-11-19): zooming still felt too aggressive. Never come closer than 72% of the
+		// whole-graph framing distance, so the clicked node's edges and neighbours stay visible.
+		const dist = Math.min(this.fitDist, Math.max(this.controls.minDistance, this.fitDist * 0.72, padded));
+		const target = new THREE.Vector3(cx, cy, cz);
+		const offset = this.camera.position.clone().sub(this.controls.target);
+		if (offset.lengthSq() < 1e-6) offset.set(0.35, 0.25, 1);
+		const pos = target.clone().add(offset.normalize().multiplyScalar(dist));
+		this.interacted = true;
+		if (this.reducedMotion) { this.camera.position.copy(pos); this.controls.target.copy(target); this.controls.update(); this.emitCamera(); return; }
+		this.tween = { start: performance.now(), dur: 650, fromPos: this.camera.position.clone(), toPos: pos, fromTarget: this.controls.target.clone(), toTarget: target };
+	}
 	private emitCamera(): void {
 		const p = this.camera.position, t = this.controls.target;
 		this.callbacks.onCamera3D?.({ position: [p.x, p.y, p.z], target: [t.x, t.y, t.z] });
@@ -701,7 +738,7 @@ export class Graph3DRenderer {
 		// Clicking empty space clears the selection but leaves the camera where it is (Recenter goes home).
 		if (i < 0) { this.callbacks.onStageClick(); this.applySelected(null); return; }
 		this.applySelected(this.layout.ids[i]!);
-		if (!this.study) this.centreOn(i); // Study: a click only selects; the camera stays where you put it
+		this.focusOnNode(i); // Round 5: zoom into the clicked node's neighbourhood (adaptive by kind)
 		// The centre and topic hubs are structure, not ideas: they focus their branch but open no card.
 		if (this.layout.kind[i] === NODE_HUB && this.callbacks.onHub) { this.callbacks.onHub(this.layout.group[i]!); return; }
 		if (this.layout.kind[i] === NODE_HUB || this.layout.kind[i] === NODE_ROOT) { this.callbacks.onStageClick(); return; }
@@ -748,6 +785,7 @@ export class Graph3DRenderer {
 		const layoutMoving = this.layout.tick(this.layout.count > 400 ? 2 : 3);
 		if (layoutMoving) { this.geometryDirty = this.screenDirty = this.labelsDirty = true; again = true; }
 		// The first framing happened before the layout relaxed; frame the settled graph (unless the user has taken the camera).
+		if (!layoutMoving && this.refitForce && this.layout.count) { this.refitForce = false; this.tweenToFit(); again = true; }
 		if (!layoutMoving && this.refitOnSettle) { this.refitOnSettle = false; if (!this.interacted && this.layout.count) { this.tweenToFit(); again = true; } }
 
 		if (this.tween) {

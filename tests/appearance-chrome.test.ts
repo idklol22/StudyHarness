@@ -44,12 +44,12 @@ it("selected custom files resolve before a renderer; missing or malformed files 
 });
 
 it("absent and corrupt records fall back; renderer reports are normalized", () => {
-	assert.deepEqual(readAppearance(data), { mode: "dark", background: "#141414" });
+	assert.deepEqual(readAppearance(data), { mode: "dark", background: "#0a0a0a" });
 	fs.writeFileSync(path.join(data, "settings.json"), "{");
-	assert.deepEqual(readAppearance(data), { mode: "dark", background: "#141414" });
+	assert.deepEqual(readAppearance(data), { mode: "dark", background: "#0a0a0a" });
 	for (const theme of [null, [], {}, { toString: null }, 123, true]) {
 		record({ theme });
-		assert.deepEqual(readAppearance(data), { mode: "dark", background: "#141414" });
+		assert.deepEqual(readAppearance(data), { mode: "dark", background: "#0a0a0a" });
 	}
 	assert.deepEqual(normalizeAppearance({ mode: "light", background: "#fff" }), { mode: "light", background: "#fff" });
 	assert.deepEqual(normalizeAppearance({ mode: "system", background: "white" }), { mode: "dark", background: null });
@@ -67,6 +67,6 @@ it("native glyphs contrast against final paint, not the theme's mode label", () 
 it("external desktop development reads the server's directory rather than the shell's -dev profile", () => {
 	const base = { packagedDataDir: "/fixture/packaged/data", repoRoot: "/fixture/repo", env: {} };
 	assert.equal(serverDataDir(base), base.packagedDataDir);
-	assert.equal(serverDataDir({ ...base, devUrl: "http://127.0.0.1:9000" }), "/fixture/repo/data");
+	assert.equal(serverDataDir({ ...base, devUrl: "http://127.0.0.1:9000" }), path.join("/fixture/repo", "data"));
 	assert.equal(serverDataDir({ ...base, devUrl: "http://127.0.0.1:9000", env: { LH_DATA_DIR: data } }), data);
 });

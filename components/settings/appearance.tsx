@@ -66,7 +66,8 @@ export function resolveAppearance(delta: AppearanceSettings | undefined) {
  *  without being installed: an installed copy wins by name, the bundled
  *  one fills in otherwise. Exported for the font menu and tests. */
 export const BUNDLED_READING_FONTS: Readonly<Record<string, string>> = {
-	"JetBrains Mono": "var(--font-jetbrains)",
+	"IBM Plex Sans": "var(--font-plex)",
+	"IBM Plex Mono": "var(--font-plex-mono)",
 };
 
 /** THE mapping: resolved appearance + active theme → the CSS variables to
@@ -80,7 +81,7 @@ export function appearanceVars(
 	const vars: Record<string, string> = themeVars(effectiveColors(theme, a), theme.mode);
 	if (a.fontFamily !== null) {
 		const bundled = BUNDLED_READING_FONTS[a.fontFamily];
-		vars["--font-prose"] = `"${a.fontFamily}", ${bundled ? `${bundled}, ` : ""}var(--font-sans3), ui-sans-serif, system-ui, sans-serif`;
+		vars["--font-prose"] = `"${a.fontFamily}", ${bundled ? `${bundled}, ` : ""}var(--font-plex), ui-sans-serif, system-ui, sans-serif`;
 	}
 	// The ONE documented reading-size variable (typography round 4): prose,
 	// inputs, and session titles all read it, so one setProperty moves them.

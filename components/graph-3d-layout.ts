@@ -378,6 +378,16 @@ export class Layout3D {
 	/** Study data (explicit tree / anchors): shells instead of topic balls. */
 	private explicit = false;
 	tune: GraphTuning = { ...DEFAULT_TUNING };
+	/** Study: true = shells around the centre; false = every subject is the centre of its own cluster. */
+	private centred = true;
+
+	/** Switch between the centred globe and subject-centred clusters. Returns true when the layout changed. */
+	setCentred(on: boolean): boolean {
+		if (on === this.centred) return false;
+		this.centred = on;
+		if (this.explicit && this.ids.length) { this.computeTargets(); this.alpha = Math.max(this.alpha, 0.7); }
+		return true;
+	}
 
 	/** Apply new tuning: re-place the nodes and let them glide there. */
 	setTuning(t: GraphTuning): void {
@@ -539,6 +549,7 @@ export class Layout3D {
 	 * the next sphere around each topic. Cones are narrowed so neighbouring subjects never overlap.
 	 */
 	private computeShellTargets(children: number[][], root: number): void {
+		if (!this.centred) { this.computeClusterTargets(children, root); return; }
 		const L = LAYOUT_LINK_DISTANCE * this.tune.edgeLength, sp = this.tune.spacing;
 		const R1 = L * 2.4 * this.tune.centreDistance, R2 = R1 + L * 1.8 * this.tune.topicDistance, R3 = R2 + L * 1.4 * this.tune.ideaDistance;
 		const setTarget = (i: number, d: readonly number[], r: number) => { this.target[i * 3] = d[0]! * r; this.target[i * 3 + 1] = d[1]! * r; this.target[i * 3 + 2] = d[2]! * r; };
@@ -565,6 +576,38 @@ export class Layout3D {
 		this.radius = R3 + L;
 	}
 
+
+	/**
+	 * Study without the centre: every subject is the middle of its own cluster. Its topics surround it on a small
+	 * sphere, each topic's ideas fan out away from the subject, and the clusters sit apart in their field directions.
+	 */
+	private computeClusterTargets(children: number[][], root: number): void {
+		const L = LAYOUT_LINK_DISTANCE * this.tune.edgeLength, sp = this.tune.spacing;
+		const rT = L * 1.5 * this.tune.topicDistance, rI = L * 1.1 * this.tune.ideaDistance;
+		const set = (i: number, p: readonly number[]) => { this.target[i * 3] = p[0]!; this.target[i * 3 + 1] = p[1]!; this.target[i * 3 + 2] = p[2]!; };
+		const norm = (v: readonly number[]): [number, number, number] => { const l = Math.hypot(v[0]!, v[1]!, v[2]!) || 1; return [v[0]! / l, v[1]! / l, v[2]! / l]; };
+		const tops = children[root]!;
+		const fallback = fibonacciSphere(tops.length);
+		const dirs = tops.map((t, k) => norm(this.kind[t] === NODE_HUB ? this.anchors.get(this.group[t]!) ?? fallback[k]! : fallback[k]!));
+		const minAngle = dirs.length > 1 ? Math.min(...dirs.flatMap((d, k) => dirs.map((o, j) => (j === k ? Infinity : angleBetween(d, o))))) : Math.PI;
+		const clusterR = rT + rI + L * 0.8;
+		// Far enough out that neighbouring clusters never touch.
+		const D = dirs.length > 1 ? Math.max(L * 3, (clusterR * 1.15) / Math.sin(Math.min(Math.PI / 2, minAngle / 2))) * this.tune.centreDistance : 0;
+		tops.forEach((top, k) => {
+			const c = dirs[k]!.map((x) => x * D) as [number, number, number];
+			set(top, c);
+			const kids = children[top]!;
+			const tdirs = fibonacciSphere(kids.length).map((v, j) => norm([v[0] + dirs[k]![0] * 0.3, v[1] + dirs[k]![1] * 0.3, v[2] + dirs[k]![2] * 0.3 + (j === 0 && kids.length === 1 ? 0 : 0)]));
+			kids.forEach((t, j) => {
+				const tp = [c[0] + tdirs[j]![0] * rT, c[1] + tdirs[j]![1] * rT, c[2] + tdirs[j]![2] * rT];
+				set(t, tp);
+				const ideas = children[t]!;
+				const w = Math.min(0.9, (0.12 + 0.07 * ideas.length) * sp);
+				coneDirections(tdirs[j]!, ideas.length === 1 ? 0 : w, ideas.length).forEach((d, m) => set(ideas[m]!, [tp[0]! + d[0] * rI, tp[1]! + d[1] * rI, tp[2]! + d[2] * rI]));
+			});
+		});
+		this.radius = D + clusterR + L;
+	}
 
 	/** True when this idea's tree parent is another idea (it is a twig). */
 	private isTwigCandidate(i: number): boolean {
@@ -683,6 +726,65 @@ export function fitDistance(radius: number, fovDegrees: number, aspect: number, 
 	const v = (fovDegrees * Math.PI) / 360;
 	const h = Math.atan(Math.tan(v) * Math.max(aspect, 0.3));
 	return (radius * margin) / Math.sin(Math.min(v, h));
+}
+
+/**
+ * Pure: the set of layout indices that light up when a node is hovered or selected.
+ * In Study the whole path back to the centre is included (idea → topic → subject → centre);
+ * elsewhere only the immediate parent, children and interconnections light up.
+ */
+export function focusSet(
+	tree: Pick<KnowledgeTree, "parent" | "kind">,
+	children: ReadonlyArray<readonly number[]>,
+	adjacency: ReadonlyArray<Iterable<number>>,
+	focus: number,
+	study = false,
+): Set<number> {
+	const set = new Set<number>();
+	if (focus < 0) return set;
+	set.add(focus);
+	const parent = tree.parent[focus] ?? -1;
+	if (parent >= 0) set.add(parent);
+	if (study) for (let p = parent; p >= 0; p = tree.parent[p] ?? -1) set.add(p);
+	for (const c of children[focus] ?? []) set.add(c);
+	for (const j of adjacency[focus] ?? []) {
+		if (tree.kind[j] === NODE_JUNCTION) { set.add(j); for (const k of adjacency[j] ?? []) set.add(k); }
+		else set.add(j);
+	}
+	return set;
+}
+
+/** Pure: the neighbourhood to frame when a node is clicked (Round 5, adaptive by kind).
+ *  Subject hub → its whole cluster; topic → the topic and its ideas; idea → itself and its
+ *  immediate neighbours. Outside Study, the node with its parent and children is framed. */
+export function focusGroup(o: {
+	layout: Pick<Layout3D, "ids" | "kind" | "parent">;
+	children: ReadonlyArray<readonly number[]>;
+	adjacency: ReadonlyArray<Iterable<number>>;
+	topicIds: ReadonlySet<string>;
+	focus: number;
+	study: boolean;
+}): number[] {
+	const { ids, kind, parent } = o.layout;
+	if (o.focus < 0) return [];
+	const out = new Set<number>([o.focus]);
+	const descendants = (i: number, deep: boolean) => {
+		for (const c of o.children[i] ?? []) {
+			if (kind[c] === NODE_JUNCTION) continue;
+			out.add(c);
+			if (deep) descendants(c, true);
+		}
+	};
+	if (o.study) {
+		if (kind[o.focus] === NODE_HUB) descendants(o.focus, true);
+		else if (o.topicIds.has(ids[o.focus]!)) descendants(o.focus, false);
+		else for (const j of o.adjacency[o.focus] ?? []) if (kind[j] !== NODE_JUNCTION) out.add(j);
+	} else {
+		const p = parent[o.focus] ?? -1;
+		if (p >= 0) out.add(p);
+		descendants(o.focus, false);
+	}
+	return [...out];
 }
 
 export interface LabelCandidate { id: string; x: number; y: number; w: number; h: number; priority: number }

@@ -17,7 +17,8 @@ import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter } from "@/components/start-session";
-import { StudyPlacementPicker, useStudyPlacement } from "@/components/study/placement-picker";
+import { useStudyPlacement } from "@/components/study/placement-picker";
+import { ContextChip } from "@/components/study/context-chip";
 import type { ChatPlacement } from "@/src/core";
 import type { ChatSettings, GraphSnapshot } from "@/src/core";
 
@@ -351,7 +352,7 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				picks={picks}
 				onOpenPicker={openPicker}
 				onClearPicks={() => applyPicks([])}
-				placementPicker={<StudyPlacementPicker state={placement} practice={mode === "practice"} showMissing={showMissing} />}
+				placementPicker={<ContextChip state={placement} practice={mode === "practice"} showMissing={showMissing} />}
 				overlay={
 					// THE PICKER (owner round 10b): hosted INSIDE the content
 					// column — absolute inset-0 resolves to the column's relative

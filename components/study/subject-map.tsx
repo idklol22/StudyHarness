@@ -15,8 +15,9 @@ import { findMapIdea, layoutStudyMap, type MapLink, type MapNode, type StudyMap 
 
 const KIND_LABEL: Record<MapNode["kind"], string> = { subject: "Subject", topic: "Topic", idea: "Idea" };
 
-/** `subjectId`: show only that subject (the subject page); otherwise every subject. */
-export function SubjectMap({ subjectId }: { subjectId?: string } = {}) {
+/** `subjectId`: show only that subject (the subject page); otherwise every subject.
+ *  `compact`: the subject page's top map — topic labels only, and a hovering topic shows its ideas as a floating list. */
+export function SubjectMap({ subjectId, compact = false }: { subjectId?: string; compact?: boolean } = {}) {
 	const [hoverNode, setHoverNode] = useState<MapNode | null>(null);
 	const router = useRouter();
 	const [map, setMap] = useState<StudyMap | null>(null);
@@ -90,6 +91,15 @@ export function SubjectMap({ subjectId }: { subjectId?: string } = {}) {
 		return { x: mx + (layout.w / 2 - mx) * 0.125, y: my + (layout.h / 2 - my) * 0.125 };
 	};
 	const hoverLinks = (map?.links ?? []).filter((l) => hover && (l.a === hover || l.b === hover));
+	// Compact (subject-page) map: the ideas of the topic under the pointer, shown as a floating list instead of labels.
+	const compactIdeas = useMemo(() => {
+		if (!compact || !map || hoverNode?.kind !== "topic") return [] as Array<{ id: string; name: string }>;
+		for (const s of map.subjects) {
+			const t = s.topics.find((topic) => topic.id === hoverNode.id);
+			if (t) return t.ideas.map((i) => ({ id: i.id, name: i.name }));
+		}
+		return [];
+	}, [compact, map, hoverNode]);
 
 	if (failed && !map) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground" role="status">Could not load your subjects.</div>;
 	return (
@@ -140,8 +150,10 @@ export function SubjectMap({ subjectId }: { subjectId?: string } = {}) {
 						{layout.nodes.map((n) => {
 							const faded = dim(n.subjectId);
 							// Declutter: an idea's name shows only for the topic you point at (or the idea you picked), or when zoomed in.
+							// In compact mode no idea labels are drawn on the canvas at all — a hovering topic lists them instead.
 							const topicInFocus = hoverNode ? (hoverNode.kind === "topic" ? hoverNode.id : hoverNode.parentId) : picked?.topic?.id;
-							const labelled = n.kind === "subject" || n.kind === "topic" || selected === n.id || (n.kind === "idea" && (n.parentId === topicInFocus || hoverNode?.id === n.id)) || view.zoom >= 1.6;
+							const ideaLabel = !compact && (selected === n.id || n.parentId === topicInFocus || hoverNode?.id === n.id || view.zoom >= 1.6);
+							const labelled = n.kind === "subject" || n.kind === "topic" || (n.kind === "idea" && ideaLabel);
 							const shown = n.label.length > 24 ? `${n.label.slice(0, 23).trimEnd()}…` : n.label;
 							return (
 								<g
@@ -168,6 +180,16 @@ export function SubjectMap({ subjectId }: { subjectId?: string } = {}) {
 											stroke="var(--background)"
 											strokeWidth={4}
 										>{shown}</text>
+									)}
+									{compact && n.kind === "topic" && hoverNode?.id === n.id && compactIdeas.length > 0 && (
+										<foreignObject x={n.x + n.r - 2} y={n.y - 12} width={190} height={Math.min(260, 26 + compactIdeas.length * 26)} data-testid="map-topic-ideas">
+											<div className="max-h-64 overflow-y-auto rounded-lg border bg-card/95 p-2 text-[11px] shadow-lg">
+												<div className="mb-1 truncate font-medium">{n.label}</div>
+												{compactIdeas.map((idea) => (
+													<button key={idea.id} type="button" title={idea.name} onClick={(e) => { e.stopPropagation(); setSelected((cur) => (cur === idea.id ? null : idea.id)); }} className="block w-full truncate rounded px-1.5 py-1 text-left hover:bg-accent">{idea.name}</button>
+												))}
+											</div>
+										</foreignObject>
 									)}
 								</g>
 							);

@@ -19,7 +19,8 @@ import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { PathInput } from "@/components/path-input";
 import { AttachFilesButton } from "@/components/attach-files-button";
 import { SessionStarter } from "@/components/start-session";
-import { StudyPlacementPicker, useStudyPlacement } from "@/components/study/placement-picker";
+import { useStudyPlacement } from "@/components/study/placement-picker";
+import { ContextChip } from "@/components/study/context-chip";
 import type { TurnUsage } from "@/src/core";
 
 /**
@@ -213,7 +214,7 @@ export function Home({
 			    px-4) so nothing shifts when a session starts (owner). */}
 			<div className="pointer-events-none absolute inset-x-0 bottom-0 pb-5">
 				<div className="pointer-events-auto mx-auto w-full max-w-[46rem] px-4">
-					<StudyPlacementPicker state={placement} practice={mode === "practice"} showMissing={showMissing} />
+					<ContextChip state={placement} practice={mode === "practice"} showMissing={showMissing} />
 					{/* The pick bar (owner vision, 2026-10-04): the chain
 					    table's selection is PERSISTENT — picked
 					    propositions show here as a count + Clear in EITHER

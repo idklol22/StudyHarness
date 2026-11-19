@@ -19,6 +19,8 @@ import {
 	coneDirections,
 	fibonacciSphere,
 	fitDistance,
+	focusGroup,
+	focusSet,
 	hubId,
 	pickNearest3D,
 	placeLabels,
@@ -207,5 +209,60 @@ describe("renderer helpers", () => {
 			{ id: "c", x: 200, y: 0, w: 40, h: 12, priority: 0 },
 		], 10);
 		assert.deepEqual(placed.map((p) => p.id), ["b", "c"]);
+	});
+});
+
+describe("Round 5: un-centred clusters, focus path and adaptive framing", () => {
+	const build = () => {
+		const nodes = [
+			{ id: "t1", x: 0, y: 0, cluster: "algebra", parent: hubId("algebra") },
+			{ id: "i1", x: 0, y: 0, cluster: "algebra", parent: "t1" },
+			{ id: "i2", x: 0, y: 0, cluster: "algebra", parent: "t1" },
+		];
+		const edges = [{ from: "i1", to: "i2" }];
+		const tree = buildKnowledgeTree(nodes, edges);
+		const children: number[][] = tree.ids.map(() => []);
+		for (let i = 0; i < tree.ids.length; i++) { const p = tree.parent[i]!; if (p >= 0) children[p]!.push(i); }
+		const adjacency: Set<number>[] = tree.ids.map(() => new Set());
+		for (const e of edges) {
+			const a = tree.ids.indexOf(e.from), b = tree.ids.indexOf(e.to);
+			adjacency[a]!.add(b); adjacency[b]!.add(a);
+		}
+		return { nodes, edges, tree, children, adjacency };
+	};
+
+	it("Study hover lights the whole path back to the centre, not just the node's own links", () => {
+		const { tree, children, adjacency } = build();
+		const idea = tree.ids.indexOf("i1"), topic = tree.ids.indexOf("t1"), hub = tree.ids.indexOf(hubId("algebra")), root = tree.ids.indexOf(ROOT_ID);
+		const lit = focusSet(tree, children, adjacency, idea, true);
+		for (const i of [idea, topic, hub, root]) assert.ok(lit.has(i), `lights index ${i}`);
+		assert.ok(!focusSet(tree, children, adjacency, idea, false).has(root), "non-Study stops at the parent");
+	});
+
+	it("adaptive framing covers a whole subject, a topic with its ideas, or an idea with neighbours", () => {
+		const { tree, children, adjacency } = build();
+		const opts = { layout: tree, children, adjacency, topicIds: new Set(["t1"]), study: true };
+		const hub = tree.ids.indexOf(hubId("algebra")), topic = tree.ids.indexOf("t1"), idea = tree.ids.indexOf("i1"), neighbour = tree.ids.indexOf("i2");
+		assert.deepEqual(new Set(focusGroup({ ...opts, focus: hub })), new Set([hub, topic, idea, neighbour]));
+		assert.deepEqual(new Set(focusGroup({ ...opts, focus: topic })), new Set([topic, idea, neighbour]));
+		assert.deepEqual(new Set(focusGroup({ ...opts, focus: idea })), new Set([idea, neighbour]));
+	});
+
+	it("with the centre hidden each subject becomes its own centre, its clusters placed apart by field", () => {
+		const nodes = ["alpha", "beta"].flatMap((g) => [
+			{ id: `${g}-topic`, x: 0, y: 0, cluster: g, parent: hubId(g) },
+			{ id: `${g}-idea`, x: 0, y: 0, cluster: g, parent: `${g}-topic` },
+		]);
+		const anchors = new Map([["alpha", [1, 0, 0] as const], ["beta", [0, 1, 0] as const]]);
+		const layout = new Layout3D();
+		layout.setGraph(nodes, [], anchors);
+		assert.equal(layout.setCentred(false), true);
+		assert.equal(layout.setCentred(false), false, "a repeat toggle is a no-op");
+		layout.settle(900);
+		const pos = (id: string): [number, number, number] => { const i = layout.indexOf(id); return [layout.pos[i * 3]!, layout.pos[i * 3 + 1]!, layout.pos[i * 3 + 2]!]; };
+		const a = pos(hubId("alpha")), b = pos(hubId("beta"));
+		assert.ok(dist(a, b) > LAYOUT_LINK_DISTANCE * 2, "subject clusters sit apart");
+		assert.ok(dist(pos("alpha-topic"), a) < dist(pos("alpha-topic"), b), "topics stay near their own subject");
+		assert.ok(dist(pos("beta-idea"), b) < dist(pos("beta-idea"), a), "ideas stay near their subject");
 	});
 });

@@ -26,6 +26,8 @@ export interface MapSubject {
 	ideas: MapIdea[];
 	/** Broad field (fields.ts), for placing related subjects near each other. */
 	field?: string;
+	/** The learner's colour (hue in degrees), when set. */
+	color?: number;
 }
 /** Two subjects that share ideas (same idea name, or overlapping idea-graph propositions). */
 export interface MapLink { a: string; b: string; weight: number; ideas: string[] }
@@ -67,6 +69,7 @@ export function buildStudyMap({ library, chats, graph }: MapInput): StudyMap {
 		topics: topicsOf(library, s.id).map((t) => ({ id: t.id, name: t.name, href: `/subjects/${s.id}/${t.id}`, ideas: toMap(s.id, t.ideas) })),
 		ideas: toMap(s.id, s.ideas),
 		...(s.field ? { field: s.field } : {}),
+		...(s.color !== undefined ? { color: s.color } : {}),
 	}));
 	const known = new Set(subjects.map((s) => s.id));
 
@@ -117,4 +120,11 @@ export function findMapIdea(map: StudyMap, id: string): { idea: MapIdea; subject
 		for (const topic of subject.topics) { const idea = topic.ideas.find((i) => i.id === id); if (idea) return { idea, subject, topic }; }
 	}
 	return undefined;
+}
+
+/** Every subject's colour: the learner's hue, else one spread by the golden angle in name order (stable). */
+export function subjectColor(subjects: ReadonlyArray<{ id: string; color?: number }>, id: string): number {
+	const i = subjects.findIndex((s) => s.id === id);
+	const s = subjects[i];
+	return s?.color ?? ((Math.max(0, i) * 137.5 + 205) % 360);
 }

@@ -10,6 +10,7 @@
  *   {action:"assign-material", id, topicId? | newTopicName?}   (move the file into a topic the learner picks; ideas are then found for it)
  *   {action:"link-material", id, topicId? | newTopicName?}     (also put the file in another topic, keeping it where it is)
  *   {action:"add-idea"|"edit-idea"|"remove-idea", subjectId, topicId?, id?, name?, summary?}
+ *   {action:"set-color", id, color: number | null}  (a subject's colour as a hue; null = automatic)
  *   {action:"understand-material", id}          (re-run the background understanding of a file: text, skim, topics/ideas)
  */
 import { StudyInputError, classifySubject, readOrganizationAction, resolveEngine, seedAcceptedTopics, digestMaterial, study } from "@/src/server";
@@ -70,6 +71,7 @@ export async function POST(request: Request) {
 				return Response.json({ topics: accepted.map((a) => a.topicId), library: study.library() });
 			}
 			case "dismiss-suggestion": study.dismissSuggestion(text(raw.id, "id")); break;
+			case "set-color": study.setColor(text(raw.id, "id"), raw.color === null ? null : Number(raw.color)); break;
 			case "assign-material": case "link-material": {
 				const r = (raw.action === "link-material" ? study.linkMaterial : study.assignMaterial)(text(raw.id, "id"), { ...(typeof raw.topicId === "string" && raw.topicId ? { topicId: raw.topicId } : {}), ...(typeof raw.newTopicName === "string" ? { newTopicName: raw.newTopicName } : {}) });
 				// The file's ideas for that topic are found in the background (activity panel).

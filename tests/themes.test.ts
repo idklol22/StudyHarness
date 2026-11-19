@@ -68,7 +68,7 @@ describe("presets", () => {
 			assert.equal(t.builtin, true);
 		}
 		assert.deepEqual([...ids], [
-			"default", "catppuccin-latte", "catppuccin-frappe", "catppuccin-macchiato", "catppuccin-mocha",
+			"default", "default-light", "catppuccin-latte", "catppuccin-frappe", "catppuccin-macchiato", "catppuccin-mocha",
 			"rose-pine", "rose-pine-dawn", "gruvbox-dark", "ivory", "pastel", "nvchad-onedark",
 		]);
 	});
@@ -93,7 +93,8 @@ function cssBlock(css: string, selector: string): Map<string, string> {
 
 describe("themeVars — the adapter", () => {
 	it("Default reproduces app/globals.css's literals exactly", () => {
-		const css = fs.readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+		// Normalize CRLF checkouts so the pin is line-ending agnostic.
+		const css = fs.readFileSync(new URL("../app/globals.css", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 		const block = cssBlock(css, ":root,\n.dark");
 		for (const [token, value] of Object.entries(themeVars(DEFAULT_THEME.colors, "dark"))) {
 			assert.equal(block.get(token), value, token);

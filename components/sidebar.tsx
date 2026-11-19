@@ -19,7 +19,8 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { fuzzyScore } from "@/src/core";
 import { useServerEvent, useServerResync } from "@/components/server-events";
-import { SubjectTree, useLibrary } from "@/components/study/subject-tree";
+import { useLibrary } from "@/components/study/subject-tree";
+import { SubjectsPanel } from "@/components/study/subject-panel";
 import { displayOrder, groupChats } from "@/components/study/group-chats";
 import type { ChatListItem } from "@/src/core";
 import { kbdEventForAction } from "@/src/core";
@@ -412,7 +413,7 @@ function SessionsSidebar() {
 	 * keeps the natural list order (scores are all 0, sort is stable). */
 	const { library, refresh: refreshLibrary } = useLibrary();
 	useServerEvent("sources-changed", refreshLibrary);
-	// The Subjects tree's display order IS the list order (so the keyboard walk follows what is on screen).
+	// The flat Sessions list follows displayOrder — the keyboard walk follows what is on screen.
 	const grouped = useMemo(() => (chats ? groupChats(library, chats) : null), [library, chats]);
 	const shown = useMemo(() => {
 		const q = query.trim();
@@ -633,10 +634,10 @@ function SessionsSidebar() {
 
 	return (
 		<aside
-			className={cn("sidebar-motion shrink-0 overflow-hidden duration-200", open ? "w-72" : "w-0")}
+			className={cn("sidebar-motion shrink-0 overflow-hidden duration-200", open ? "w-80" : "w-0")}
 			aria-hidden={!open}
 		>
-			<div className="flex h-full w-72 flex-col border-r bg-background">
+			<div className="flex h-full w-80 flex-col border-r bg-background">
 				{/* LH wordmark — the owner's header; close toggle sits at the edge.
 				    Merged chrome (2026-09-17): in Electron this band is the
 				    window's drag surface and starts after the traffic lights
@@ -683,6 +684,15 @@ function SessionsSidebar() {
 				    and the Study plugin places its Subjects door here. */}
 				<PluginSidebarActions />
 
+				{/* Dedicated Subjects panel (Round 5): roomy rows above the Sessions section. */}
+				<SubjectsPanel
+					library={library}
+					grouped={grouped}
+					pathname={pathname}
+					onChanged={refreshLibrary}
+				/>
+
+				<div className="flex min-h-0 flex-1 flex-col">
 				<div className="mx-3 mb-2 flex items-center gap-2">
 					<span className="text-xs uppercase tracking-widest text-muted-foreground/70">Sessions</span>
 					<Hint label="Search sessions" action="sessions-search" side="bottom">
@@ -746,10 +756,10 @@ function SessionsSidebar() {
 					</Hint>
 				</div>
 
-				<div ref={listRef} className="flex-1 overflow-y-auto p-2">
+				<div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-2">
 					{shown === null ? (
 						<div className="px-2 py-4 text-xs text-muted-foreground">Loading…</div>
-					) : shown.length === 0 && (query.trim() || !library.subjects.length) ? (
+					) : shown.length === 0 ? (
 						<div className="px-2 py-4 text-xs text-muted-foreground">
 							{query.trim() ? "No sessions match." : "No sessions yet."}
 						</div>
@@ -776,19 +786,13 @@ function SessionsSidebar() {
 										onContextMenu={(e) => openContext(e, c)}
 									/>
 								);
-							// Searching: a flat ranked list. Otherwise: the Subject → Topic → chats tree.
-							if (query.trim() || !grouped) return shown.map(row);
-							const index = new Map(shown.map((c, i) => [c.id, i]));
-							return (
-								<SubjectTree
-									grouped={grouped}
-									pathname={pathname}
-									onChanged={refreshLibrary}
-									renderChat={(c) => row(c, index.get(c.id) ?? -1)}
-								/>
-							);
+							// Subjects/topics live in the panel above; Sessions is always a flat,
+							// ranked list (displayOrder keeps the keyboard walk in screen order,
+							// including the "Not filed" chats appended at the end).
+							return shown.map(row);
 						})()
 					)}
+				</div>
 				</div>
 
 					{/* Background agents (owner, sidebar round): the section is

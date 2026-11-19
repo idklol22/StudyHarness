@@ -33,6 +33,8 @@ export interface Subject {
 	ideas?: Idea[];
 	/** Broad field of study (fields.ts): places related subjects near each other in the 3D graph. */
 	field?: string;
+	/** The learner's colour for this subject (a hue in degrees); absent = picked automatically. */
+	color?: number;
 }
 
 export interface Topic {
@@ -294,4 +296,11 @@ export function contextScopes(lib: Library, placement: Pick<ChatPlacement, "subj
 export function setField(lib: Library, subjectId: string, field: string): Library {
 	if (!subjectOf(lib, subjectId)) fail("That subject no longer exists.");
 	return { ...lib, subjects: lib.subjects.map((s) => (s.id === subjectId ? { ...s, field } : s)) };
+}
+
+/** Set (or clear, with null) a subject's colour as a hue in degrees. */
+export function setColor(lib: Library, subjectId: string, color: number | null): Library {
+	if (!subjectOf(lib, subjectId)) fail("That subject no longer exists.");
+	if (color !== null && !Number.isFinite(color)) fail("A colour must be a hue in degrees.");
+	return { ...lib, subjects: lib.subjects.map((s) => (s.id !== subjectId ? s : color === null ? (({ color: _drop, ...rest }) => rest)(s) : { ...s, color: ((Math.round(color) % 360) + 360) % 360 })) };
 }
