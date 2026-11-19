@@ -19,7 +19,7 @@ import { IdeaCard } from "./idea-card";
 import { SubjectMap } from "./subject-map";
 
 const CENTRE_KEY = "lh.knowledge.centre.v1";
-const CAMERA_KEY = "lh.knowledge.camera3d.v2";
+const CAMERA_KEY = "lh.knowledge.camera3d.v4";
 
 export function Knowledge3D() {
 	const router = useRouter();
@@ -64,17 +64,16 @@ export function Knowledge3D() {
 		let renderer: Graph3DRenderer;
 		try {
 			renderer = new Graph3DRenderer(canvas, {
-				onSelect: (nodeId) => {
+				// One click selects (and shows a card); a double click opens the subject's or topic's page.
+				onSelect: (nodeId) => setSelected(nodeId),
+				onHub: (subjectId) => setSelected(`subject:${subjectId}`),
+				onOpen: (nodeId, group) => {
 					const m = mapRef.current;
 					if (!m) return;
-					const idea = findMapIdea(m, nodeId);
-					if (idea) { setSelected(nodeId); return; }
+					if (group) { routerRef.current.push(`/subjects/${group}`); return; }
 					const topic = m.subjects.flatMap((s) => s.topics).find((t) => t.id === nodeId);
-					if (topic) { routerRef.current.push(topic.href); return; }
-					const stub = m.subjects.find((s) => `${s.id}:empty` === nodeId);
-					if (stub) routerRef.current.push(stub.href);
+					if (topic) routerRef.current.push(topic.href);
 				},
-				onHub: (subjectId) => routerRef.current.push(`/subjects/${subjectId}`),
 				onContext: () => {},
 				onStageClick: () => setSelected(null),
 				onCameraMove: () => {},
@@ -90,7 +89,7 @@ export function Knowledge3D() {
 
 	useEffect(() => {
 		const r = rendererRef.current;
-		if (!r || !graph || !graph.nodes.length) return;
+		if (!r || !graph || !graph.clusters.length) return;
 		r.setData({
 			nodes: graph.nodes.map((n) => ({ id: n.id, x: 0, y: 0, label: n.label })),
 			edges: graph.edges,
@@ -113,6 +112,12 @@ export function Knowledge3D() {
 
 	if (noGl) return <SubjectMap />;
 	const picked = selected && map ? findMapIdea(map, selected) : undefined;
+	// A picked subject or topic: a small card with what it holds and a way in (double-clicking the node opens it too).
+	const pickedSubject = selected?.startsWith("subject:") ? map?.subjects.find((s) => `subject:${s.id}` === selected) : undefined;
+	const pickedTopic = !picked && !pickedSubject && selected ? map?.subjects.flatMap((s) => s.topics.map((t) => ({ t, s }))).find((x) => x.t.id === selected) : undefined;
+	const scopeCard = pickedSubject
+		? { title: pickedSubject.name, over: "Subject", line: `${pickedSubject.topics.length} topic${pickedSubject.topics.length === 1 ? "" : "s"} · ${pickedSubject.topics.reduce((n, t) => n + t.ideas.length, pickedSubject.ideas.length)} ideas`, href: pickedSubject.href }
+		: pickedTopic ? { title: pickedTopic.t.name, over: pickedTopic.s.name, line: `${pickedTopic.t.ideas.length} idea${pickedTopic.t.ideas.length === 1 ? "" : "s"}${pickedTopic.t.ideas.length ? `: ${pickedTopic.t.ideas.slice(0, 4).map((i) => i.name).join(", ")}${pickedTopic.t.ideas.length > 4 ? "…" : ""}` : ""}`, href: pickedTopic.t.href } : null;
 	const empty = map && !map.subjects.length;
 	return (
 		<div className="absolute inset-0" data-testid="knowledge-3d">
@@ -132,7 +137,7 @@ export function Knowledge3D() {
 						{map.subjects.map((sub) => (
 							<div key={sub.id} className={`group flex items-center gap-1 rounded-lg transition-colors hover:bg-accent ${only === sub.id ? "bg-accent" : ""}`}>
 								<button type="button" onClick={() => setOnly(only === sub.id ? "" : sub.id)} aria-pressed={only === sub.id} title={`Show only ${sub.name}`} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left">
-									<span className="size-2.5 shrink-0 rounded-full" style={{ background: `hsl(${subjectHues[sub.id] ?? 0} 62% 62%)` }} />
+									<span className="size-2.5 shrink-0 rounded-full" style={{ background: `hsl(${subjectHues[sub.id] ?? 0} 26% 58%)` }} />
 									<span className="truncate text-foreground">{sub.name}</span>
 								</button>
 								<button type="button" aria-label={`Open ${sub.name}`} title="Open the subject page" onClick={() => routerRef.current.push(sub.href)} className="mr-1 rounded p-1 text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"><ArrowUpRightIcon className="size-3.5" /></button>
@@ -142,6 +147,17 @@ export function Knowledge3D() {
 				</div>
 			)}
 			{picked && <div className="lh-no-drag absolute bottom-24 left-3 z-10 w-80 max-w-[calc(100%-1.5rem)]"><IdeaCard picked={picked} onClose={() => setSelected(null)} /></div>}
+			{scopeCard && (
+				<div className="lh-no-drag absolute bottom-24 left-3 z-10 w-72 max-w-[calc(100%-1.5rem)] rounded-xl border bg-card/95 p-3 text-xs shadow-lg backdrop-blur" data-testid="knowledge-scope-card">
+					<div className="mb-1 flex items-start justify-between gap-2">
+						<div className="min-w-0"><div className="truncate text-[11px] text-muted-foreground">{scopeCard.over}</div><div className="font-medium text-card-foreground">{scopeCard.title}</div></div>
+						<button type="button" aria-label="Close" onClick={() => setSelected(null)} className="rounded px-1 text-muted-foreground hover:text-foreground">×</button>
+					</div>
+					<p className="mb-2 text-muted-foreground">{scopeCard.line}</p>
+					<button type="button" onClick={() => routerRef.current.push(scopeCard.href)} className="inline-flex h-7 items-center gap-1 rounded-md border px-2.5 hover:bg-accent">Open<ArrowUpRightIcon className="size-3.5" /></button>
+					<span className="ml-2 text-muted-foreground">or double-click the node</span>
+				</div>
+			)}
 		</div>
 	);
 }

@@ -253,7 +253,7 @@ export interface KnowledgeTree {
 }
 
 /** Derive the centre → topic → idea tree (see the module doc). Pure and deterministic. */
-export function buildKnowledgeTree(nodes: readonly { id: string; cluster: string | null; parent?: string }[], edges: readonly Layout3DEdge[]): KnowledgeTree {
+export function buildKnowledgeTree(nodes: readonly { id: string; cluster: string | null; parent?: string }[], edges: readonly Layout3DEdge[], extraGroups: readonly string[] = []): KnowledgeTree {
 	const ids = nodes.map((n) => n.id);
 	const group: (string | null)[] = nodes.map((n) => (isImpId(n.id) ? null : n.cluster));
 	const kind: number[] = nodes.map((n) => (isImpId(n.id) ? NODE_JUNCTION : NODE_IDEA));
@@ -271,7 +271,8 @@ export function buildKnowledgeTree(nodes: readonly { id: string; cluster: string
 	}
 	for (const members of junctionMembers.values()) for (const a of members) for (const b of members) if (a !== b) adj[a]!.add(b);
 
-	const groups = [...new Set(group.filter((g): g is string => g !== null))].sort();
+	// Extra groups (Study: subjects with nothing in them yet) still get their hub.
+	const groups = [...new Set([...group.filter((g): g is string => g !== null), ...extraGroups])].sort();
 	const hubIndex = new Map<string, number>();
 	for (const g of groups) { hubIndex.set(g, ids.length); ids.push(hubId(g)); kind.push(NODE_HUB); group.push(g); }
 	const root = ids.length; ids.push(ROOT_ID); kind.push(NODE_ROOT); group.push(null);
@@ -350,7 +351,7 @@ export class Layout3D {
 		this.explicit = anchors.size > 0 || nodes.some((n) => n.parent !== undefined);
 		const previous = new Map<string, [number, number, number]>();
 		for (let i = 0; i < this.ids.length; i++) previous.set(this.ids[i]!, [this.pos[i * 3]!, this.pos[i * 3 + 1]!, this.pos[i * 3 + 2]!]);
-		const tree = buildKnowledgeTree(nodes, edges);
+		const tree = buildKnowledgeTree(nodes, edges, this.explicit ? [...anchors.keys()] : []);
 		Object.assign(this, { ids: tree.ids, kind: tree.kind, parent: tree.parent, depth: tree.depth, group: tree.group, cross: tree.cross });
 		const n = this.ids.length;
 		this.index = new Map(this.ids.map((id, i) => [id, i]));

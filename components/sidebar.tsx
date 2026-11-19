@@ -749,7 +749,7 @@ function SessionsSidebar() {
 				<div ref={listRef} className="flex-1 overflow-y-auto p-2">
 					{shown === null ? (
 						<div className="px-2 py-4 text-xs text-muted-foreground">Loading…</div>
-					) : shown.length === 0 ? (
+					) : shown.length === 0 && (query.trim() || !library.subjects.length) ? (
 						<div className="px-2 py-4 text-xs text-muted-foreground">
 							{query.trim() ? "No sessions match." : "No sessions yet."}
 						</div>

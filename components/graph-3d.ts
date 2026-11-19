@@ -36,6 +36,8 @@ export interface Graph3DCallbacks extends RendererCallbacks {
 	onCamera3D?: (state: Camera3DState) => void;
 	/** Study: a group's hub (a subject) was clicked. */
 	onHub?: (groupId: string) => void;
+	/** A node was double-clicked: `group` is set when it was a group's hub (a subject). */
+	onOpen?: (nodeId: string, group: string | null) => void;
 	/** The GPU context was lost and cannot be used: the caller should fall back to 2D. */
 	onUnavailable?: (reason: string) => void;
 }
@@ -174,6 +176,12 @@ export class Graph3DRenderer {
 		on(canvas, "pointerleave", () => this.setHover(-1));
 		on(canvas, "contextmenu", (e) => this.onContextMenu(e));
 		on(canvas, "keydown", (e) => this.onKey(e));
+		on(canvas, "dblclick" as keyof HTMLElementEventMap, ((e: MouseEvent) => {
+			if (!this.callbacks.onOpen) return;
+			const { x, y } = this.local(e), i = this.pick(x, y);
+			if (i < 0 || this.layout.kind[i] === NODE_ROOT) return;
+			this.callbacks.onOpen(this.layout.ids[i]!, this.layout.kind[i] === NODE_HUB ? this.layout.group[i]! : null);
+		}) as never);
 		on(canvas, "webglcontextlost" as keyof HTMLElementEventMap, ((e: Event) => { e.preventDefault(); this.callbacks.onUnavailable?.("The graphics context was lost."); }) as never);
 		const controlsStart = () => { this.userInteracting = true; this.interacted = true; this.tween = null; this.callbacks.onCameraMove({ k: 1, x: 0, y: 0 }); this.kick(); };
 		const controlsEnd = () => { this.userInteracting = false; this.idleSince = performance.now(); this.emitCamera(); this.kick(); };
@@ -310,7 +318,8 @@ export class Graph3DRenderer {
 			const isHub = this.layout.kind[i] === NODE_HUB;
 			const hue = (this.hueOf(c) + (isHub ? 0 : (hash01(id + "h") - 0.5) * 14) + 360) % 360;
 			const light = data.colors.clusterLightness.ring / 100 + (isHub ? 0.1 : (hash01(id + "l") - 0.5) * 0.16);
-			return new THREE.Color().setHSL(hue / 360, 0.6, Math.min(0.82, Math.max(0.3, light)));
+			// Study: muted, slate-like colours (each subject still has its own hue).
+			return this.study ? new THREE.Color().setHSL(hue / 360, 0.26, isHub ? 0.6 : 0.52 + (hash01(id + "l") - 0.5) * 0.06) : new THREE.Color().setHSL(hue / 360, 0.6, Math.min(0.82, Math.max(0.3, light)));
 		});
 	}
 
@@ -522,7 +531,7 @@ export class Graph3DRenderer {
 		if (this.focusSet) for (const i of this.focusSet) if (!isImp(this.layout.ids[i]!)) must.add(i);
 		// The centre and every topic hub are always named: they are the tree's structure.
 		const structural = new Set<number>();
-		for (const li of this.real) if (this.layout.kind[li] === NODE_HUB || this.layout.kind[li] === NODE_ROOT) { must.add(li); structural.add(li); }
+		for (const li of this.real) if (this.layout.kind[li] === NODE_HUB || this.layout.kind[li] === NODE_ROOT) { if (!this.study) must.add(li); structural.add(li); }
 		const order = this.real.map((li, k) => ({ li, k })).filter(({ k }) => this.screen[k]?.visible).sort((a, b) => this.screen[a.k]!.depth - this.screen[b.k]!.depth);
 		// A handful of the nearest names at fit; the rest fade in as you move closer (Obsidian-style).
 		const baseCount = Math.round(8 + (MAX_NODE_LABELS - 8) * Math.min(1, Math.max(0, (zoomIn - 1) / 1.3)));
@@ -530,9 +539,12 @@ export class Graph3DRenderer {
 		for (const { li, k } of order) {
 			const forced = must.has(li); const s = this.screen[k]!;
 			// Study: subjects always; topics once you zoom in (or hover their subject); ideas only up close (or in focus).
+			// Study: names stay out of the way: only what you point at, then subjects as you zoom in a little, topics
+			// closer, ideas only up close. The centre is named only when pointed at.
 			if (this.study && !forced) {
-				const depth = this.layout.depth[li] ?? 3;
-				if (depth <= 2 ? zoomIn < 1.25 : zoomIn < 2.2) continue;
+				const kind = this.layout.kind[li], depth = this.layout.depth[li] ?? 3;
+				if (kind === NODE_ROOT) continue;
+				if (kind === NODE_HUB ? zoomIn < 1.15 : depth <= 2 ? zoomIn < 1.7 : zoomIn < 2.6) continue;
 			}
 			if (!forced && near >= baseCount) continue;
 			const text = this.labels[li] ?? ""; if (!text) continue;
@@ -546,8 +558,8 @@ export class Graph3DRenderer {
 			const el = this.labelPool[i]!, li = Number(p.id), forced = must.has(li), hub = structural.has(li);
 			const g = this.clusterOf[li];
 			el.textContent = this.labels[li] ?? "";
-			Object.assign(el.style, { display: "block", left: `${p.x}px`, top: `${p.y - (labelPx + 3) / 2}px`, maxWidth: hub ? "220px" : "180px", fontFamily: font, fontSize: `${hub ? labelPx + 2 : labelPx}px`, fontWeight: forced ? "600" : "500",
-				color: hub && g && this.data ? `hsl(${this.hueOf(g)} 62% ${this.data.colors.clusterLightness.label}%)` : forced ? strong : color,
+			Object.assign(el.style, { display: "block", left: `${p.x}px`, top: `${p.y - (labelPx + 3) / 2}px`, maxWidth: hub ? "220px" : "180px", fontFamily: font, fontSize: `${this.study ? (hub ? labelPx : labelPx - 1) : hub ? labelPx + 2 : labelPx}px`, fontWeight: forced && !this.study ? "600" : "500",
+				color: hub && g && this.data ? `hsl(${this.hueOf(g)} ${this.study ? 18 : 62}% ${this.data.colors.clusterLightness.label}%)` : forced ? strong : color,
 				opacity: forced ? "1" : String(Math.min(0.92, 0.5 + 0.5 * Math.min(1, 1.4 / Math.max(this.screen[this.instanceOf[li]!]?.depth ?? 1, 1) * this.fitDist * 0.5))) });
 		});
 		void rect;
@@ -573,7 +585,7 @@ export class Graph3DRenderer {
 		for (const li of shown) radius = Math.max(radius, Math.hypot(this.layout.pos[li * 3]! - target.x, this.layout.pos[li * 3 + 1]! - target.y, this.layout.pos[li * 3 + 2]! - target.z));
 		this.fogRadius = radius;
 		const rect = this.canvas.getBoundingClientRect();
-		const dist = fitDistance(radius, FOV, rect.width / Math.max(rect.height, 1), this.study ? 0.7 : 0.92);
+		const dist = fitDistance(radius, FOV, rect.width / Math.max(rect.height, 1), this.study ? 1.3 : 0.92);
 		const dir = this.camera.position.clone().sub(this.controls.target); if (dir.lengthSq() < 1e-6) dir.set(0.35, 0.25, 1);
 		// Study: the subjects ring the centre, so the first view looks down onto the ring (subjects all around, none hidden).
 		if (this.study && !this.hasInitialCamera) dir.set(0.22, 1, 0.42);
@@ -643,7 +655,7 @@ export class Graph3DRenderer {
 		// Clicking empty space clears the selection but leaves the camera where it is (Recenter goes home).
 		if (i < 0) { this.callbacks.onStageClick(); this.applySelected(null); return; }
 		this.applySelected(this.layout.ids[i]!);
-		this.centreOn(i);
+		if (!this.study) this.centreOn(i); // Study: a click only selects; the camera stays where you put it
 		// The centre and topic hubs are structure, not ideas: they focus their branch but open no card.
 		if (this.layout.kind[i] === NODE_HUB && this.callbacks.onHub) { this.callbacks.onHub(this.layout.group[i]!); return; }
 		if (this.layout.kind[i] === NODE_HUB || this.layout.kind[i] === NODE_ROOT) { this.callbacks.onStageClick(); return; }

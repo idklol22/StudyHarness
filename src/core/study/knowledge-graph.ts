@@ -25,6 +25,16 @@ const key = (name: string) => name.toLowerCase().normalize("NFKD").replace(/[^\p
  * Subjects round the globe: in field order (related fields are neighbours in FIELDS), evenly spread all the way
  * round the centre, with a bigger gap between subjects of unrelated fields than between subjects of one field.
  */
+/** k points spread evenly over the sphere (exact for 1–4, a Fibonacci lattice beyond), deterministic. */
+function evenSphere(k: number): Array<[number, number, number]> {
+	if (k <= 1) return [[0.35, 0.5, 0.79]];
+	if (k === 2) return [[1, 0, 0], [-1, 0, 0]];
+	if (k === 3) return [0, 1, 2].map((i) => [Math.cos((i * 2 * Math.PI) / 3) * 0.94, (i - 1) * 0.34, Math.sin((i * 2 * Math.PI) / 3) * 0.94]).map((v) => { const l = Math.hypot(v[0]!, v[1]!, v[2]!); return [v[0]! / l, v[1]! / l, v[2]! / l] as [number, number, number]; });
+	if (k === 4) { const c = 1 / Math.sqrt(3); return [[c, c, c], [c, -c, -c], [-c, c, -c], [-c, -c, c]]; }
+	const golden = Math.PI * (3 - Math.sqrt(5));
+	return Array.from({ length: k }, (_, i) => { const y = 1 - (2 * (i + 0.5)) / k, r = Math.sqrt(Math.max(0, 1 - y * y)), t = golden * i; return [Math.cos(t) * r, y, Math.sin(t) * r] as [number, number, number]; });
+}
+
 export function subjectDirections(subjects: ReadonlyArray<{ id: string; name: string; field?: string }>): Record<string, [number, number, number]> {
 	const fieldOf = (s: { name: string; field?: string }): Field | undefined => (isField(s.field) ? s.field : guessField(s.name));
 	const rank = (f: Field | undefined) => (f ? FIELDS.indexOf(f) : FIELDS.length);
@@ -36,15 +46,23 @@ export function subjectDirections(subjects: ReadonlyArray<{ id: string; name: st
 		return 1 + Math.min(d, FIELDS.length - d);
 	};
 	const steps = order.map((s, i) => gap(fieldOf(s), fieldOf(order[(i + 1) % order.length]!)));
+	// Points spread evenly over the WHOLE sphere (one per step, so unrelated fields leave empty points between them),
+	// visited as a nearest-neighbour walk: consecutive subjects (same or neighbouring field) land next to each other,
+	// and the walk uses every direction, not just a band.
 	const total = order.length > 1 ? steps.reduce((x, y) => x + y, 0) : 1;
+	const points = evenSphere(total);
+	const used = new Set<number>();
 	const out: Record<string, [number, number, number]> = {};
 	let at = 0;
+	used.add(0);
 	order.forEach((s, i) => {
-		const a = (2 * Math.PI * at) / total;
-		const x = Math.cos(a), z = Math.sin(a), y = 0.35 * Math.sin(2 * a + 0.6);
-		const l = Math.hypot(x, y, z);
-		out[s.id] = [x / l, y / l, z / l];
-		at += steps[i]!;
+		out[s.id] = points[at]!;
+		for (let k = 0; k < (steps[i] ?? 1) && used.size < points.length; k++) {
+			let best = -1, bestD = Infinity;
+			points.forEach((p, j) => { if (used.has(j)) return; const d = Math.hypot(p[0] - points[at]![0], p[1] - points[at]![1], p[2] - points[at]![2]); if (d < bestD) { bestD = d; best = j; } });
+			if (best < 0) break;
+			used.add(best); at = best;
+		}
 	});
 	return out;
 }
@@ -70,8 +88,6 @@ export function knowledgeGraph(map: StudyMap): KnowledgeGraphData {
 			members.push(i.id);
 			byIdea.set(key(i.name), [...(byIdea.get(key(i.name)) ?? []), { id: i.id, subjectId: s.id }]);
 		}
-		// A subject with nothing in it yet still shows (its hub needs one member): a "no topics yet" stub opening its page.
-		if (!members.length) { const stub = `${s.id}:empty`; out.nodes.push({ id: stub, label: "No topics yet", kind: "topic", subjectId: s.id, href: s.href }); members.push(stub); }
 		out.clusters.push({ id: s.id, label: s.name, members });
 	}
 	// The same idea in two subjects: an interconnection (it also pulls the two subjects together).

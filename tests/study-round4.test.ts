@@ -120,7 +120,8 @@ describe("fields and the 3D knowledge graph", () => {
 		const idea = g.nodes.find((n) => n.kind === "idea" && n.subjectId === algo.subject.id)!;
 		assert.equal(g.parents[idea.id], t.topic.id);
 		assert.ok(g.edges.some((e) => g.parents[e.from] && g.parents[e.to] && e.from !== e.to && g.parents[e.from] !== g.parents[e.to]), "the shared idea links the two subjects");
-		assert.ok(g.nodes.some((n) => n.id === `${eng.subject.id}:empty`), "an empty subject still shows");
+		assert.deepEqual(g.clusters.find((c) => c.id === eng.subject.id)?.members, [], "an empty subject is a group with no members (no placeholder node)");
+		assert.ok(buildKnowledgeTree([], [], [eng.subject.id]).ids.includes(`__lh_hub__:${eng.subject.id}`), "and still gets its own hub");
 		const dot = (a: number[], b: number[]) => a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!;
 		assert.ok(dot(g.anchors[algo.subject.id]!, g.anchors[os.subject.id]!) > dot(g.anchors[algo.subject.id]!, g.anchors[eng.subject.id]!));
 		// The 3D tree takes the parents as given: hub → topic → idea.
