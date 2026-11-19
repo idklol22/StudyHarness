@@ -110,7 +110,7 @@ function listChats(): ChatSummary[] {
 						// the NATIVE record (core/phases.ts phaseAt3Lh +
 						// native-messages.ts danglingQuestionOf). Liveness (busy) is
 						// NOT record-derived — the API route merges it (ChatListItem).
-						phase: phaseAt3Lh(messages),
+						phase: phaseAt3Lh(messages, undefined, summary.placement?.startMode === "scratch" ? "plan" : "probe"),
 						pendingQuestion: danglingQuestionOf(messages) !== null,
 						// Practice: a posed problem with no conclude (the sidebar's
 						// "Problem waiting"); false on teaching sessions, which

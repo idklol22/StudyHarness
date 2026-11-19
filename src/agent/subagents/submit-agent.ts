@@ -54,7 +54,9 @@ export async function runSubmitAgent<T>(opts: {
 	 *  schema-valid raw input at the submit seam. */
 	fill: (input: any) => T;
 	systemPrompt: string;
-	prompt: string;
+	prompt?: string;
+	/** Initial transcript instead of a text prompt (page images for a vision read). */
+	messages?: import("@earendil-works/pi-agent-core").AgentMessage[];
 	engine: PiEngine | undefined;
 	signal: AbortSignal | undefined;
 	onStep: (usage: Usage, model: string, step: number, finishReason: string, tools: string) => void;
@@ -110,7 +112,7 @@ export async function runSubmitAgent<T>(opts: {
 			role: opts.role,
 			engine: opts.engine,
 			systemPrompt: opts.systemPrompt,
-			prompt: opts.prompt,
+			...(opts.messages ? { messages: opts.messages } : { prompt: opts.prompt }),
 			maxTurns: opts.maxTurns ?? 4,
 			abortSignal: opts.signal,
 			chatId: opts.chatId,

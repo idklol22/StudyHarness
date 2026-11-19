@@ -47,8 +47,8 @@ function isTeachQuestionPart(part: PhaseMessage["parts"][number]): boolean {
 }
 
 /** The phase at `upToIndex` (inclusive; default: the last message). */
-export function phaseAt3(messages: readonly PhaseMessage[], upToIndex?: number): Phase3 {
-	let phase: Phase3 = "probe";
+export function phaseAt3(messages: readonly PhaseMessage[], upToIndex?: number, initial: Phase3 = "probe"): Phase3 {
+	let phase: Phase3 = initial;
 	const last = Math.min(upToIndex ?? messages.length - 1, messages.length - 1);
 	for (let i = 0; i <= last; i++) {
 		phase = advance(phase, messages[i]?.parts);
@@ -126,9 +126,10 @@ export function teachStepIndex(
  * 0..i each time (quadratic); this is the same derivation, linear.
  * out[i] === phaseAt3(messages, i) for every i.
  */
-export function phaseTimeline(messages: readonly PhaseMessage[]): Phase3[] {
+/** `initial` is "plan" for a chat that starts from scratch (Study: there is no probe). */
+export function phaseTimeline(messages: readonly PhaseMessage[], initial: Phase3 = "probe"): Phase3[] {
 	const out: Phase3[] = [];
-	let phase: Phase3 = "probe";
+	let phase: Phase3 = initial;
 	for (let i = 0; i < messages.length; i++) {
 		phase = advance(phase, messages[i]?.parts);
 		out.push(phase);
@@ -145,8 +146,8 @@ import { probeDoneResultIds, type LhMessage } from "./native-messages.ts";
  *  toolResult; plan→teach at the assistant message carrying the first
  *  nodeId-tagged quiz CALL (mirrors the view fold — same seam, native
  *  shape). */
-export function phaseAt3Lh(messages: readonly LhMessage[], upToIndex?: number): Phase3 {
-	let phase: Phase3 = "probe";
+export function phaseAt3Lh(messages: readonly LhMessage[], upToIndex?: number, initial: Phase3 = "probe"): Phase3 {
+	let phase: Phase3 = initial;
 	const last = Math.min(upToIndex ?? messages.length - 1, messages.length - 1);
 	const concluded = probeDoneResultIds(messages.slice(0, last + 1));
 	for (let i = 0; i <= last; i++) {

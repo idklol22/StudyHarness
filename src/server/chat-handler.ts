@@ -34,6 +34,7 @@ import { collectToolCallIds } from "./pi/call-ids.ts";
 import { providerEventNote } from "../agent/provider-events.ts";
 import { effectiveSettings, stores } from "./stores.ts";
 import { getPluginAgentContributions, getPluginHost } from "./plugins.ts";
+import { keepContextAfterTurn, studyContributions } from "./study-agent.ts";
 import { preparePluginQuestionSubmission, reconcilePluginQuestionCompatibility, type QuestionTypeResolver } from "./plugin-questions.ts";
 import { searchAvailable, searchProvider } from "./search.ts";
 import { prepareSubmissionImages, prepareSubmissionImageChannels, prepareProblemSubmissionImageChannels, submissionImagePolicyKey } from "./submission-images.ts";
@@ -389,7 +390,7 @@ export async function handleChatInput(
 			engine: compactionEngine,
 			canStart: () => !isTurnRunning(chatId) && connectionBackgroundAllowed(conversation.provider),
 			modelId: modelIdForCompaction,
-			kind: record.kind === "practice" ? "practice" : hasProbeDone(record.messages) ? "teach" : "probe",
+			kind: record.kind === "practice" ? "practice" : hasProbeDone(record.messages) || record.placement?.startMode === "scratch" ? "teach" : "probe",
 			includeReasoning: effective.compaction.includeReasoning,
 			thresholdTokens,
 			systemPromptTokens,
@@ -428,11 +429,26 @@ export async function handleChatInput(
 		chatId,
 	);
 	let pluginContributions: AgentBuildOptions["pluginContributions"];
+	/** Study workers' model calls are billed to this turn once the usage collector below exists. */
+	let studyUsage: ((usage: Usage) => void) | undefined;
 	if (!buildAgent) {
 		try { pluginContributions = await getPluginAgentContributions(); }
 		catch (error) {
 			// Plugin startup failures must not make the native lesson unusable.
 			console.error("[plugins] Agent contributions unavailable:", error);
+		}
+		// Study (core): a chat placed in a subject/topic gets its context, materials, cards and start-mode doctrine.
+		const placement = record.placement;
+		if (placement) {
+			const plugins = pluginContributions;
+			const studyKind = record.kind === "practice" ? "practice" : "teach";
+			pluginContributions = (context, reserved) => {
+				const base = plugins?.(context, reserved) ?? { instructions: [], tools: [] };
+				const study = studyContributions(chatId, placement, studyKind, { engineFor: resolveEngine, onUsage: (usage) => studyUsage?.(usage) });
+				if (!study) return base;
+				const taken = new Set(reserved);
+				return { ...base, instructions: [...study.instructions, ...base.instructions], tools: [...base.tools, ...study.tools.filter((tool) => !taken.has(tool.name))] };
+			};
 		}
 	}
 	const compactedRecord = stores.chatStore.getChat(chatId);
@@ -633,6 +649,7 @@ export async function handleChatInput(
 			reasoningTokens: usage.reasoning ?? 0,
 		});
 	};
+	studyUsage = collectUsage;
 
 	// AGENT CONSTRUCTION BRANCH (docs/archive/probe-teach-split.md §2): the transcript
 	// is the seam — a probe_done call in the record means the probe is
@@ -640,7 +657,8 @@ export async function handleChatInput(
 	// the session is still probing: build the PROBER (quiz/ask + probe_done).
 	// Both share this whole composition (write-ahead persist, liveness,
 	// steers, usage, extraction) — only the agent differs.
-	const teaching = hasProbeDone(agentMessages);
+	// Start from scratch (Study): no probe — the teacher takes the chat from its first turn.
+	const teaching = hasProbeDone(agentMessages) || record.placement?.startMode === "scratch";
 	// BYOK (owner, 2026-09-22): the conversation chain was resolved by the
 	// turn gate above (chat.model override → strong slot → refused) — the
 	// engine build is pure from here; thinking levels clamp natively.
@@ -879,6 +897,18 @@ export async function handleChatInput(
 						steps,
 					});
 				}
+				// Study: refresh the topic/subject context document from this exchange (throttled; never blocks or throws).
+				if (record.placement && stamped.length > 0) {
+					const recent = (stores.chatStore.getChat(chatId)?.messages ?? []).slice(-6);
+					const said = recent.flatMap((m) => {
+						const role = (m as { role?: string }).role;
+						if (role !== "user" && role !== "assistant") return [];
+						const content = (m as { content?: unknown }).content;
+						const text = typeof content === "string" ? content : Array.isArray(content) ? content.map((c) => (c && (c as { type?: string }).type === "text" ? String((c as { text?: string }).text ?? "") : "")).join(" ") : "";
+						return text.trim() ? [`${role === "user" ? "Learner" : "Tutor"}: ${text.trim()}`] : [];
+					});
+					keepContextAfterTurn(chatId, record.placement, said.join("\n"), { engineFor: resolveEngine });
+				}
 				// GRAPH GATE (settings-storage wave, 2026-09-19): the write channel —
 				// extraction, its auditor — dies with the master switch.
 				// PRACTICE (owner, 2026-10-04): practice sessions write nothing —
@@ -937,7 +967,7 @@ export async function handleChatInput(
 							engine: kickEngine,
 							canStart: () => !isTurnRunning(chatId) && connectionBackgroundAllowed(spec.provider),
 							modelId: kickModelId,
-							kind: freshRecord.kind === "practice" ? "practice" : hasProbeDone(freshRecord.messages) ? "teach" : "probe",
+							kind: freshRecord.kind === "practice" ? "practice" : hasProbeDone(freshRecord.messages) || freshRecord.placement?.startMode === "scratch" ? "teach" : "probe",
 							includeReasoning: fresh.compaction.includeReasoning,
 							thresholdTokens: effectiveThresholdTokens(
 								fresh.compaction?.thresholdTokens,

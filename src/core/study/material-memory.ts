@@ -13,7 +13,7 @@
 
 export const PAGE_TEXT_CAP = 2500;
 
-export interface MemoryChunk { from: number; to: number; summary: string; concepts: string[] }
+export interface MemoryChunk { from: number; to: number; summary: string; concepts: string[]; /** Diagrams/plots/worked examples worth showing later (used by notes). */ figures?: Array<{ page: number; caption: string }> }
 export interface TocEntry { title: string; page: number }
 export interface MaterialMemory {
 	read: number[];
@@ -44,13 +44,13 @@ export function parseRange(spec: unknown, max: number): number[] {
 }
 
 /** Remember one batch: page texts, a summary, the concepts found, any table-of-contents entries. */
-export function recordBatch(memory: MaterialMemory, batch: { pages: Array<{ n: number; text: string }>; summary?: string; concepts?: string[]; toc?: TocEntry[] }): MaterialMemory {
+export function recordBatch(memory: MaterialMemory, batch: { pages: Array<{ n: number; text: string }>; summary?: string; concepts?: string[]; toc?: TocEntry[]; figures?: Array<{ page: number; caption: string }> }): MaterialMemory {
 	const nums = batch.pages.map((p) => p.n).sort((a, b) => a - b);
 	if (!nums.length) return memory;
 	const pages = { ...memory.pages };
 	for (const p of batch.pages) pages[p.n] = String(p.text ?? "").slice(0, PAGE_TEXT_CAP);
 	const chunks = memory.chunks.filter((c) => !(c.from === nums[0] && c.to === nums.at(-1)));
-	chunks.push({ from: nums[0]!, to: nums.at(-1)!, summary: String(batch.summary ?? "").slice(0, 600), concepts: (batch.concepts ?? []).slice(0, 20) });
+	chunks.push({ from: nums[0]!, to: nums.at(-1)!, summary: String(batch.summary ?? "").slice(0, 600), concepts: (batch.concepts ?? []).slice(0, 20), ...(batch.figures?.length ? { figures: batch.figures.slice(0, 12).map((f) => ({ page: f.page, caption: String(f.caption).slice(0, 160) })) } : {}) });
 	chunks.sort((a, b) => a.from - b.from);
 	const toc = [...memory.toc];
 	for (const e of batch.toc ?? []) if (!toc.some((x) => x.title.toLowerCase() === e.title.toLowerCase())) toc.push(e);

@@ -272,6 +272,7 @@ export function Chat({
 	initiallyCompacting = false,
 	initialConfigured = false,
 	kind = "teach",
+	startMode,
 }: {
 	chatId: string;
 	title: string;
@@ -282,6 +283,8 @@ export function Chat({
 	 *  renders no phase chip (no probe→teach arc applies) and a Practice
 	 *  tag rides the header instead. */
 	kind?: "teach" | "practice";
+	/** Study: a chat started "from scratch" has no probe, so its phases begin at planning. */
+	startMode?: "scratch" | "check";
 	initialPrompt?: string;
 	/** A teacher turn is running server-side but attached to no client
 	 * (navigated away mid-turn, returned while in flight). */
@@ -673,7 +676,7 @@ export function Chat({
 	// The phase at every message (one linear fold): the transcript draws a
 	// color-coded dotted divider at each boundary; the header chip reads the
 	// session's current phase.
-	const phases = useMemo(() => phaseTimeline(messages), [messages]);
+	const phases = useMemo(() => phaseTimeline(messages, startMode === "scratch" ? "plan" : "probe"), [messages, startMode]);
 
 	const [composerDraftRevision, setComposerDraftRevision] = useState(0);
 	/* The composer draft ref is synchronous, so sends and dictation flushes
