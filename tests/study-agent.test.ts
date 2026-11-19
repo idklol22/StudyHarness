@@ -56,6 +56,11 @@ describe("study tools", () => {
 			cards: () => [{ key: f.topicId, group: "Dynamic programming", set: stores.get(f.topicId) ?? emptyCards() }],
 			saveCards: (key, set) => { stores.set(key, set); },
 			ownCardKey: () => ({ key: f.topicId, group: "Dynamic programming" }),
+			notes: {
+				outline: () => "(no notes yet)",
+				async add(planned, summary) { calls.push(`notes ${summary} ${planned.map((p) => p.block.type + (p.focus ? `:${p.focus}` : "")).join(",")}`); return "added"; },
+				async edit(id, patch) { calls.push(`edit ${id} ${patch.text}`); return "Updated."; },
+			},
 			now: () => Date.parse("2026-11-19T10:00:00"),
 		};
 		const tools = studyTools(ports);
@@ -72,6 +77,16 @@ describe("study tools", () => {
 		await run("study_material", { material: "ml.pdf", pages: "1-3" });
 		assert.deepEqual(calls, [`lookup ${f.topicMat.id} {"query":"bellman"}`, `read ${f.subjMat.id} 1,2,3`]);
 		await assert.rejects(run("study_context", { material: "nope.pdf" }), /Unknown material.*dp\.pdf/s);
+	});
+
+	it("study_notes places blocks (figures resolved to the material), edits, and shows the outline", async () => {
+		const { f, run, calls } = setup();
+		assert.match(await run("study_notes", { action: "outline" }), /no notes yet/);
+		await run("study_notes", { action: "add", summary: "Bellman", blocks: [{ type: "heading", text: "Bellman" }, { type: "figure", material: "dp.pdf", page: 12, focus: "the recursion" }, { type: "sticky", text: "exam!" }] });
+		assert.deepEqual(calls, ["notes Bellman heading,figure:the recursion,sticky"]);
+		await run("study_notes", { action: "edit", id: "el_1", text: "better" });
+		assert.equal(calls[1], "edit el_1 better");
+		void f;
 	});
 
 	it("adds cards (skipping duplicates), practises the next card and records a rating", async () => {

@@ -16,6 +16,8 @@ import { formatLookup, recordBatch, unread } from "../core/study/material-memory
 import { topicOf, topicsOf, subjectOf, type ChatPlacement } from "../core/study/model.ts";
 import { studyStore } from "../store/study.ts";
 import { study } from "./study-runtime.ts";
+import { addBlocks, editNote, readNotebook } from "./study-notes.ts";
+import { notebookOutline } from "../core/study/notes.ts";
 
 export interface StudyDeps {
 	engineFor: (role: ModelRole) => PiEngine | undefined;
@@ -93,6 +95,11 @@ export function studyContributions(chatId: string, placement: ChatPlacement, kin
 			].map((e) => ({ ...e, set: { ...e.set, cards: e.set.cards.map((c) => ({ ...c, group: e.group })) } }));
 		},
 		saveCards: (key, set) => studyStore.writeDoc("cards", key, set),
+		notes: {
+			outline: () => notebookOutline(readNotebook(placement)),
+			async add(planned, summary) { const book = await addBlocks(placement, planned, summary, deps); return `Added ${planned.length} block${planned.length === 1 ? "" : "s"} (notes now ${book.pages.length} page${book.pages.length === 1 ? "" : "s"}).`; },
+			async edit(id, patch) { await editNote(placement, id, patch); return "Updated."; },
+		},
 		ownCardKey: ownKey,
 	});
 	return { instructions: [instructions], tools: Object.values(tools) };

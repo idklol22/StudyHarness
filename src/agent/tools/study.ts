@@ -27,6 +27,12 @@ export interface StudyToolPorts {
 	saveCards(key: string, set: CardSet): void;
 	/** Where agent-added cards go (topic if the chat has one, else the subject). */
 	ownCardKey(): { key: string; group: string };
+	/** Notes (Phase E): place blocks, edit an element, or read the outline. */
+	notes: {
+		outline(): string;
+		add(blocks: Array<{ block: import("../../core/study/notes.ts").Block; focus?: string }>, summary: string): Promise<string>;
+		edit(id: string, patch: { text?: string; items?: string[]; caption?: string }): Promise<string>;
+	};
 	now?(): number;
 }
 
@@ -63,6 +69,18 @@ export function studyTools(ports: StudyToolPorts): Record<string, AgentTool<any>
 		q: Type.Optional(Type.String()),
 		a: Type.Optional(Type.String()),
 	});
+	const NotesSchema = Type.Object({
+		action: Type.Union([Type.Literal("add"), Type.Literal("edit"), Type.Literal("outline")]),
+		summary: Type.Optional(Type.String({ description: "One short line: what this addition covers." })),
+		blocks: Type.Optional(Type.Array(Type.Object({
+			type: Type.Union([Type.Literal("heading"), Type.Literal("text"), Type.Literal("bullets"), Type.Literal("box"), Type.Literal("sticky"), Type.Literal("steps"), Type.Literal("figure")]),
+			text: Type.Optional(Type.String()), items: Type.Optional(Type.Array(Type.String())), steps: Type.Optional(Type.Array(Type.String())),
+			kind: Type.Optional(Type.String({ description: "box: definition | exam | revisit | mistake | idea" })), title: Type.Optional(Type.String()),
+			material: Type.Optional(Type.String({ description: "figure: material id or file name" })), page: Type.Optional(Type.Integer({ minimum: 1 })),
+			focus: Type.Optional(Type.String({ description: "figure: what on that page the note is about; it gets circled/underlined/pointed at" })), caption: Type.Optional(Type.String()),
+		}))),
+		id: Type.Optional(Type.String({ description: "edit: the element id from the outline" })), text: Type.Optional(Type.String()), items: Type.Optional(Type.Array(Type.String())),
+	});
 	const NextSchema = Type.Object({
 		mode: Type.Union([Type.Literal("due"), Type.Literal("progressive"), Type.Literal("all")], { description: "due = spaced-repetition due cards; progressive = weakest topic first, one topic at a time; all = everything, weakest first." }),
 		topics: Type.Optional(Type.Array(Type.String(), { description: "Limit to these topic names." })),
@@ -91,6 +109,27 @@ export function studyTools(ports: StudyToolPorts): Record<string, AgentTool<any>
 				const pages = parseRange(input.pages, m.pageCount).slice(0, MAX_PAGES_PER_CALL);
 				if (!pages.length) throw new Error(`${m.fileName} has ${m.pageCount} pages.`);
 				return { text: await ports.read(m.id, pages) };
+			}),
+		},
+		study_notes: {
+			name: "study_notes",
+			label: "study_notes",
+			description: "Write the learner's class notes as you teach, like a student's iPad notes: short headings, bullets, margin stickies, boxes (definition / exam / revisit / mistake), worked steps from this lesson, and figure blocks that screenshot a page of the material (give page and focus; it is marked up with circles and arrows for you). Add after each part is taught, not before. Notes are never deleted: use edit to change wording, outline to see what is there first.",
+			parameters: NotesSchema,
+			execute: serverExecute("study_notes", NotesSchema, async (input) => {
+				if (input.action === "outline") return { text: ports.notes.outline() };
+				if (input.action === "edit") {
+					if (!input.id) throw new Error("Give the element id from the outline.");
+					return { text: await ports.notes.edit(input.id, { text: input.text, items: input.items }) };
+				}
+				const planned = (input.blocks ?? []).flatMap((b): Array<{ block: import("../../core/study/notes.ts").Block; focus?: string }> => {
+					if (b.type === "figure") { const m = material(b.material); return b.page ? [{ block: { type: "figure", materialId: m.id, page: b.page, aspect: 0.75, caption: b.caption }, focus: b.focus }] : []; }
+					if (b.type === "bullets") return [{ block: { type: "bullets", items: b.items ?? [] } }];
+					if (b.type === "steps") return [{ block: { type: "steps", title: b.title, steps: b.steps ?? b.items ?? [] } }];
+					if (b.type === "box") return [{ block: { type: "box", kind: (b.kind ?? "idea") as never, title: b.title, text: b.text ?? "" } }];
+					return [{ block: { type: b.type, text: b.text ?? "" } as never }];
+				});
+				return { text: await ports.notes.add(planned, input.summary ?? "Notes from the lesson") };
 			}),
 		},
 		study_cards: {

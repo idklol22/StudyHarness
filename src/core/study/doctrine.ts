@@ -6,7 +6,7 @@
 import { contextScopes, materialsIn, subjectOf, topicOf, type ChatPlacement, type Library } from "./model.ts";
 
 /** Tool names this module adds (reserved so plugins cannot shadow them). */
-export const STUDY_TOOL_NAMES = ["study_context", "study_material", "study_cards", "study_practice_next", "study_practice_rate"] as const;
+export const STUDY_TOOL_NAMES = ["study_context", "study_material", "study_cards", "study_notes", "study_practice_next", "study_practice_rate"] as const;
 
 const LAYERS = `Where to look, in this order — stop at the first layer that answers:
 1. The topic context and subject context shown above (already in front of you; never re-fetch them).
@@ -23,6 +23,8 @@ const SCRATCH = `This learner chose to START FROM SCRATCH. Do not probe and do n
 const CHECK = `This learner chose to CHECK WHAT THEY KNOW FIRST: run the normal probe, then teach from what it shows. Use the materials to choose what to probe.`;
 
 const PRACTICE = `This is a PRACTICE chat. Draw practice from the topic's materials and the learner's flashcards (study_practice_next, then study_practice_rate with their honest 1–4 rating: 1 again, 2 hard, 3 good, 4 easy). Use cards for recall and the usual problems for application.`;
+
+const NOTES = `Notes: keep the learner's class notes as you teach with study_notes — after each part is taught, add a few short blocks (a heading, 2–4 bullets, a sticky for a warning, the worked steps you just did, and a figure block for the slide or diagram you used). Call study_notes outline first if unsure what is already there; edit, never repeat. Short, like a student's own notes.`;
 
 const CARDS = `Flashcards: when the learner gets something right for the first time, or a definition/fact is worth keeping, add a card with study_cards (one idea per card, question and answer short). Do not add cards the learner did not need.`;
 
@@ -56,6 +58,7 @@ export function studyInstructions({ library, placement, kind, readState }: Doctr
 		: "## Materials\nNone uploaded yet. Teach from what you know and what the learner says; they can add slides or notes any time.");
 	out.push(LAYERS);
 	out.push(kind === "practice" ? PRACTICE : placement.startMode === "scratch" ? SCRATCH : CHECK);
+	if (kind !== "practice") out.push(NOTES);
 	out.push(CARDS);
 	return out.join("\n\n");
 }
