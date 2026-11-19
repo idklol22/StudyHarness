@@ -131,9 +131,11 @@ export class Graph3DRenderer {
 
 	constructor(private canvas: HTMLCanvasElement, private callbacks: Graph3DCallbacks, initialCamera?: Camera3DState | null) {
 		// Throws when WebGL is unavailable: the view catches this and falls back to 2D.
-		this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: "high-performance" });
+		// Round 5 responsiveness: high-performance/antialiased contexts are slow to create (and slow to
+		// render on software GL). The quiet node shapes don't need MSAA; cap the pixel ratio as well.
+		this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true, powerPreference: "default", stencil: false });
 		this.renderer.setClearColor(0x000000, 0);
-		this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+		this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 		this.reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
 		this.camera = new THREE.PerspectiveCamera(FOV, 1, 1, 50_000);

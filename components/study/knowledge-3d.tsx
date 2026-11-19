@@ -44,8 +44,10 @@ export function Knowledge3D() {
 	tuningRef.current = tuning;
 	const [tuningOpen, setTuningOpen] = useState(false);
 	const [notice, setNotice] = useState("");
+	/** Bumped when the deferred WebGL renderer is ready, so data/tuning effects re-run. */
+	const [rendererReady, setRendererReady] = useState(0);
 	useEffect(() => { setTuning(readTuning()); }, []);
-	useEffect(() => { rendererRef.current?.setTuning(tuning); }, [tuning]);
+	useEffect(() => { rendererRef.current?.setTuning(tuning); }, [tuning, rendererReady]);
 	const changeTuning = (t: GraphTuning) => { setTuning(t); saveTuning(t); };
 	const toggleCentre = () => {
 		const next = !centre;
@@ -81,42 +83,60 @@ export function Knowledge3D() {
 	// A distinct colour per subject: hues spaced by the golden angle in name order (stable as subjects are added).
 	const subjectHues = useMemo(() => Object.fromEntries((map?.subjects ?? []).map((s) => [s.id, subjectColor(map!.subjects, s.id)])), [map]);
 
-	// Each renderer gets its OWN canvas: destroying a renderer kills its canvas's graphics context, so reusing the
-	// element (React mounts effects twice in development) would leave the next renderer with a dead context.
+	// WebGL context creation is expensive (three.js getContext blocks the main thread). Defer it until
+	// the browser is idle so Home's composer and sidebar are interactive immediately. The scheduled init
+	// is cancelled on cleanup — in React's development double-mount this avoids creating TWO contexts.
 	useEffect(() => {
 		const host = hostRef.current;
 		if (!host || noGl) return;
-		const canvas = document.createElement("canvas");
-		canvas.className = "absolute inset-0 block h-full w-full touch-none outline-none";
-		host.appendChild(canvas);
-		let camera = null;
-		try { const raw = localStorage.getItem(CAMERA_KEY); if (raw) camera = JSON.parse(raw); } catch { /* frame itself */ }
+		let disposed = false;
+		let canvas: HTMLCanvasElement | null = null;
+		let renderer: Graph3DRenderer | null = null;
 		let timer: ReturnType<typeof setTimeout> | null = null;
-		let renderer: Graph3DRenderer;
-		try {
-			renderer = new Graph3DRenderer(canvas, {
-				// One click selects (and shows a card); a double click opens the subject's or topic's page.
-				onSelect: (nodeId) => setSelected(nodeId),
-				onHub: (subjectId) => setSelected(`subject:${subjectId}`),
-				onOpen: (nodeId, group) => {
-					const m = mapRef.current;
-					if (!m) return;
-					if (group) { routerRef.current.push(`/subjects/${group}`); return; }
-					const topic = m.subjects.flatMap((s) => s.topics).find((t) => t.id === nodeId);
-					if (topic) routerRef.current.push(topic.href);
-				},
-				onContext: () => {},
-				onStageClick: () => setSelected(null),
-				onCameraMove: () => {},
-				onCommit: () => {},
-				onCamera3D: (state) => { if (timer) clearTimeout(timer); timer = setTimeout(() => { try { localStorage.setItem(CAMERA_KEY, JSON.stringify(state)); } catch { /* best-effort */ } }, 250); },
-				onUnavailable: (reason) => setNoGl(reason),
-			}, camera);
-		} catch (error) { canvas.remove(); setNoGl(error instanceof Error ? error.message : "WebGL is not available"); return; }
-		rendererRef.current = renderer;
-		renderer.setSettings(DEFAULT_RENDER_SETTINGS);
-		renderer.setTuning(tuningRef.current);
-		return () => { if (timer) clearTimeout(timer); rendererRef.current = null; renderer.destroy(); canvas.remove(); };
+		const init = () => {
+			if (disposed || !hostRef.current) return;
+			canvas = document.createElement("canvas");
+			canvas.className = "absolute inset-0 block h-full w-full touch-none outline-none";
+			host.appendChild(canvas);
+			let camera = null;
+			try { const raw = localStorage.getItem(CAMERA_KEY); if (raw) camera = JSON.parse(raw); } catch { /* frame itself */ }
+			try {
+				renderer = new Graph3DRenderer(canvas, {
+					// One click selects (and shows a card); a double click opens the subject's or topic's page.
+					onSelect: (nodeId) => setSelected(nodeId),
+					onHub: (subjectId) => setSelected(`subject:${subjectId}`),
+					onOpen: (nodeId, group) => {
+						const m = mapRef.current;
+						if (!m) return;
+						if (group) { routerRef.current.push(`/subjects/${group}`); return; }
+						const topic = m.subjects.flatMap((s) => s.topics).find((t) => t.id === nodeId);
+						if (topic) routerRef.current.push(topic.href);
+					},
+					onContext: () => {},
+					onStageClick: () => setSelected(null),
+					onCameraMove: () => {},
+					onCommit: () => {},
+					onCamera3D: (state) => { if (timer) clearTimeout(timer); timer = setTimeout(() => { try { localStorage.setItem(CAMERA_KEY, JSON.stringify(state)); } catch { /* best-effort */ } }, 250); },
+					onUnavailable: (reason) => setNoGl(reason),
+				}, camera);
+			} catch (error) { canvas.remove(); canvas = null; setNoGl(error instanceof Error ? error.message : "WebGL is not available"); return; }
+			rendererRef.current = renderer;
+			renderer.setSettings(DEFAULT_RENDER_SETTINGS);
+			renderer.setTuning(tuningRef.current);
+			setRendererReady((n) => n + 1);
+		};
+		const w = window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (h: number) => void };
+		const idle = w.requestIdleCallback;
+		const handle = typeof idle === "function" ? idle.call(w, init, { timeout: 300 }) : window.setTimeout(init, 0);
+		return () => {
+			disposed = true;
+			if (typeof idle === "function") w.cancelIdleCallback?.(handle);
+			else clearTimeout(handle);
+			if (timer) clearTimeout(timer);
+			rendererRef.current = null;
+			renderer?.destroy();
+			canvas?.remove();
+		};
 	}, [noGl]);
 
 	useEffect(() => {
@@ -133,15 +153,15 @@ export function Knowledge3D() {
 			colors: { node: tokenHex("--primary"), edge: tokenHex("--muted-foreground"), label: tokenHex("--muted-foreground"), hoverText: tokenHex("--foreground"), clusterLightness: CLUSTER_LIGHTNESS[resolvedMode] },
 			fontFamily: getComputedStyle(document.body).fontFamily,
 		});
-	}, [graph, subjectHues, resolvedMode, colors, noGl]);
-	useEffect(() => { rendererRef.current?.setCentreVisible(centre); }, [centre, graph]);
+	}, [graph, subjectHues, resolvedMode, colors, noGl, rendererReady]);
+	useEffect(() => { rendererRef.current?.setCentreVisible(centre); }, [centre, graph, rendererReady]);
 	// Narrow to one subject (its topics and ideas), then frame it.
 	useEffect(() => {
 		const r = rendererRef.current;
 		if (!r || !graph) return;
 		r.setVisible(only ? new Set(graph.nodes.filter((n) => n.subjectId === only).map((n) => n.id)) : null);
 		if (lastOnly.current !== only) { lastOnly.current = only; r.fit(); } // frame on a filter change, not on every refresh
-	}, [only, graph]);
+	}, [only, graph, rendererReady]);
 
 	/** Remove what is selected (an idea, a topic with its files and notes, or a whole subject), after asking. */
 	const removeSelected = async () => {
