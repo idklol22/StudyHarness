@@ -25,7 +25,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { CanvasData, GraphRenderSettings, RendererCallbacks } from "./graph-canvas.ts";
 import { clusterHue } from "./cluster-geometry.ts";
-import { Layout3D, NODE_HUB, NODE_JUNCTION, NODE_ROOT, hash01, hubId, fitDistance, pickNearest3D, placeLabels, type LabelCandidate } from "./graph-3d-layout.ts";
+import { DEFAULT_TUNING, Layout3D, NODE_HUB, NODE_JUNCTION, NODE_ROOT, hash01, hubId, fitDistance, pickNearest3D, placeLabels, type GraphTuning, type LabelCandidate } from "./graph-3d-layout.ts";
 
 /** The centre node's name. */
 const ROOT_LABEL = "Knowledge";
@@ -119,6 +119,11 @@ export class Graph3DRenderer {
 	private radiusScale = RADIUS_PER_SIZE * 2;
 	private cleanup: Array<() => void> = [];
 	private fogRadius = 200;
+	/** Study view tuning (sliders). */
+	private tune: GraphTuning = { ...DEFAULT_TUNING };
+	/** Soft glow behind every node (additive sprites). */
+	private glowPoints: THREE.Points | null = null;
+	private glowTexture: THREE.Texture | null = null;
 
 	constructor(private canvas: HTMLCanvasElement, private callbacks: Graph3DCallbacks, initialCamera?: Camera3DState | null) {
 		// Throws when WebGL is unavailable: the view catches this and falls back to 2D.
@@ -255,7 +260,7 @@ export class Graph3DRenderer {
 	}
 
 	setSettings(settings: GraphRenderSettings): void {
-		this.settings = settings; this.radiusScale = RADIUS_PER_SIZE * settings.nodeSize;
+		this.settings = settings; this.radiusScale = RADIUS_PER_SIZE * settings.nodeSize * (this.study ? this.tune.nodeSize : 1);
 		this.geometryDirty = this.colorsDirty = this.labelsDirty = true; this.kick();
 	}
 	// 2D-only knobs, accepted so the view can feed both renderers identically.
@@ -319,7 +324,7 @@ export class Graph3DRenderer {
 			const hue = (this.hueOf(c) + (isHub ? 0 : (hash01(id + "h") - 0.5) * 14) + 360) % 360;
 			const light = data.colors.clusterLightness.ring / 100 + (isHub ? 0.1 : (hash01(id + "l") - 0.5) * 0.16);
 			// Study: muted, slate-like colours (each subject still has its own hue).
-			return this.study ? new THREE.Color().setHSL(hue / 360, 0.26, isHub ? 0.6 : 0.52 + (hash01(id + "l") - 0.5) * 0.06) : new THREE.Color().setHSL(hue / 360, 0.6, Math.min(0.82, Math.max(0.3, light)));
+			return this.study ? new THREE.Color().setHSL(hue / 360, this.tune.saturation, Math.min(0.92, (isHub ? this.tune.brightness + 0.06 : this.tune.brightness - 0.02) + (isHub ? 0 : (hash01(id + "l") - 0.5) * 0.06))) : new THREE.Color().setHSL(hue / 360, 0.6, Math.min(0.82, Math.max(0.3, light)));
 		});
 	}
 
@@ -336,7 +341,8 @@ export class Graph3DRenderer {
 		if (this.nodeMesh) { this.scene.remove(this.nodeMesh); this.nodeMesh.geometry.dispose(); (this.nodeMesh.material as THREE.Material).dispose(); this.nodeMesh.dispose(); }
 		if (this.edgeLines) { this.scene.remove(this.edgeLines); this.edgeLines.geometry.dispose(); (this.edgeLines.material as THREE.Material).dispose(); }
 		if (this.dust) { this.scene.remove(this.dust); this.dust.geometry.dispose(); (this.dust.material as THREE.Material).dispose(); }
-		this.nodeMesh = null; this.edgeLines = null; this.dust = null;
+		if (this.glowPoints) { this.scene.remove(this.glowPoints); this.glowPoints.geometry.dispose(); (this.glowPoints.material as THREE.Material).dispose(); }
+		this.nodeMesh = null; this.edgeLines = null; this.dust = null; this.glowPoints = null;
 	}
 
 	private rebuildMeshes(): void {
@@ -352,6 +358,23 @@ export class Graph3DRenderer {
 		this.edgeLines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false }));
 		this.edgeLines.frustumCulled = false; this.edgeLines.renderOrder = -1;
 		this.scene.add(this.edgeLines);
+		// Glow: a soft additive halo behind each node (strength = the glow slider; Study graph only).
+		if (this.study) {
+			if (!this.glowTexture) {
+				const c = document.createElement("canvas"); c.width = c.height = 64;
+				const g = c.getContext("2d")!, grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+				grad.addColorStop(0, "rgba(255,255,255,0.9)"); grad.addColorStop(0.35, "rgba(255,255,255,0.35)"); grad.addColorStop(1, "rgba(255,255,255,0)");
+				g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
+				this.glowTexture = new THREE.CanvasTexture(c);
+				this.cleanup.push(() => this.glowTexture?.dispose());
+			}
+			const gg = new THREE.BufferGeometry();
+			gg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(nodes * 3), 3).setUsage(THREE.DynamicDrawUsage));
+			gg.setAttribute("color", new THREE.BufferAttribute(new Float32Array(nodes * 3), 3).setUsage(THREE.DynamicDrawUsage));
+			this.glowPoints = new THREE.Points(gg, new THREE.PointsMaterial({ map: this.glowTexture, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true, size: 10 }));
+			this.glowPoints.frustumCulled = false; this.glowPoints.renderOrder = -2;
+			this.scene.add(this.glowPoints);
+		}
 		if (this.data) {
 			const R = this.layout.radius * 1.7, count = 900, pts = new Float32Array(count * 3);
 			for (let i = 0; i < count; i++) {
@@ -373,6 +396,17 @@ export class Graph3DRenderer {
 		this.showCentre = on;
 		if (!on && this.selectedId !== null && this.layout.kind[this.layout.indexOf(this.selectedId)] === NODE_ROOT) this.applySelected(null);
 		this.applyVisible(); this.geometryDirty = this.screenDirty = this.labelsDirty = this.colorsDirty = true; this.kick();
+	}
+
+	/** Apply the view sliders: layout fields re-place the nodes, look fields redraw. */
+	setTuning(t: GraphTuning): void {
+		this.tune = { ...t };
+		this.layout.setTuning(t);
+		if (this.settings) this.radiusScale = RADIUS_PER_SIZE * this.settings.nodeSize * (this.study ? t.nodeSize : 1);
+		if (this.data) this.paletteFor(this.data);
+		this.setRotationLocked(!t.rotate);
+		this.geometryDirty = this.colorsDirty = this.labelsDirty = this.screenDirty = true;
+		this.kick();
 	}
 
 	setRotationLocked(locked: boolean): void {
@@ -443,11 +477,18 @@ export class Graph3DRenderer {
 			this.nodeMesh!.setMatrixAt(k, m);
 		});
 		this.nodeMesh.instanceMatrix.needsUpdate = true;
+		if (this.glowPoints) {
+			const gp = this.glowPoints.geometry.getAttribute("position") as THREE.BufferAttribute;
+			this.real.forEach((li, k) => { const on = this.nodeVisible[li]; gp.setXYZ(k, on ? pos[li * 3]! : 1e9, on ? pos[li * 3 + 1]! : 1e9, on ? pos[li * 3 + 2]! : 1e9); });
+			gp.needsUpdate = true;
+			const mat = this.glowPoints.material as THREE.PointsMaterial;
+			mat.size = this.radiusScale * 7; mat.opacity = Math.min(1, this.tune.glow); mat.visible = this.tune.glow > 0.01;
+		}
 
 		// Branches are always drawn in their topic's colour (dimmed while something is focused);
 		// interconnections show only for the hovered/selected idea (thin, plain).
 		const shown = Math.max(fade, this.selectedId ? 1 : 0);
-		const branchAlpha = 0.26 + Math.min(0.3, (this.settings?.edgeWidth ?? 1) * 0.08);
+		const branchAlpha = Math.min(0.95, (0.26 + Math.min(0.3, (this.settings?.edgeWidth ?? 1) * 0.08)) * (this.study ? this.tune.edgeWidth : 1));
 		const posAttr = this.edgeLines.geometry.getAttribute("position") as THREE.BufferAttribute, colAttr = this.edgeLines.geometry.getAttribute("color") as THREE.BufferAttribute;
 		const edgeColor = new THREE.Color(this.data.colors.edge), a = new THREE.Vector3(), b = new THREE.Vector3();
 		this.edgeIdx.forEach(([from, to], e) => {
@@ -485,6 +526,11 @@ export class Graph3DRenderer {
 			this.nodeMesh!.setColorAt(k, c);
 		});
 		if (this.nodeMesh.instanceColor) this.nodeMesh.instanceColor.needsUpdate = true;
+		if (this.glowPoints) {
+			const gc = this.glowPoints.geometry.getAttribute("color") as THREE.BufferAttribute;
+			this.real.forEach((li, k) => { const b = this.baseColor[li]!; gc.setXYZ(k, b.r, b.g, b.b); });
+			gc.needsUpdate = true;
+		}
 		this.ring.material instanceof THREE.MeshBasicMaterial && this.ring.material.color.set(this.data.colors.hoverText);
 		this.halo.material instanceof THREE.MeshBasicMaterial && this.halo.material.color.set(this.data.colors.hoverText);
 	}
@@ -523,7 +569,7 @@ export class Graph3DRenderer {
 		const font = this.data?.fontFamily ?? "system-ui, sans-serif", color = this.data?.colors.label ?? "#888", strong = this.data?.colors.hoverText ?? "#fff";
 		const target = this.controls.target, camDist = this.camera.position.distanceTo(target);
 		// 1 at fit, larger when zoomed in. The shared "labels once zoomed" setting (default 0.5) shifts how early they appear.
-		const zoomIn = (this.fitDist / Math.max(camDist, 1)) * (0.5 / Math.max(this.settings?.labelZoom ?? 0.5, 0.05));
+		const zoomIn = (this.fitDist / Math.max(camDist, 1)) * (0.5 / Math.max(this.settings?.labelZoom ?? 0.5, 0.05)) * (this.study ? this.tune.labels : 1);
 		const labelPx = Math.max(10, Math.min(15, 11 + (this.settings?.labelSize ?? 3) * 0.4));
 		const cands: LabelCandidate[] = [], must = new Set<number>();
 		if (this.hoverIdx >= 0) must.add(this.hoverIdx);
@@ -544,7 +590,7 @@ export class Graph3DRenderer {
 			if (this.study && !forced) {
 				const kind = this.layout.kind[li], depth = this.layout.depth[li] ?? 3;
 				if (kind === NODE_ROOT) continue;
-				if (kind === NODE_HUB ? zoomIn < 1.15 : depth <= 2 ? zoomIn < 1.7 : zoomIn < 2.6) continue;
+				if (kind === NODE_HUB ? !this.tune.subjectNames && zoomIn < 1.15 : depth <= 2 ? zoomIn < 1.7 : zoomIn < 2.6) continue;
 			}
 			if (!forced && near >= baseCount) continue;
 			const text = this.labels[li] ?? ""; if (!text) continue;

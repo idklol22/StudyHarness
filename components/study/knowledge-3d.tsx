@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowUpRightIcon, CrosshairIcon, OrbitIcon } from "lucide-react";
+import { ArrowUpRightIcon, CrosshairIcon, OrbitIcon, SlidersHorizontalIcon, Trash2Icon } from "lucide-react";
 import { useServerEvent } from "@/components/server-events";
 import { useAppearance } from "@/components/settings/appearance";
 import { CLUSTER_LIGHTNESS } from "@/components/graph-canvas";
@@ -16,6 +16,8 @@ import { Graph3DRenderer } from "@/components/graph-3d";
 import { tokenHex } from "@/components/graph-view";
 import { DEFAULT_RENDER_SETTINGS, findMapIdea, knowledgeGraph, type StudyMap } from "@/src/core";
 import { IdeaCard } from "./idea-card";
+import { GraphTuningPanel, readTuning, saveTuning } from "./graph-tuning-panel";
+import { DEFAULT_TUNING, type GraphTuning } from "@/components/graph-3d-layout";
 import { SubjectMap } from "./subject-map";
 
 const CENTRE_KEY = "lh.knowledge.centre.v1";
@@ -34,6 +36,14 @@ export function Knowledge3D() {
 	/** The subject the graph is narrowed to ("" = all). */
 	const [only, setOnly] = useState("");
 	const lastOnly = useRef("");
+	const [tuning, setTuning] = useState<GraphTuning>(DEFAULT_TUNING);
+	const tuningRef = useRef(tuning);
+	tuningRef.current = tuning;
+	const [tuningOpen, setTuningOpen] = useState(false);
+	const [notice, setNotice] = useState("");
+	useEffect(() => { setTuning(readTuning()); }, []);
+	useEffect(() => { rendererRef.current?.setTuning(tuning); }, [tuning]);
+	const changeTuning = (t: GraphTuning) => { setTuning(t); saveTuning(t); };
 	const { resolvedMode, colors } = useAppearance();
 	const mapRef = useRef<StudyMap | null>(null);
 	mapRef.current = map;
@@ -45,6 +55,17 @@ export function Knowledge3D() {
 	useServerEvent("sources-changed", () => { void load(); });
 	useServerEvent("chats-changed", () => { void load(); });
 	useEffect(() => { try { setCentre(localStorage.getItem(CENTRE_KEY) !== "off"); } catch { /* default on */ } }, []);
+	// Delete / Backspace removes the selected node (after asking), unless you are typing somewhere.
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key !== "Delete" && e.key !== "Backspace") return;
+			const t = e.target as HTMLElement | null;
+			if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+			e.preventDefault(); void removeRef.current();
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, []);
 
 	const graph = useMemo(() => (map ? knowledgeGraph(map) : null), [map]);
 	// A distinct colour per subject: hues spaced by the golden angle in name order (stable as subjects are added).
@@ -84,6 +105,7 @@ export function Knowledge3D() {
 		} catch (error) { canvas.remove(); setNoGl(error instanceof Error ? error.message : "WebGL is not available"); return; }
 		rendererRef.current = renderer;
 		renderer.setSettings(DEFAULT_RENDER_SETTINGS);
+		renderer.setTuning(tuningRef.current);
 		return () => { if (timer) clearTimeout(timer); rendererRef.current = null; renderer.destroy(); canvas.remove(); };
 	}, [noGl]);
 
@@ -110,6 +132,28 @@ export function Knowledge3D() {
 		if (lastOnly.current !== only) { lastOnly.current = only; r.fit(); } // frame on a filter change, not on every refresh
 	}, [only, graph]);
 
+	/** Remove what is selected (an idea, a topic with its files and notes, or a whole subject), after asking. */
+	const removeSelected = async () => {
+		const m = map;
+		if (!m || !selected) return;
+		let body: Record<string, unknown> | null = null, what = "";
+		const idea = findMapIdea(m, selected);
+		const subject = selected.startsWith("subject:") ? m.subjects.find((x) => `subject:${x.id}` === selected) : undefined;
+		const topic = !idea && !subject ? m.subjects.flatMap((x) => x.topics.map((t) => ({ t, x }))).find((y) => y.t.id === selected) : undefined;
+		if (idea) { body = { action: "remove-idea", subjectId: idea.subject.id, ...(idea.topic ? { topicId: idea.topic.id } : {}), id: idea.idea.id }; what = `the idea “${idea.idea.name}”`; }
+		else if (topic) { body = { action: "delete-topic", id: topic.t.id }; what = `the topic “${topic.t.name}” with its files and notes`; }
+		else if (subject) { body = { action: "delete-subject", id: subject.id }; what = `the subject “${subject.name}” with all its topics, files and notes`; }
+		if (!body || !window.confirm(`Remove ${what}? This cannot be undone.`)) return;
+		try {
+			const r = await fetch("/api/study/library", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+			const d = await r.json() as { error?: string };
+			if (d.error) { setNotice(d.error); return; }
+			setSelected(null); setNotice(""); void load();
+		} catch { setNotice("Could not reach the app."); }
+	};
+	const removeRef = useRef(removeSelected);
+	removeRef.current = removeSelected;
+
 	if (noGl) return <SubjectMap />;
 	const picked = selected && map ? findMapIdea(map, selected) : undefined;
 	// A picked subject or topic: a small card with what it holds and a way in (double-clicking the node opens it too).
@@ -130,6 +174,8 @@ export function Knowledge3D() {
 			{map && !empty && (
 				<div className="lh-no-drag absolute right-3 top-14 z-10 flex flex-col items-end gap-1">
 					<button type="button" aria-pressed={centre} title={centre ? "Hide the centre" : "Show the centre"} onClick={() => { const next = !centre; setCentre(next); try { localStorage.setItem(CENTRE_KEY, next ? "on" : "off"); } catch { /* best-effort */ } }} data-testid="knowledge-centre-toggle" className={`flex size-9 items-center justify-center rounded-xl border bg-card/85 shadow-lg backdrop-blur transition-colors hover:bg-accent ${centre ? "text-foreground" : "text-muted-foreground"}`}><OrbitIcon className="size-4" /></button>
+					<button type="button" aria-pressed={tuningOpen} title="View settings" onClick={() => setTuningOpen((o) => !o)} data-testid="knowledge-tuning-toggle" className={`flex size-9 items-center justify-center rounded-xl border bg-card/85 shadow-lg backdrop-blur transition-colors hover:bg-accent ${tuningOpen ? "text-foreground" : "text-muted-foreground"}`}><SlidersHorizontalIcon className="size-4" /></button>
+					{tuningOpen && <div className="absolute right-12 top-0 z-20"><GraphTuningPanel tuning={tuning} onChange={changeTuning} onClose={() => setTuningOpen(false)} /></div>}
 					<button type="button" title="Fit everything in view" onClick={() => rendererRef.current?.fit()} className="flex size-9 items-center justify-center rounded-xl border bg-card/85 text-muted-foreground shadow-lg backdrop-blur transition-colors hover:bg-accent hover:text-foreground"><CrosshairIcon className="size-4" /></button>
 					<nav aria-label="Subjects" data-testid="knowledge-subjects" className="mt-2 flex max-h-[55vh] w-52 flex-col gap-0.5 overflow-y-auto rounded-xl border bg-card/85 p-1.5 text-xs shadow-lg backdrop-blur">
 						<div className="px-2 pb-1 pt-0.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">Subjects</div>
@@ -146,7 +192,8 @@ export function Knowledge3D() {
 					</nav>
 				</div>
 			)}
-			{picked && <div className="lh-no-drag absolute bottom-24 left-3 z-10 w-80 max-w-[calc(100%-1.5rem)]"><IdeaCard picked={picked} onClose={() => setSelected(null)} /></div>}
+			{picked && <div className="lh-no-drag absolute bottom-24 left-3 z-10 flex w-80 max-w-[calc(100%-1.5rem)] flex-col gap-1"><IdeaCard picked={picked} onClose={() => setSelected(null)} /><button type="button" onClick={() => void removeSelected()} data-testid="knowledge-remove" className="inline-flex h-7 w-fit items-center gap-1 rounded-md border bg-card/95 px-2.5 text-xs text-muted-foreground shadow hover:text-destructive"><Trash2Icon className="size-3.5" />Remove idea</button></div>}
+			{notice && <p role="alert" className="lh-no-drag absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-md border bg-card px-3 py-1.5 text-xs text-destructive shadow">{notice}</p>}
 			{scopeCard && (
 				<div className="lh-no-drag absolute bottom-24 left-3 z-10 w-72 max-w-[calc(100%-1.5rem)] rounded-xl border bg-card/95 p-3 text-xs shadow-lg backdrop-blur" data-testid="knowledge-scope-card">
 					<div className="mb-1 flex items-start justify-between gap-2">
@@ -156,6 +203,7 @@ export function Knowledge3D() {
 					<p className="mb-2 text-muted-foreground">{scopeCard.line}</p>
 					<button type="button" onClick={() => routerRef.current.push(scopeCard.href)} className="inline-flex h-7 items-center gap-1 rounded-md border px-2.5 hover:bg-accent">Open<ArrowUpRightIcon className="size-3.5" /></button>
 					<span className="ml-2 text-muted-foreground">or double-click the node</span>
+					<button type="button" onClick={() => void removeSelected()} data-testid="knowledge-remove" className="mt-2 flex items-center gap-1 text-muted-foreground hover:text-destructive"><Trash2Icon className="size-3.5" />Remove {pickedSubject ? "subject" : "topic"}</button>
 				</div>
 			)}
 		</div>

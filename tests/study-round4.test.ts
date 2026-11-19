@@ -11,7 +11,7 @@ import { FIELDS, fieldDirection, guessField } from "../src/core/study/fields.ts"
 import { buildStudyMap } from "../src/core/study/map.ts";
 import { layoutStudyMap } from "../src/core/study/map-layout.ts";
 import { knowledgeGraph } from "../src/core/study/knowledge-graph.ts";
-import { buildKnowledgeTree, placeBalls } from "../components/graph-3d-layout.ts";
+import { buildKnowledgeTree, DEFAULT_TUNING, Layout3D, placeBalls } from "../components/graph-3d-layout.ts";
 
 function lib() {
 	let l: Library = emptyLibrary();
@@ -156,5 +156,27 @@ describe("decluttered subject map", () => {
 			assert.ok(d >= nodes[a]!.r + nodes[b]!.r + 8, `${nodes[a]!.label} and ${nodes[b]!.label} are ${d.toFixed(1)} apart`);
 		}
 		assert.ok(nodes.filter((n) => n.kind === "idea").every((n) => n.parentId), "every idea knows its topic");
+	});
+});
+
+describe("view sliders", () => {
+	it("edge length and centre distance move the shells; subjects stay on one level", () => {
+		let l: Library = emptyLibrary();
+		const a = createSubject(l, "Algorithms"); l = a.library;
+		const b = createSubject(l, "English"); l = b.library;
+		const t = createTopic(l, a.subject.id, "Graphs"); l = t.library;
+		l = addIdea(l, { subjectId: a.subject.id, topicId: t.topic.id }, { name: "BFS" });
+		const g = knowledgeGraph(buildStudyMap({ library: l, chats: [] }));
+		const layout = new Layout3D();
+		layout.setGraph(g.nodes.map((n) => ({ id: n.id, x: 0, y: 0, cluster: n.subjectId, ...(g.parents[n.id] ? { parent: g.parents[n.id] } : {}) })), g.edges, new Map(Object.entries(g.anchors)));
+		layout.settle();
+		const dist = (id: string) => { const i = layout.indexOf(id); return Math.hypot(layout.pos[i * 3]!, layout.pos[i * 3 + 1]!, layout.pos[i * 3 + 2]!); };
+		const hubA = `__lh_hub__:${a.subject.id}`, hubB = `__lh_hub__:${b.subject.id}`;
+		assert.ok(Math.abs(dist(hubA) - dist(hubB)) < 2, "subjects share one level");
+		assert.ok(dist(t.topic.id) > dist(hubA) + 20, "topics further out");
+		const before = dist(hubA);
+		layout.setTuning({ ...DEFAULT_TUNING, edgeLength: 2 });
+		layout.settle();
+		assert.ok(dist(hubA) > before * 1.7, "longer edges push everything out");
 	});
 });

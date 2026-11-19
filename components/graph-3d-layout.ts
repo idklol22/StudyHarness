@@ -41,6 +41,34 @@ export interface Layout3DNode {
 export interface Layout3DEdge { from: string; to: string }
 
 export const LAYOUT_LINK_DISTANCE = 40;
+
+/**
+ * Live view tuning for the Study graph (owner 2026-11-19: "sliders like edge length, edge width, node size, friction,
+ * spacing, gravity, centre, colours, glow"). Layout fields move the nodes; look fields only change the drawing.
+ */
+export interface GraphTuning {
+	/** Distance between levels (centre → subjects → topics → ideas). */
+	edgeLength: number;
+	/** How far subjects sit from the centre (relative to edgeLength). */
+	centreDistance: number;
+	/** How widely topics and ideas fan out, and how hard neighbours push apart. */
+	spacing: number;
+	/** How strongly every node is pulled to its place. */
+	gravity: number;
+	/** Damping of motion (0 = slides on ice, 1 = stops at once). */
+	friction: number;
+	nodeSize: number;
+	edgeWidth: number;
+	saturation: number;
+	brightness: number;
+	glow: number;
+	/** When names appear while zooming (higher = they show from further away). */
+	labels: number;
+	/** Name every subject at all times. */
+	subjectNames: boolean;
+	rotate: boolean;
+}
+export const DEFAULT_TUNING: GraphTuning = { edgeLength: 1, centreDistance: 1, spacing: 1, gravity: 1, friction: 0.4, nodeSize: 1, edgeWidth: 1, saturation: 0.26, brightness: 0.56, glow: 0.35, labels: 1, subjectNames: false, rotate: true };
 /** The virtual centre every topic hangs from. */
 export const ROOT_ID = "__lh_root__";
 /** The virtual hub of one topic group. */
@@ -345,6 +373,15 @@ export class Layout3D {
 	private anchors: ReadonlyMap<string, readonly [number, number, number]> = new Map();
 	/** Study data (explicit tree / anchors): shells instead of topic balls. */
 	private explicit = false;
+	tune: GraphTuning = { ...DEFAULT_TUNING };
+
+	/** Apply new tuning: re-place the nodes and let them glide there. */
+	setTuning(t: GraphTuning): void {
+		const moved = t.edgeLength !== this.tune.edgeLength || t.centreDistance !== this.tune.centreDistance || t.spacing !== this.tune.spacing;
+		this.tune = { ...t };
+		if (moved && this.ids.length) this.computeTargets();
+		this.alpha = Math.max(this.alpha, 0.5);
+	}
 
 	setGraph(nodes: Layout3DNode[], edges: Layout3DEdge[], anchors: ReadonlyMap<string, readonly [number, number, number]> = new Map()): void {
 		this.anchors = anchors;
@@ -498,8 +535,8 @@ export class Layout3D {
 	 * the next sphere around each topic. Cones are narrowed so neighbouring subjects never overlap.
 	 */
 	private computeShellTargets(children: number[][], root: number): void {
-		const L = LAYOUT_LINK_DISTANCE;
-		const R1 = L * 2.4, R2 = R1 + L * 1.8, R3 = R2 + L * 1.4;
+		const L = LAYOUT_LINK_DISTANCE * this.tune.edgeLength, sp = this.tune.spacing;
+		const R1 = L * 2.4 * this.tune.centreDistance, R2 = R1 + L * 1.8, R3 = R2 + L * 1.4;
 		const setTarget = (i: number, d: readonly number[], r: number) => { this.target[i * 3] = d[0]! * r; this.target[i * 3 + 1] = d[1]! * r; this.target[i * 3 + 2] = d[2]! * r; };
 		const norm = (v: readonly number[]): [number, number, number] => { const l = Math.hypot(v[0]!, v[1]!, v[2]!) || 1; return [v[0]! / l, v[1]! / l, v[2]! / l]; };
 		const tops = children[root]!;
@@ -509,14 +546,14 @@ export class Layout3D {
 		tops.forEach((top, k) => {
 			setTarget(top, dirs[k]!, R1);
 			const kids = children[top]!;
-			const wT = Math.min(room[k]! * 0.85, 0.12 + 0.09 * kids.length);
+			const wT = Math.min(room[k]! * 0.85, (0.12 + 0.09 * kids.length) * sp);
 			const tdirs = coneDirections(dirs[k]!, kids.length === 1 ? 0 : wT, kids.length);
 			kids.forEach((t, j) => {
 				setTarget(t, tdirs[j]!, R2);
 				const ideas = children[t]!;
 				if (!ideas.length) return;
 				const roomT = kids.length > 1 ? Math.max(0.08, (wT * 1.6) / Math.sqrt(kids.length)) : room[k]! * 0.8;
-				const wI = Math.min(roomT, 0.07 + 0.045 * ideas.length);
+				const wI = Math.min(roomT, (0.07 + 0.045 * ideas.length) * sp);
 				const idirs = coneDirections(tdirs[j]!, ideas.length === 1 ? 0 : wI, ideas.length);
 				ideas.forEach((idea, m) => setTarget(idea, idirs[m]!, R3));
 			});
@@ -557,9 +594,10 @@ export class Layout3D {
 			if (this.parent[i] === j || this.parent[j] === i) return; // a twig sits close to its idea by design
 			let dx = pos[i * 3]! - pos[j * 3]!, dy = pos[i * 3 + 1]! - pos[j * 3 + 1]!, dz = pos[i * 3 + 2]! - pos[j * 3 + 2]!;
 			let d2 = dx * dx + dy * dy + dz * dz;
-			if (d2 > (L * 0.8) ** 2) return;
+			const reach = this.explicit ? L * 0.8 * this.tune.spacing * this.tune.edgeLength : L * 0.8;
+			if (d2 > reach ** 2) return;
 			if (d2 < 1e-4) { dx = this.random() - 0.5; dy = this.random() - 0.5; dz = this.random() - 0.5; d2 = dx * dx + dy * dy + dz * dz + 1e-3; }
-			const f = (L * L * 0.08) / (d2 + 30) * alpha;
+			const f = (L * L * 0.08 * (this.explicit ? this.tune.spacing : 1)) / (d2 + 30) * alpha;
 			const inv = 1 / Math.sqrt(d2);
 			fx[i * 3]! += dx * inv * f; fx[i * 3 + 1]! += dy * inv * f; fx[i * 3 + 2]! += dz * inv * f;
 			fx[j * 3]! -= dx * inv * f; fx[j * 3 + 1]! -= dy * inv * f; fx[j * 3 + 2]! -= dz * inv * f;
@@ -583,7 +621,7 @@ export class Layout3D {
 			if (this.isTwig[i]) {
 				const p = this.parent[i]!;
 				for (let k = 0; k < 3; k++) fx[i * 3 + k]! += (pos[p * 3 + k]! + this.twigOffset[i * 3 + k]! - pos[i * 3 + k]!) * TARGET_PULL * 3 * alpha;
-			} else for (let k = 0; k < 3; k++) fx[i * 3 + k]! += (this.target[i * 3 + k]! - pos[i * 3 + k]!) * TARGET_PULL * alpha;
+			} else for (let k = 0; k < 3; k++) fx[i * 3 + k]! += (this.target[i * 3 + k]! - pos[i * 3 + k]!) * TARGET_PULL * (this.explicit ? this.tune.gravity : 1) * alpha;
 			// The guardrail: back inside the topic's ball when links drag an idea out of it.
 			const limit = this.ballLimit[i]!;
 			if (Number.isNaN(limit)) continue;
@@ -595,7 +633,8 @@ export class Layout3D {
 		}
 		for (let i = 0; i < n; i++) {
 			if (!moves(i)) continue;
-			for (let k = 0; k < 3; k++) { const c = i * 3 + k; vel[c] = (vel[c]! + fx[c]!) * VELOCITY_DECAY; pos[c]! += vel[c]!; }
+			const decay = this.explicit ? Math.min(0.95, Math.max(0.05, 1 - this.tune.friction)) : VELOCITY_DECAY;
+			for (let k = 0; k < 3; k++) { const c = i * 3 + k; vel[c] = (vel[c]! + fx[c]!) * decay; pos[c]! += vel[c]!; }
 		}
 		this.placeJunctions();
 		this.alpha *= ALPHA_DECAY;
