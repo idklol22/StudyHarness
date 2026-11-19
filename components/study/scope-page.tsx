@@ -18,6 +18,7 @@ import type { ChatListItem } from "@/src/core";
 import { LAST_CHOICE_KEY } from "./placement";
 import { groupChats } from "./group-chats";
 import { NotesPanel } from "./notes-view";
+import { CardsPanel } from "./cards-panel";
 
 const fmtBytes = (n: number) => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
 
@@ -167,6 +168,8 @@ export function ScopePage({ subjectId, topicId }: { subjectId: string; topicId?:
 					)}
 
 					<NotesPanel subjectId={subjectId} topicId={topicId} label={title} />
+
+					<CardsPanel subjectId={subjectId} topicId={topicId} />
 
 					<section className={section} data-testid="chats-section">
 						<h2 className={h}>Chats</h2>

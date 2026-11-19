@@ -11,6 +11,7 @@ export * from "./graph.ts";
 export * from "./source-organization.ts";
 export { study } from "./study-runtime.ts";
 export { StudyInputError, MAX_MATERIAL_BYTES } from "./study.ts";
+export { changeCards, readCards } from "./study-cards.ts";
 export { addBlocks, editNote, generateNotes, learnerInk, readNotebook, checkedScope as checkedNotesScope } from "./study-notes.ts";
 export * from "./source-deletion.ts";
 export { NotesImportError } from "../agent/subagents/extraction.ts";
