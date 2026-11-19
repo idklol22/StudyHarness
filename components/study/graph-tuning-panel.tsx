@@ -28,7 +28,9 @@ type NumberKey = { [K in keyof GraphTuning]: GraphTuning[K] extends number ? K :
 const SLIDERS: Array<{ group: string; rows: Array<{ key: NumberKey; label: string; min: number; max: number; step: number; show?: (v: number) => string }> }> = [
 	{ group: "Layout", rows: [
 		{ key: "edgeLength", label: "Edge length", min: 0.4, max: 2.5, step: 0.05 },
-		{ key: "centreDistance", label: "Centre distance", min: 0.4, max: 2.5, step: 0.05 },
+		{ key: "centreDistance", label: "Centre → subject", min: 0.4, max: 2.5, step: 0.05 },
+		{ key: "topicDistance", label: "Subject → topic", min: 0.3, max: 3, step: 0.05 },
+		{ key: "ideaDistance", label: "Topic → idea", min: 0.3, max: 3, step: 0.05 },
 		{ key: "spacing", label: "Spacing", min: 0.4, max: 2.5, step: 0.05 },
 		{ key: "gravity", label: "Gravity", min: 0.1, max: 3, step: 0.05 },
 		{ key: "friction", label: "Friction", min: 0.05, max: 0.95, step: 0.01, show: (v) => v.toFixed(2) },

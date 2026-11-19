@@ -51,6 +51,10 @@ export interface GraphTuning {
 	edgeLength: number;
 	/** How far subjects sit from the centre (relative to edgeLength). */
 	centreDistance: number;
+	/** Distance from a subject to its topics. */
+	topicDistance: number;
+	/** Distance from a topic to its ideas. */
+	ideaDistance: number;
 	/** How widely topics and ideas fan out, and how hard neighbours push apart. */
 	spacing: number;
 	/** How strongly every node is pulled to its place. */
@@ -68,7 +72,7 @@ export interface GraphTuning {
 	subjectNames: boolean;
 	rotate: boolean;
 }
-export const DEFAULT_TUNING: GraphTuning = { edgeLength: 1, centreDistance: 1, spacing: 1, gravity: 1, friction: 0.4, nodeSize: 1, edgeWidth: 1, saturation: 0.26, brightness: 0.56, glow: 0.35, labels: 1, subjectNames: false, rotate: true };
+export const DEFAULT_TUNING: GraphTuning = { edgeLength: 1, centreDistance: 1, topicDistance: 1, ideaDistance: 1, spacing: 1, gravity: 1, friction: 0.4, nodeSize: 1, edgeWidth: 1, saturation: 0.26, brightness: 0.56, glow: 0.35, labels: 1, subjectNames: false, rotate: true };
 /** The virtual centre every topic hangs from. */
 export const ROOT_ID = "__lh_root__";
 /** The virtual hub of one topic group. */
@@ -377,7 +381,7 @@ export class Layout3D {
 
 	/** Apply new tuning: re-place the nodes and let them glide there. */
 	setTuning(t: GraphTuning): void {
-		const moved = t.edgeLength !== this.tune.edgeLength || t.centreDistance !== this.tune.centreDistance || t.spacing !== this.tune.spacing;
+		const moved = t.edgeLength !== this.tune.edgeLength || t.centreDistance !== this.tune.centreDistance || t.topicDistance !== this.tune.topicDistance || t.ideaDistance !== this.tune.ideaDistance || t.spacing !== this.tune.spacing;
 		this.tune = { ...t };
 		if (moved && this.ids.length) this.computeTargets();
 		this.alpha = Math.max(this.alpha, 0.5);
@@ -536,7 +540,7 @@ export class Layout3D {
 	 */
 	private computeShellTargets(children: number[][], root: number): void {
 		const L = LAYOUT_LINK_DISTANCE * this.tune.edgeLength, sp = this.tune.spacing;
-		const R1 = L * 2.4 * this.tune.centreDistance, R2 = R1 + L * 1.8, R3 = R2 + L * 1.4;
+		const R1 = L * 2.4 * this.tune.centreDistance, R2 = R1 + L * 1.8 * this.tune.topicDistance, R3 = R2 + L * 1.4 * this.tune.ideaDistance;
 		const setTarget = (i: number, d: readonly number[], r: number) => { this.target[i * 3] = d[0]! * r; this.target[i * 3 + 1] = d[1]! * r; this.target[i * 3 + 2] = d[2]! * r; };
 		const norm = (v: readonly number[]): [number, number, number] => { const l = Math.hypot(v[0]!, v[1]!, v[2]!) || 1; return [v[0]! / l, v[1]! / l, v[2]! / l]; };
 		const tops = children[root]!;

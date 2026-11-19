@@ -178,5 +178,10 @@ describe("view sliders", () => {
 		layout.setTuning({ ...DEFAULT_TUNING, edgeLength: 2 });
 		layout.settle();
 		assert.ok(dist(hubA) > before * 1.7, "longer edges push everything out");
+		const gap = () => dist(t.topic.id) - dist(hubA);
+		const g0 = gap();
+		layout.setTuning({ ...DEFAULT_TUNING, edgeLength: 2, topicDistance: 2.5 });
+		layout.settle();
+		assert.ok(gap() > g0 * 2, "the subject → topic slider lengthens only that step");
 	});
 });
