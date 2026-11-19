@@ -273,6 +273,7 @@ export function Chat({
 	initialConfigured = false,
 	kind = "teach",
 	startMode,
+	notesHref,
 }: {
 	chatId: string;
 	title: string;
@@ -285,6 +286,8 @@ export function Chat({
 	kind?: "teach" | "practice";
 	/** Study: a chat started "from scratch" has no probe, so its phases begin at planning. */
 	startMode?: "scratch" | "check";
+	/** Study: where this chat's notes live (its topic or subject page). */
+	notesHref?: string;
 	initialPrompt?: string;
 	/** A teacher turn is running server-side but attached to no client
 	 * (navigated away mid-turn, returned while in flight). */
@@ -1742,6 +1745,7 @@ export function Chat({
 					) : (
 						<PhaseChip phase={phases.at(-1) ?? "probe"} />
 					)}
+					{notesHref && <a href={notesHref} data-testid="chat-notes-link" className="inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs transition-colors hover:bg-accent">Notes</a>}
 					<PluginSessionTopBarActions readContext={actionContext} captureContext={captureActionContext} refreshRef={refreshPluginActions} />
 					<SessionPanelToggle />
 				</TopBar>

@@ -7,6 +7,7 @@
  * their own stickies. Their ink is stored apart from the agent's pages, so regenerating or editing notes never touches it.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useServerEvent } from "@/components/server-events";
 import { DownloadIcon, EraserIcon, HighlighterIcon, MousePointer2Icon, PenLineIcon, SparklesIcon, StickyNoteIcon, Undo2Icon } from "lucide-react";
 import { PAGE_H, PAGE_W, type Element, type Notebook, type NotePage } from "@/src/core";
 import { markShapes } from "./notes-geometry";
@@ -142,7 +143,8 @@ export function NotesPanel({ subjectId, topicId, label }: { subjectId: string; t
 		} catch { setError("Could not reach the app."); }
 	}, [query]);
 	useEffect(() => { void load(); }, [load]);
-	useEffect(() => { const on = () => void load(); window.addEventListener("study-notes-changed", on); return () => window.removeEventListener("study-notes-changed", on); }, [load]);
+	// The agent writes notes while it teaches: the server announces it and the pages refresh in place.
+	useServerEvent("sources-changed", () => { void load(); });
 	useLayoutEffect(() => {
 		const el = holder.current;
 		if (!el) return;
@@ -167,7 +169,7 @@ export function NotesPanel({ subjectId, topicId, label }: { subjectId: string; t
 	const tools: Array<[Tool, React.ReactNode, string]> = [["view", <MousePointer2Icon key="v" className="size-3.5" />, "View"], ["pen", <PenLineIcon key="p" className="size-3.5" />, "Pen"], ["highlighter", <HighlighterIcon key="h" className="size-3.5" />, "Highlight"], ["sticky", <StickyNoteIcon key="s" className="size-3.5" />, "Sticky"]];
 	const first = book?.pages[0];
 	return (
-		<section className="mt-6" data-testid="notes-section">
+		<section id="notes" className="mt-6" data-testid="notes-section">
 			<div className="mb-2 flex flex-wrap items-center gap-2">
 				<h2 className="mr-auto text-[11px] font-medium uppercase tracking-widest text-muted-foreground">Notes</h2>
 				{first && tools.map(([t, icon, name]) => (

@@ -131,7 +131,7 @@ export function createStudyStore(root: string, announce: () => void = () => {}) 
 
 		// ── Notebooks and cards (opaque JSON documents keyed by scope) ──────────
 		readDoc<T>(kind: "notes" | "cards", id: string, fallback: T): T { return readJson<T>(dir(kind, `${key(id)}.json`), fallback); },
-		writeDoc(kind: "notes" | "cards", id: string, value: unknown): void { writeJson(dir(kind, `${key(id)}.json`), value); },
+		writeDoc(kind: "notes" | "cards", id: string, value: unknown): void { writeJson(dir(kind, `${key(id)}.json`), value); if (kind === "notes") announce(); },
 		deleteDoc(kind: "notes" | "cards", id: string): void {
 			const file = dir(kind, `${key(id)}.json`);
 			fs.rmSync(file, { force: true });
