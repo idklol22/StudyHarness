@@ -83,8 +83,8 @@ export function CitationPill({ materialId, page, label }: { materialId: string; 
 	const panel = useSidePanel();
 	if (!panel) return <span>{label}</span>;
 	return (
-		<button type="button" data-testid="citation-pill" title="Open in side panel" onClick={() => panel.openMaterial(materialId, page)}
-			className="mx-0.5 inline-flex items-center gap-1 rounded-full border border-border bg-card px-2 py-0.5 align-baseline text-xs text-foreground transition-colors hover:bg-accent">
+		<button type="button" data-testid="citation-pill" title="Open in side panel" aria-label="Open in side panel" onClick={() => panel.openMaterial(materialId, page)}
+			className="mx-0.5 inline-flex items-center gap-1 rounded-full border border-border bg-card px-2 py-0.5 align-baseline text-xs text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
 			<FileTextIcon className="size-3 text-muted-foreground" aria-hidden />{label.replace(/^\(|\)$/g, "")}
 		</button>
 	);

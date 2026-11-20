@@ -12,7 +12,7 @@ import { keepIdeas, type WorkerEnv } from "../agent/subagents/study-workers.ts";
 import { ideasOf } from "../core/study/ideas.ts";
 import { studyTools } from "../agent/tools/study.ts";
 import { emptyCards, type CardSet } from "../core/study/cards.ts";
-import { studyInstructions, visibleMaterials, STUDY_TOOL_NAMES } from "../core/study/doctrine.ts";
+import { studyInstructions, visibleMaterials, STUDY_TOOL_CITE_HINT, STUDY_TOOL_NAMES } from "../core/study/doctrine.ts";
 import { placementWriteScope, selectedTopicIds, subjectOf, topicOf, topicsOf } from "../core/study/model.ts";
 import { formatLookup } from "../core/study/material-memory.ts";
 import type { ChatPlacement } from "../core/study/model.ts";
@@ -60,16 +60,16 @@ export function studyContributions(
 			const m = visibleMaterials(study.library(), placement).find((x) => x.id === materialId);
 			if (!m) throw new Error("That file is no longer in this subject.");
 			const { result } = await study.lookupPages(m.sha256, input);
-			return formatLookup(m.fileName, result);
+			return `${formatLookup(m.fileName, result)}\n${STUDY_TOOL_CITE_HINT}`;
 		},
 		async read(materialId, pages) {
 			const m = visibleMaterials(study.library(), placement).find((x) => x.id === materialId);
 			if (!m) throw new Error("That file is no longer in this subject.");
 			const { count, summaries } = await readMaterialPages(m, pages, deps, chatId);
-			if (!count) return `Pages ${pages.join(", ")} are already read — use study_context to see them.`;
+			if (!count) return `Pages ${pages.join(", ")} are already read — use study_context to see them.\n${STUDY_TOOL_CITE_HINT}`;
 			// The scope that owns the material learns what it now contains (non-blocking for the learner's turn).
 			void refreshContext(m.scope, `Read ${m.fileName}.\n${summaries.join("\n")}`, deps, chatId).catch((e) => console.error("[study] context refresh failed:", e));
-			return `Read ${count} page${count === 1 ? "" : "s"} of ${m.fileName} and remembered them.\n${summaries.join("\n")}`;
+			return `Read ${count} page${count === 1 ? "" : "s"} of ${m.fileName} and remembered them.\n${summaries.join("\n")}\n${STUDY_TOOL_CITE_HINT}`;
 		},
 		async pageTextRuns(sha256, page) { return study.pageTextRuns(sha256, page); },
 		async figure({ sha256, page, region }) {

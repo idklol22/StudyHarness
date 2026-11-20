@@ -15,6 +15,14 @@ export const MATERIALS_MAX = 40;
 const MATERIALS_CHARS = 2400;
 const clip = (text: string, max: number): string => (text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1)).trimEnd()}…`);
 
+/** Canonical citation wording, shared verbatim by the study block and the agent prompt (stable for prompt caching). */
+export const STUDY_CITATION_FORMAT =
+	'Cite library facts inline as "(exact file name, p. N)" with the 1-based PDF page, e.g. "(Lecture 3.pdf, p. 12)". ' +
+	'For a range use "(Lecture 3.pdf, pp. 12-14)". Use the file name from the Materials list; never invent a name or page.';
+/** Short hint appended as the final line of study_context / study_material tool results. */
+export const STUDY_TOOL_CITE_HINT =
+	'Cite any fact from this output as (exact file name, p. N) using the PDF page shown here.';
+
 const LAYERS = `Where to look, in this order — stop at the first layer that answers:
 1. The topic context and subject context shown above (already in front of you; never re-fetch them).
 2. study_context with a query: searches the material memory (contents, page-range summaries, stored page text).
@@ -91,7 +99,8 @@ export function studyInstructions({ library, placement, kind, mode = "teach", re
 		matText = "## Materials\n" + kept.join("\n") + (more > 0 ? `\n+${more} more (find them with study_context)` : "");
 	} else matText = `## Materials\nNone uploaded yet. ${mode === "plain" ? "Answer" : "Teach"} from what you know and what the learner says; they can add slides or notes any time.`;
 	const layers = contextScopes(library, placement);
-	let room = Math.max(0, STUDY_BLOCK_CHARS - header.length - matText.length);
+	// The citation-format paragraph is part of the variable block; subtract it so the cap still holds.
+	let room = Math.max(0, STUDY_BLOCK_CHARS - header.length - matText.length - STUDY_CITATION_FORMAT.length);
 	const layerShare = layers.length ? Math.floor((room * 0.65) / layers.length) : 0;
 	for (const layer of layers) {
 		const title = `## ${layer.level === "topic" ? "Topic" : "Subject"} context — ${layer.name}`;
@@ -111,6 +120,7 @@ export function studyInstructions({ library, placement, kind, mode = "teach", re
 		out.push(`## ${topicNames.length ? "Related topics in this subject (background only; the chat's selected topics come first)" : "What each topic holds"}\n` + parts.join("\n\n") + (more > 0 ? `\n\n+${more} more topics (study_context can search them)` : ""));
 	}
 	out.push(matText);
+	out.push(STUDY_CITATION_FORMAT);
 	// Plain study chats are ordinary Claude-style conversations: the library
 	// listing above is useful context, but none of the teaching/assessment
 	// doctrine applies (startMode is ignored for these chats).
