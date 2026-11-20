@@ -161,15 +161,12 @@ export function PromptRail() {
 	const count = entries.length;
 	if (count === 0) return null;
 
-	/** Arrow/Home/End only move focus between ticks; Enter/Space jump. No wrap. */
+	/** Arrow/Home/End only move focus between ticks; Enter/Space jump via the
+	 *  button's native activation (onClick), never here, so each key triggers a
+	 *  single scrollSessionTarget jump. No wrap. */
 	const onTickKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
 		let target = -1;
 		switch (event.key) {
-			case "Enter":
-			case " ":
-				event.preventDefault();
-				jumpTo(index);
-				return;
 			case "ArrowUp":
 				target = index - 1;
 				break;
@@ -227,10 +224,10 @@ export function PromptRail() {
 						<span
 							style={{ top: `${promptTooltipTop(i, count)}%` }}
 							className={cn(
-								"pointer-events-none absolute right-6 z-30 hidden w-64 max-w-[min(16rem,calc(100vw-2rem))]",
+								"pointer-events-none absolute right-6 z-30 invisible w-64 max-w-[min(16rem,calc(100vw-2rem))]",
 								"border border-border bg-popover px-2 py-1 font-ui text-xs leading-snug text-popover-foreground",
 								"line-clamp-2 whitespace-normal -translate-y-1/2",
-								"group-hover/tick:block group-focus-within/tick:block"
+								"group-hover/tick:visible group-focus-within/tick:visible"
 							)}
 						>
 							{entry.text}
