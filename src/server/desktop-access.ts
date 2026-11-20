@@ -57,8 +57,21 @@ export function browserHostAllowed(host: string | null, env: Record<string, stri
 /** Shared by Proxy and the streamed document route that deliberately bypasses
  * Proxy's truncated body clone. Check before any route-specific work. */
 export function apiRequestRefusal(request: Request, env: Record<string, string | undefined> = process.env): string | undefined {
+	if (plannerRequestAllowed(request)) return;
 	if (browserOnlyMode(env)) return browserAPIRefusal(request, env);
 	if (!desktopAPIAuthorized(request.headers, env)) return "Desktop API access requires the trusted LearnHarness window.";
+}
+
+/** The local Planner app (another port on this machine) may call ONLY the
+ * Planner endpoints (`/api/planner/*`): subject list and note hand-off. The
+ * Host must still be a local name, and the Origin must be a loopback origin. */
+export function plannerRequestAllowed(request: Request): boolean {
+	let path: string;
+	try { path = new URL(request.url).pathname; } catch { return false; }
+	if (!path.startsWith("/api/planner/")) return false;
+	const origin = request.headers.get("origin");
+	if (!origin || !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin)) return false;
+	return browserHostAllowed(request.headers.get("host") ?? new URL(request.url).host, {});
 }
 
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
