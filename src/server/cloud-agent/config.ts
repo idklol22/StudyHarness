@@ -18,7 +18,7 @@ export interface CloudAgentConfig {
 	timeoutMs: number;
 }
 
-const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 function text(value: unknown): string | undefined {
 	if (typeof value !== "string") return undefined;

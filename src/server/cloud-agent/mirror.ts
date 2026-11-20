@@ -13,6 +13,8 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { PATHS } from "../../../config.ts";
 import type { Library } from "../../core/study/model.ts";
+import { subjectColor } from "../../core/study/map.ts";
+import { subjectColorCss } from "../../core/study/colors.ts";
 import { writeFileAtomicSync } from "../../store/atomic-write.ts";
 import type { StudyStore } from "../../store/study.ts";
 import type { HubOp, HubRow, HubTable, MirrorHubClient } from "./types.ts";
@@ -64,7 +66,7 @@ function rowsFromLibrary(library: Library): Array<{ table: HubTable; id: string;
 		rows.push({
 			table: "h_subject",
 			id: subject.id,
-			content: { name: subject.name, color: subject.color ?? null, order },
+			content: { name: subject.name, color: subjectColorCss(subjectColor(library.subjects, subject.id)), order },
 		});
 	}
 	for (const topic of library.topics) {
@@ -207,7 +209,7 @@ export async function mirrorLibrary({ store, hub, stateFile = MIRROR_FILE, now =
 		}
 	}
 
-	if (diff.ops.length) await hub.pushOps(diff.ops);
+	for (let i = 0; i < diff.ops.length; i += 10) await hub.pushOps(diff.ops.slice(i, i + 10));
 	writeMirrorState(diff.next, stateFile);
 	await hub.postEvent({
 		type: "harness.mirrored",

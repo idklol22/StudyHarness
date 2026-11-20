@@ -75,7 +75,7 @@ describe("diffLibrary", () => {
 		assert.deepEqual(diff.stats, { materials: 1, bytes: 1234 });
 
 		assert.deepEqual(op(diff.ops, "h_subject", "sub_1")?.row, {
-			id: "sub_1", name: "Statistics", color: 210, order: 0, updatedAt: NOW1,
+			id: "sub_1", name: "Statistics", color: 'hsl(210 26% 58%)', order: 0, updatedAt: NOW1,
 		});
 		assert.deepEqual(op(diff.ops, "h_topic", "top_1")?.row, {
 			id: "top_1", subjectId: "sub_1", name: "Regression", order: 0, updatedAt: NOW1,
