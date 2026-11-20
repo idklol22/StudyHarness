@@ -80,14 +80,17 @@ function buildGraphData(layout: MapLayout, map: StudyMap): { nodes: GraphNode[];
 		...(n.parentId ? { parentId: n.parentId } : {}),
 	}));
 	const present = new Set(nodes.map((n) => n.id));
-	const links: GraphLink[] = layout.edges.map((e) => ({
-		id: `${e.from}>${e.to}`,
-		source: e.from,
-		target: e.to,
-		kind: e.from === e.subjectId ? "hub" : "leaf",
-		weight: 1,
-		ideas: [],
-	}));
+	// Keep every link endpoint inside the node set; force-graph's d3-force throws "node not found" otherwise.
+	const links: GraphLink[] = layout.edges
+		.filter((e) => present.has(e.from) && present.has(e.to))
+		.map((e) => ({
+			id: `${e.from}>${e.to}`,
+			source: e.from,
+			target: e.to,
+			kind: e.from === e.subjectId ? "hub" : "leaf",
+			weight: 1,
+			ideas: [],
+		}));
 	for (const l of layout.links) {
 		if (!present.has(l.a) || !present.has(l.b)) continue;
 		links.push({ id: `${l.a}<>${l.b}`, source: l.a, target: l.b, kind: "cross", weight: l.weight, ideas: l.ideas });
@@ -114,13 +117,19 @@ function focusFor(id: string | null, adjacency: ReadonlyMap<string, Set<string>>
 	return { id, ids };
 }
 
-function applyForces(graph: GraphInstance, d3: D3Force, reduced: boolean, links: GraphLink[]): void {
-	const link = d3.forceLink<GraphNode, GraphLink>()
-		.id((n) => n.id)
-		.distance((l) => (l.kind === "hub" ? 60 : l.kind === "leaf" ? 40 : 140))
-		.strength((l) => (l.kind === "cross" ? 0.02 : 0.5))
-		.links(links);
-	graph.d3Force("link", link);
+function applyForces(graph: GraphInstance, d3: D3Force, reduced: boolean): void {
+	// Configure the existing link force rather than replacing it. force-graph feeds `graphData` to the
+	// simulation on the next tick (its updates are debounced), and `d3Force`'s setter initialises a brand
+	// new force against the simulation's *current* nodes — still the previous, often empty, set. A link
+	// whose node has not landed yet then throws "node not found". The simulation re-initialises this force
+	// with the fresh nodes and links on its next update, so leave the links to it.
+	const link = graph.d3Force("link") as unknown as ForceLink<GraphNode, GraphLink> | undefined;
+	if (link) {
+		link
+			.id((n) => n.id)
+			.distance((l) => (l.kind === "hub" ? 60 : l.kind === "leaf" ? 40 : 140))
+			.strength((l) => (l.kind === "cross" ? 0.02 : 0.5));
+	}
 	// -120 for an idea, scaled up for the bigger hubs; gentle cooling so it settles instead of snapping.
 	graph.d3Force("charge", d3.forceManyBody<GraphNode>().strength((n) => -120 * (n.r / LEAF_R)));
 	graph.d3Force("center", d3.forceCenter(0, 0));
@@ -221,7 +230,7 @@ export function SubjectMap({ subjectId, compact = false }: { subjectId?: string;
 		const media = window.matchMedia("(prefers-reduced-motion: reduce)");
 		const update = () => {
 			reducedRef.current = media.matches;
-			if (graph.current && d3.current) applyForces(graph.current, d3.current, media.matches, graph.current.graphData().links as GraphLink[]);
+			if (graph.current && d3.current) applyForces(graph.current, d3.current, media.matches);
 		};
 		update();
 		media.addEventListener("change", update);
@@ -380,7 +389,7 @@ export function SubjectMap({ subjectId, compact = false }: { subjectId?: string;
 					selectedRef.current = null;
 					setSelected(null);
 				});
-			applyForces(g, force, reducedRef.current, []);
+			applyForces(g, force, reducedRef.current);
 			setReady(true);
 		})();
 		return () => {
@@ -398,7 +407,7 @@ export function SubjectMap({ subjectId, compact = false }: { subjectId?: string;
 		if (!g) return;
 		adjacency.current = buildAdjacency(graphData.links);
 		g.graphData(graphData);
-		if (d3.current) applyForces(g, d3.current, reducedRef.current, graphData.links);
+		if (d3.current) applyForces(g, d3.current, reducedRef.current);
 		if (!fitted.current && graphData.nodes.length) {
 			const raf = requestAnimationFrame(() => {
 				fitted.current = true;
