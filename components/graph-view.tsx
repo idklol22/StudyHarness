@@ -65,6 +65,7 @@
 
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { NotesImportControl, NotesImportErrors, NotesImportNotices, useNotesImport } from "@/components/notes-import.tsx";
+import { RefreshGraphButton } from "@/components/refresh-graph-button.tsx";
 import { PluginGraphActions } from "@/components/plugin-chrome";
 import { SettingsSlider as SettingSlider } from "@/components/settings/controls";
 import Link from "next/link";
@@ -768,6 +769,7 @@ export function GraphChromeRow({
 	recenter = false,
 	centreShown,
 	onToggleCentre,
+	onRefreshGraph,
 }: {
 	isEmpty: boolean;
 	query: string;
@@ -795,6 +797,8 @@ export function GraphChromeRow({
 	/** The 3D graph's Knowledge centre toggle; shows only when a handler is given. */
 	centreShown?: boolean;
 	onToggleCentre?: () => void;
+	/** G1: refetch the snapshot after a manual graph update. */
+	onRefreshGraph?: () => void;
 }) {
 	return (
 		<>
@@ -839,6 +843,12 @@ export function GraphChromeRow({
 						</button>
 					</Hint>
 				</div>
+			{/* G1: manual graph update. Its own container (no appear-once
+			    fade — the button is always available, including on an empty
+			    graph, where it is the only way to fold chats in). */}
+			<div className="shrink-0 rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
+				<RefreshGraphButton onUpdated={onRefreshGraph} />
+			</div>
 			{/* Fit: re-frame the whole graph (the graph is 2D only — Study
 			    redesign, owner 2026-11-18). */}
 			{!isEmpty && onFit && (
@@ -1809,6 +1819,7 @@ export function GraphView({
 					recenter={is3d}
 					centreShown={centreShown}
 					onToggleCentre={is3d ? toggleCentre : undefined}
+					onRefreshGraph={() => setRefreshTick((t) => t + 1)}
 				/>
 			</div>
 

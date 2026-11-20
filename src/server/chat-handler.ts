@@ -39,8 +39,6 @@ import { effectiveSettings, stores } from "./stores.ts";
 import { getPluginAgentContributions, getPluginHost } from "./plugins.ts";
 import { keepContextAfterTurn, studyContributions } from "./study-agent.ts";
 import { digestMaterial } from "./study-digest-job.ts";
-/** The chat → proposition-graph extraction after each turn (retired with the Study graph; kept switchable). */
-const EXTRACT_PROPOSITIONS = false;
 import { adoptAttachments } from "./study-attachments.ts";
 import { titleAfterFirstTurn } from "./chat-title.ts";
 import { preparePluginQuestionSubmission, reconcilePluginQuestionCompatibility, type QuestionTypeResolver } from "./plugin-questions.ts";
@@ -50,7 +48,6 @@ import { preparePluginProblemSubmission, requirePluginProblemTarget, type Proble
 import { providerKeyPresent } from "./keys.ts";
 import { CLAUDE_CODE_PROVIDER } from "../core/contracts/claude-code.ts";
 import {
-	extractionEnabled,
 	graphToolsEnabled,
 	resolveConversationSpec,
 	resolveRoleSpec,
@@ -64,7 +61,7 @@ import { sideConversationEntries } from "../core/side-chat.ts";
 import { sideChats, type SideChatService } from "./side-chat.ts";
 import { SIDE_CONTEXT_BUDGET_ERROR, sideBudgetRetryDrops, sideContextWindow } from "./side-context-budget.ts";
 import { registerTurn, rememberTurnFailure, unregisterTurn } from "./turn-runs.ts";
-import { persistTurn, triggerExtraction, TurnPersistenceError } from "./turn-service.ts";
+import { persistTurn, TurnPersistenceError } from "./turn-service.ts";
 import { hasProbeDone, hasUnresolvedQuestion, pendingPluginQuestionOf, pluginQuestionCallsOf, questionCallsOf } from "../core/native-messages.ts";
 import { samePluginQuestionOccurrence } from "../core/plugin-questions.ts";
 import { composeInstructions, composeStudyChatInstructions } from "../agent/teacher-agent.ts";
@@ -139,9 +136,10 @@ const jobRunner = createJobRunner({
 	// same signal so keyless servers never see the research tool at all.
 	searchProvider,
 });
-/** The app's ONE extraction pipeline instance — both front doors share it:
- *  quiz-triggered session runs (turn-service) and notes imports
- *  (/api/graph/import) hit the same single-flight registry. */
+/** The app's ONE extraction pipeline instance — every front door shares it:
+ *  explicit graph updates (graph-update.ts) and notes imports
+ *  (/api/graph/import) hit the same single-flight registry. G1 removed the
+ *  old per-turn trigger; turns no longer touch this pipeline. */
 export const extraction = createExtractionPipeline({
 	...stores,
 	// BYOK (owner, 2026-09-22): the extraction stages resolve the chain —
@@ -165,7 +163,7 @@ export const extraction = createExtractionPipeline({
 setTurnRunner(async (chatId, input) => {
 	const res = await handleChatInput(chatId, input);
 	// Drive the stream to completion server-side — nobody else will read it,
-	// and onFinish (persist, extraction, endTurn) only runs when it drains.
+	// and onFinish (persist, endTurn) only runs when it drains.
 	await res.arrayBuffer().catch(() => undefined);
 	return res.status;
 });
@@ -965,19 +963,11 @@ async function handleChatInputInner(
 					});
 					keepContextAfterTurn(chatId, record.placement, said.join("\n"), { engineFor: resolveEngine });
 				}
-				// GRAPH GATE (settings-storage wave, 2026-09-19): the write channel —
-				// extraction, its auditor — dies with the master switch.
-				// PRACTICE (owner, 2026-10-04): practice sessions write nothing —
-				// no extraction, no graph, no coverage (v1: the session itself
-				// is the deliverable).
-				// RETIRED (owner 2026-11-19): the proposition graph is replaced by the Study graph (subjects → topics → ideas,
-				// ideas kept from files and chats by keepContextAfterTurn). The extraction pipeline stays in the code, unused.
-				if (EXTRACT_PROPOSITIONS && (!requestCycle || requestCycle.dispatched) && record.kind !== "practice" && extractionEnabled(effective.graph)) {
-					// Fresh per-turn read of the graph section's chunk budget
-					// (extraction-UX redesign, 2026-09-24): the trigger compares
-					// against it and the pipeline's batches share it.
-					triggerExtraction(stores, extraction, chatId, effective.graph.extractionChunkTokens);
-				}
+				// G1 (2026-11-21): there is NO per-reply/per-turn extraction any
+				// more. The graph updates on the daily pass, on Refresh graph,
+				// or just before Create notes — see src/server/graph-update.ts.
+				// The extraction pipeline itself stays: those explicit triggers,
+				// notes imports and the existing graph tools still use it.
 				// PARKED DISMISSAL (owner, 2026-10-04): a dismissal that arrived
 				// mid-turn was parked by the dismiss route (202); now that
 				// persistTurn has landed the turn's messages, apply it against

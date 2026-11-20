@@ -8,5 +8,8 @@ export async function register() {
 		const { startCloudAgent } = await import("./src/server/cloud-agent/runner.ts");
 		try { startCloudAgent(); }
 		catch (error) { console.error("[cloud-agent] Startup failed; local learning is unaffected:", error); }
+		const { startGraphUpdateScheduler } = await import("./src/server/graph-update-scheduler.ts");
+		try { startGraphUpdateScheduler(); }
+		catch (error) { console.error("[graph] Scheduler startup failed; Refresh graph still works:", error); }
 	}
 }

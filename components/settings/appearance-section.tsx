@@ -536,6 +536,25 @@ export function GraphSection({
 					}}
 				/>
 			</SettingsRow>
+			{/* G1 (2026-11-21): there is no per-reply extraction. Choose the
+			    only automatic pass (once a day) or none at all — Refresh graph
+			    and Create notes still update the graph in either mode. */}
+			<SettingsRow
+				label="Update graph"
+				hint="No update happens after each reply"
+				testid="graph-row-update-mode"
+			>
+				<select
+					data-testid="input-update-mode"
+					aria-label="Update graph"
+					value={resolved.updateMode}
+					onChange={(e) => onSectionChange({ ...graph, updateMode: e.target.value === "manual" ? "manual" : "daily" })}
+					className="h-7 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground outline-none focus:border-ring"
+				>
+					<option value="daily">Daily</option>
+					<option value="manual">Only when I press Refresh</option>
+				</select>
+			</SettingsRow>
 		</>
 	);
 }

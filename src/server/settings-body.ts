@@ -396,6 +396,14 @@ export function parseGraphSettingsBody(body: unknown): SettingsBodyResult<GraphS
 		}
 		settings.extractionChunkTokens = floored;
 	}
+	// G1: the update schedule is part of the same section. PUT is
+	// replace-whole — absence resolves to the factory "daily" mode.
+	if (raw.updateMode !== undefined) {
+		if (raw.updateMode !== "manual" && raw.updateMode !== "daily") {
+			return { ok: false, error: 'updateMode must be "manual" or "daily"' };
+		}
+		settings.updateMode = raw.updateMode;
+	}
 	return { ok: true, settings };
 }
 

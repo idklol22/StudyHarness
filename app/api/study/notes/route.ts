@@ -10,10 +10,21 @@
  *   {action:"edit", …, elementId, text?, items?}            reword an agent element (the old text is kept in its history)
  * The learner's ink is stored beside the agent's pages and is never changed by "generate" or "edit".
  */
-import { StudyInputError, checkedNotesScope, editNote, generateNotes, learnerInk, notebooksOf, readNotebook, resolveEngine, subjectNotebooks } from "@/src/server";
+import { StudyInputError, chatsInScope, checkedNotesScope, editNote, effectiveSettings, generateNotes, learnerInk, notebooksOf, readNotebook, resolveEngine, subjectNotebooks, updateGraphNow } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 const LIMIT = 2 * 1024 * 1024;
+
+/** Cap the pre-notes graph pass: notes ALWAYS proceed, even on timeout. */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+	return new Promise<T>((resolve, reject) => {
+		const timer = setTimeout(() => reject(new Error("Graph update timed out")), ms);
+		promise.then(
+			(value) => { clearTimeout(timer); resolve(value); },
+			(error) => { clearTimeout(timer); reject(error); },
+		);
+	});
+}
 
 const fail = (error: unknown) => {
 	const status = error instanceof StudyInputError ? 400 : 500;
@@ -50,6 +61,18 @@ export async function POST(request: Request) {
 		switch (raw.action) {
 			case "generate": {
 				const { subjectId, topicId } = scope;
+				// G1: fold the scope's chats into the graph BEFORE writing notes —
+				// best-effort, capped at 60s, and never a reason to fail notes.
+				if (effectiveSettings().graph.enabled) {
+					try {
+						await withTimeout(
+							updateGraphNow({ chatIds: chatsInScope({ subjectId, ...(topicId ? { topicId } : {}) }).map((c) => c.id) }),
+							60_000,
+						);
+					} catch (error) {
+						console.error("[graph] update before Create notes failed; notes will proceed:", error);
+					}
+				}
 				const { notebook, notebookId, added } = await generateNotes({ subjectId, ...(topicId ? { topicId } : {}) }, typeof raw.lesson === "string" ? raw.lesson.slice(-12000) : "", { engineFor: resolveEngine, signal: request.signal }, {
 					pages: Number(raw.pages) || undefined,
 					title: typeof raw.title === "string" ? raw.title : undefined,

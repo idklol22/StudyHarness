@@ -479,6 +479,12 @@ export interface GraphSettings {
 	 *  delays extraction — the user's stated cost/thoroughness tradeoff,
 	 *  not a misconfiguration to police. */
 	extractionChunkTokens?: number;
+	/** WHEN the graph is updated (G1, 2026-11-21): "daily" (factory default)
+	 *  = the server runs one background pass at most every 24h, checked at
+	 *  boot and hourly; "manual" = no automatic pass at all — the graph
+	 *  updates only on Refresh graph, or on Create notes. There is NO
+	 *  per-reply trigger in either mode (the post-turn hook was removed). */
+	updateMode?: "manual" | "daily";
 }
 
 /**
@@ -568,7 +574,7 @@ export const FACTORY_SETTINGS: FactorySettings = {
 		sessionNameSerif: true,
 		mdRendering: { headingWeight: 600, boldColor: null, italicColor: null },
 	},
-	graph: { enabled: true, rendering: true, extractionChunkTokens: 4096 },
+	graph: { enabled: true, rendering: true, extractionChunkTokens: 4096, updateMode: "daily" },
 	compaction: { thresholdTokens: 90_000, includeReasoning: false },
 };
 
@@ -873,6 +879,9 @@ function sanitizeGraph(raw: Record<string, unknown>): GraphSettings {
 	if (typeof rawTokens === "number" && Number.isFinite(rawTokens) && rawTokens > 0) {
 		out.extractionChunkTokens = Math.max(EXTRACTION_CHUNK_TOKENS_FLOOR, Math.floor(rawTokens));
 	}
+	// G1: only the two named modes are stored; anything else drops to the
+	// factory default at resolution (the section's clamp-never-reject rule).
+	if (raw.updateMode === "manual" || raw.updateMode === "daily") out.updateMode = raw.updateMode;
 	return out;
 }
 

@@ -21,6 +21,10 @@ export * from "./commit-positions.ts";
 export * from "./jobs.ts";
 export { prepareSubmissionImages, prepareSubmissionImageChannels } from "./submission-images.ts";
 export * from "./stores.ts";
+// G1: the only graph-update channels (daily scheduler, Refresh, Create notes).
+export * from "./graph-update.ts";
+export * from "./graph-update-scheduler.ts";
+export { chatsInScope } from "./study-digest.ts";
 export { refreshWorkerRequestAdmission } from "../agent/worker-request-admission.ts";
 export { readRenderSettings, writeRenderSettings } from "../store/render-settings.ts";
 // The settings record + prompt overrides (settings-storage wave, 2026-09-19).

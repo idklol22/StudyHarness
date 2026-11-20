@@ -272,6 +272,11 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			// (pre-redesign record, fresh install) resolves to the factory
 			// 4096; the sanitizer has already clamped/floored any stored value.
 			extractionChunkTokens: graph.extractionChunkTokens ?? FACTORY_SETTINGS.graph.extractionChunkTokens,
+			// G1 (2026-11-21): when the graph is updated. An unrecognized
+			// value in a hand-edited record resolves to the factory default.
+			updateMode: graph.updateMode === "manual" || graph.updateMode === "daily"
+				? graph.updateMode
+				: FACTORY_SETTINGS.graph.updateMode,
 		},
 		compaction: {
 			thresholdTokens: record?.compaction?.thresholdTokens ?? FACTORY_SETTINGS.compaction.thresholdTokens,

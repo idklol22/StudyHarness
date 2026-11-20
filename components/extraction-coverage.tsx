@@ -9,6 +9,7 @@ import { formatTokens } from "@/components/usage-format";
 import { Hint } from "@/components/ui/hint";
 import { timeAgo } from "@/components/sidebar";
 import { resolveSettings } from "@/src/core";
+import { RefreshGraphButton } from "@/components/refresh-graph-button.tsx";
 
 /**
  * The extraction-coverage surfaces (extraction-UX redesign, owner-locked
@@ -405,6 +406,11 @@ export function CoverageRingDetail({ coverage, chunkTokens }: { coverage: Sessio
 						<span className="text-card-foreground">extracting…</span>
 					</div>
 				)}
+			</div>
+			{/* G1: the manual, whole-graph pass — no per-reply extraction any
+			    more, so this is the popover's update affordance. */}
+			<div className="mt-2 border-t border-border/60 pt-2">
+				<RefreshGraphButton />
 			</div>
 		</>
 	);
