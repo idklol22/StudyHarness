@@ -17,6 +17,7 @@ export interface CommandSummary {
 }
 
 const MAX_COMMANDS_PER_PASS = 20;
+const ABSORB_WAIT_MS = 60_000;
 const MIME_EXT: Record<string, "png" | "jpg" | "webp"> = {
 	"image/png": "png",
 	"image/jpeg": "jpg",
@@ -57,7 +58,12 @@ export function createDefaultHandlers(): CommandHandlers {
 		async note(payload) {
 			const { validatePlannerNote, upsertPlannerNote, plannerNoteMap } = await import("../planner-notes.ts");
 			const { study } = await import("../study-runtime.ts");
-			return await upsertPlannerNote(validatePlannerNote(payload), { study, map: plannerNoteMap });
+			const note = validatePlannerNote(payload);
+			const { materialId } = await upsertPlannerNote(note, { study, map: plannerNoteMap });
+			// Absorb (memory + deadlines) and hand the dated items back to the Planner; give up waiting after a minute.
+			const { absorbWithApp, waitForAbsorb } = await import("../planner-absorb.ts");
+			const state = await waitForAbsorb(absorbWithApp(note), ABSORB_WAIT_MS);
+			return { materialId, items: state?.status === "done" ? state.items : [], ...(state ? {} : { absorb: "pending" }) };
 		},
 		async capture(payload, hub) {
 			const input = parseCapturePayload(payload);

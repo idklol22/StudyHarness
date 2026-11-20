@@ -41,6 +41,7 @@ export interface NewDeadline {
 	due: unknown;
 	kind?: unknown;
 	done?: boolean;
+	notes?: string;
 }
 
 /** Add a deadline to a subject (or one of its topics). */
@@ -57,6 +58,7 @@ export function addDeadline(lib: Library, input: NewDeadline, make?: () => Fresh
 		due: String(due).trim(),
 		kind: readKind(input.kind),
 		...(input.done ? { done: true } : {}),
+		...(typeof input.notes === "string" && input.notes.trim() ? { notes: input.notes.trim().slice(0, 500) } : {}),
 	};
 	return { library: { ...lib, deadlines: [...(lib.deadlines ?? []), deadline] }, deadline };
 }

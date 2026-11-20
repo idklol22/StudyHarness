@@ -1,10 +1,11 @@
 /**
  * POST /api/planner/notes — hand a planner task's notes to Study as a Markdown TEXT material.
  * Body: { externalId, subjectId, topicId?, title, date (YYYY-MM-DD), markdown, finished }.
+ * The reply is immediate ({ materialId, absorb: "queued" }); GET /api/planner/notes/result reports the absorption.
  * Repeated hand-offs of the same externalId update that task's material instead of adding another.
  */
 import { emit } from "@/src/core";
-import { PlannerNoteInputError, plannerCorsHeaders, plannerNoteMap, plannerPreflight, StudyInputError, study, upsertPlannerNote, validatePlannerNote } from "@/src/server";
+import { absorbWithApp, PlannerNoteInputError, plannerCorsHeaders, plannerNoteMap, plannerPreflight, StudyInputError, study, upsertPlannerNote, validatePlannerNote } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,9 @@ export async function POST(request: Request) {
 		const note = validatePlannerNote(raw);
 		const { materialId } = await upsertPlannerNote(note, { study, map: plannerNoteMap });
 		emit("sources-changed", {}); // the same event the materials route announces; pages refetch the library
-		return Response.json({ materialId }, { headers });
+		// Absorb in the background: knowledge into the subject's memory, dated items into deadlines. Never blocks the reply.
+		void absorbWithApp(note).catch((error) => console.error("[planner] note absorption failed:", error));
+		return Response.json({ materialId, absorb: "queued" }, { headers });
 	} catch (error) {
 		if (error instanceof PlannerNoteInputError || error instanceof StudyInputError) return Response.json({ error: error.message }, { status: 400, headers });
 		console.error("[planner] note hand-off failed:", error);

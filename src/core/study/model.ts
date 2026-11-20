@@ -98,6 +98,8 @@ export interface Deadline {
 	due: string;
 	kind: "assignment" | "exam" | "quiz" | "other";
 	done?: boolean;
+	/** Extra detail, e.g. the syllabus an exam covers (set when a Planner note announced it). */
+	notes?: string;
 }
 
 export interface Library {
