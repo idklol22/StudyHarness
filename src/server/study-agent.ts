@@ -33,7 +33,13 @@ const cardsOf = (key: string): CardSet => studyStore.readDoc<CardSet>("cards", k
 const worker = (deps: StudyDeps, role: ModelRole, chatId: string): WorkerEnv => ({ engine: deps.engineFor(role), signal: deps.signal, chatId, onUsage: (usage) => deps.onUsage?.(usage) });
 
 
-export function studyContributions(chatId: string, placement: ChatPlacement, kind: "teach" | "practice", deps: StudyDeps): { instructions: string[]; tools: AgentTool<any>[] } | undefined {
+export function studyContributions(
+	chatId: string,
+	placement: ChatPlacement,
+	kind: "teach" | "practice",
+	deps: StudyDeps,
+	mode: "teach" | "plain" = "teach",
+): { instructions: string[]; tools: AgentTool<any>[] } | undefined {
 	const lib = study.library();
 	if (!subjectOf(lib, placement.subjectId)) return undefined;
 	const readState = (id: string) => {
@@ -42,7 +48,7 @@ export function studyContributions(chatId: string, placement: ChatPlacement, kin
 		const read = studyStore.readMemory(m.sha256).read.length;
 		return read ? `read ${read} of ${m.pageCount} pages` : "not read yet";
 	};
-	const instructions = studyInstructions({ library: lib, placement, kind, readState });
+	const instructions = studyInstructions({ library: lib, placement, kind, mode, readState });
 
 	const ownKey = () => {
 		const topic = placement.topicId ? topicOf(study.library(), placement.topicId) : undefined;
@@ -81,8 +87,26 @@ export function studyContributions(chatId: string, placement: ChatPlacement, kin
 			async add(planned, summary) { const book = await addBlocks(placement, planned, summary, deps); return `Added ${planned.length} block${planned.length === 1 ? "" : "s"} (notes now ${book.pages.length} page${book.pages.length === 1 ? "" : "s"}).`; },
 			async edit(id, patch) { await editNote(placement, id, patch); return "Updated."; },
 		},
+		async saveChatNotes(title, markdown) {
+			const scope = { subjectId: placement.subjectId, ...(placement.topicId ? { topicId: placement.topicId } : {}) };
+			const safeTitle = title.replace(/[\\/\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 116) || "Chat notes";
+			const { material } = await study.addMaterial({
+				bytes: Buffer.from(markdown, "utf8"),
+				fileName: `${safeTitle}.md`,
+				scope,
+			});
+			const fresh = study.library();
+			return {
+				id: material.id,
+				title: safeTitle,
+				subjectId: placement.subjectId,
+				...(placement.topicId ? { topicId: placement.topicId } : {}),
+				subjectName: subjectOf(fresh, placement.subjectId)?.name ?? "Subject",
+				topicName: placement.topicId ? topicOf(fresh, placement.topicId)?.name : undefined,
+			};
+		},
 		ownCardKey: ownKey,
-	});
+	}, mode);
 	return { instructions: [instructions], tools: Object.values(tools) };
 }
 

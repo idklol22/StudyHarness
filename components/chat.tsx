@@ -70,7 +70,7 @@ import { PlanMarginalia, planExists } from "@/components/plan-window";
 import { PluginSessionPanels, SessionPanelToggle } from "@/components/plugin-session-panels";
 import { MermaidOverlay, SessionMermaidContext, type SessionImage } from "@/components/session-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
-import { ArrowRightIcon, DumbbellIcon, MessageCircleQuestionIcon, WaypointsIcon } from "lucide-react";
+import { ArrowRightIcon, BookmarkCheckIcon as SavedIcon, DumbbellIcon, MessageCircleQuestionIcon, WaypointsIcon } from "lucide-react";
 import type { PlanBlockData } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
 import { PluginQuestionDock } from "./plugin-question-dock";
@@ -137,6 +137,19 @@ import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/th
  */
 const COLUMN = "mx-auto w-full max-w-none px-6";
 const DOCK = "mx-auto w-full max-w-[46rem] px-4";
+/** The "End & save notes" affordance sends this as an ordinary user turn. */
+const SAVE_NOTES_PROMPT = "Please write my notes for this chat and save them.";
+
+/** Record-facing details from the save_chat_notes tool (src/agent/tools/study.ts). */
+interface SavedChatNotesDetails {
+	saved: true;
+	id: string;
+	title: string;
+	subjectId: string;
+	topicId?: string;
+	subjectName: string;
+	topicName?: string;
+}
 // The DOCK container's fixed width (46rem) and the plan marginalia's
 // geometry (owner, plan-placement round): the bare diagram sits in the
 // dock band's RIGHT flank — MARGIN_GAP from the DOCK container's edge and
@@ -681,9 +694,13 @@ export function Chat({
 		);
 	}, [pendingQuestionId, questionDraft, pluginQuestionDraft]);
 
+	// A placed chat that is not a practice session is a plain study chat:
+	// no probe/plan/teach arc, no phase dividers, no question dock. Existing
+	// chats created before this switch render in this mode too.
+	const plainStudy = !!placement && kind !== "practice";
 	// The phase at every message (one linear fold): the transcript draws a
 	// color-coded dotted divider at each boundary; the header chip reads the
-	// session's current phase.
+	// session's current phase. Plain study chats ignore this fold entirely.
 	const phases = useMemo(() => phaseTimeline(messages, startMode === "scratch" ? "plan" : "probe"), [messages, startMode]);
 
 	const [composerDraftRevision, setComposerDraftRevision] = useState(0);
@@ -1734,10 +1751,19 @@ export function Chat({
 					{/* Practice (owner, 2026-10-04): the coverage ring hides —
 				    practice never extracts, so an ever-filling ring with no
 				    run behind it would lie. */}
-					{kind !== "practice" && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
-					{/* Practice sessions: no phase arc — a quiet Practice tag
-					    instead of the phase chip. */}
-					{kind === "practice" ? (
+					{kind !== "practice" && !plainStudy && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
+					{/* Practice: a Practice tag. Plain study chats: one quiet
+					    "Study chat" tag — never a probe/plan/teach phase arc. */}
+					{plainStudy ? (
+						<span
+							data-testid="phase-chip"
+							data-phase="chat"
+							aria-hidden="true"
+							className="pointer-events-none flex shrink-0 select-none items-center text-xs font-medium uppercase tracking-wide text-muted-foreground"
+						>
+							Study chat
+						</span>
+					) : kind === "practice" ? (
 						<span
 							data-testid="phase-chip"
 							data-phase="practice"
@@ -1749,6 +1775,12 @@ export function Chat({
 						</span>
 					) : (
 						<PhaseChip phase={phases.at(-1) ?? "probe"} />
+					)}
+					{plainStudy && (
+						<Button type="button" variant="outline" size="xs" data-testid="end-save-notes"
+							disabled={busy || compacting} onClick={() => { void prepareText(SAVE_NOTES_PROMPT); }}>
+							End &amp; save notes
+						</Button>
 					)}
 					{notesHref && <a href={notesHref} data-testid="chat-notes-link" className="inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs transition-colors hover:bg-accent">Notes</a>}
 					<PluginSessionTopBarActions readContext={actionContext} captureContext={captureActionContext} refreshRef={refreshPluginActions} />
@@ -1764,8 +1796,10 @@ export function Chat({
 						<div data-session-find-root="" className={`${COLUMN} flex flex-1 flex-col gap-4 pt-4`}>
 							{messages.length === 0 && !busy && (
 								<ConversationEmptyState
-									title="New session"
-									description="The teacher will open by probing what you already know."
+									title={plainStudy ? "New study chat" : "New session"}
+									description={plainStudy
+										? "Ask anything about this subject. Your notes can be saved when you're done."
+										: "The teacher will open by probing what you already know."}
 								/>
 							)}
 
@@ -1778,6 +1812,9 @@ export function Chat({
 									// can still hold empty ids — the index keeps keys unique for them.
 									<SubagentSteerCard key={m.id || `m-${mi}`} message={m} />
 								) : m.role === "user" && m.parts.some((p) => p.type === "data-probe-handoff") ? (
+								// Plain study chats never show this teaching seam, even when
+								// reopening a chat created before the plain-mode switch.
+								plainStudy ? null : (
 								// The probe→teach handoff wake (custom-message scheme): the
 								// PLANNING DIVIDER IS the seam (owner ruling 2026-09-26 — it
 								// replaced the "Preparing your plan…" system line; the marker
@@ -1787,6 +1824,7 @@ export function Chat({
 								// assistant group — is gone). Never a user bubble: the wake is
 								// scaffolding; the model-facing instruction lives in the adapter.
 								<PhaseDivider key={m.id || `m-${mi}`} phase="plan" />
+								)
 							) : m.role === "user" && m.parts.length > 0 && m.parts.every((p) => p.type.startsWith("data-")) ? (
 								// Marker cards (custom messages, 2026-10-04): user-side
 								// scaffolding — the graph-context pick, the practice
@@ -1848,7 +1886,8 @@ export function Chat({
 									PREPENDED, never a replacement branch: the teach group is a real
 									message with content — a replacement ternary swallowed the entire
 									first lesson block (the Lacan session, 2026-09-27). */}
-									{m.role === "assistant" &&
+									{!plainStudy &&
+									m.role === "assistant" &&
 									mi > 0 &&
 									phases[mi] === "teach" &&
 									phases[mi - 1] !== "teach" &&
@@ -1896,6 +1935,7 @@ export function Chat({
 												// the teach flip happens in a LATER step, its PhaseDivider
 												// replaces this boundary's plain hairline.
 												const teachBoundary =
+													!plainStudy &&
 													m.role === "assistant" &&
 													mi > 0 &&
 													phases[mi] === "teach" &&
@@ -1972,7 +2012,23 @@ export function Chat({
 														}
 														return null;
 													}
-													default: {
+											case "tool-save_chat_notes": {
+												const raw = part.output as { details?: SavedChatNotesDetails } | SavedChatNotesDetails | undefined;
+												const saved = (raw && "details" in raw ? raw.details : raw) as SavedChatNotesDetails | undefined;
+												if (part.state !== "output-available" || !saved?.saved) return <ToolPartRenderer key={pi} part={part} />;
+												const subjectId = saved.subjectId ?? placement?.subjectId;
+												const scope = [saved.subjectName, saved.topicName].filter(Boolean).join(" › ");
+												return (
+													<a key={pi} data-testid="saved-chat-notes-card"
+														href={`/subjects/${subjectId}/read/${saved.id}`}
+														className="my-2 flex w-fit items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm transition-colors hover:bg-accent"
+													>
+														<SavedIcon className="size-4 text-muted-foreground" aria-hidden="true" />
+														<span>Saved to {scope}: {saved.title}</span>
+													</a>
+												);
+											}
+									default: {
 														// Built-in presentation stays authoritative; plugin renderers
 														// extend only the generic native-tool fallback slot.
 														if (part.type.startsWith("tool-")) return <ToolPartRenderer key={pi} part={part} />;

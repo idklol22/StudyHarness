@@ -34,12 +34,21 @@ export interface StudyToolPorts {
 		add(blocks: Array<{ block: import("../../core/study/notes.ts").Block; focus?: string }>, summary: string): Promise<string>;
 		edit(id: string, patch: { text?: string; items?: string[]; caption?: string }): Promise<string>;
 	};
+	/** Plain-chat note export: write Markdown as a text material in the chat's placement. */
+	saveChatNotes?: (title: string, markdown: string) => Promise<{
+		id: string;
+		title: string;
+		subjectId: string;
+		topicId?: string;
+		subjectName: string;
+		topicName?: string;
+	}>;
 	now?(): number;
 }
 
 const MAX_PAGES_PER_CALL = 24;
 
-export function studyTools(ports: StudyToolPorts): Record<string, AgentTool<any>> {
+export function studyTools(ports: StudyToolPorts, mode: "teach" | "plain" = "teach"): Record<string, AgentTool<any>> {
 	const now = () => ports.now?.() ?? Date.now();
 	const material = (id: unknown) => {
 		const list = visibleMaterials(ports.library(), ports.placement());
@@ -93,8 +102,12 @@ export function studyTools(ports: StudyToolPorts): Record<string, AgentTool<any>
 		topics: Type.Optional(Type.Array(Type.String(), { description: "Limit to these topic names." })),
 	});
 	const RateSchema = Type.Object({ id: Type.String(), rating: Type.Integer({ minimum: 1, maximum: 4, description: "1 again, 2 hard, 3 good, 4 easy" }) });
+	const SaveNotesSchema = Type.Object({
+		title: Type.String({ minLength: 1, description: "Short title for the saved notes (also the material file name)." }),
+		markdown: Type.String({ minLength: 1, description: "The complete notes in Markdown." }),
+	});
 
-	return {
+	const tools: Record<string, AgentTool<any>> = {
 		study_context: {
 			name: "study_context",
 			label: "study_context",
@@ -139,6 +152,18 @@ export function studyTools(ports: StudyToolPorts): Record<string, AgentTool<any>
 					return [{ block: { type: b.type, text: b.text ?? "" } as never }];
 				});
 				return { text: await ports.notes.add(planned, input.summary ?? "Notes from the lesson") };
+			}),
+		},
+		save_chat_notes: {
+			name: "save_chat_notes",
+			label: "save_chat_notes",
+			description: "Save the chat's notes as a Markdown text material in this chat's subject/topic. Call this when the learner asks to write up and save the conversation's notes. Returns the material id and the saved scope.",
+			parameters: SaveNotesSchema,
+			execute: serverExecute("save_chat_notes", SaveNotesSchema, async (input) => {
+				if (!ports.saveChatNotes) throw new Error("Saving chat notes is not available in this chat.");
+				const saved = await ports.saveChatNotes(input.title.trim(), input.markdown);
+				const scope = [saved.subjectName, saved.topicName].filter(Boolean).join(" › ");
+				return { text: `Saved to ${scope}: ${saved.title}.`, details: { tool: "save_chat_notes", saved: true, ...saved } };
 			}),
 		},
 		study_cards: {
@@ -195,4 +220,12 @@ export function studyTools(ports: StudyToolPorts): Record<string, AgentTool<any>
 			}),
 		},
 	};
+	if (mode === "plain") {
+		const plainNames = ["study_context", "study_material", "study_notes", "save_chat_notes"] as const;
+		return Object.fromEntries(plainNames.map(name => [name, tools[name]!])) as Record<string, AgentTool<any>>;
+	}
+	// Teaching/practice chats keep their existing six tools; note export is
+	// only part of the plain study-chat registry.
+	const { save_chat_notes: _saveChatNotes, ...teaching } = tools;
+	return teaching;
 }

@@ -24,6 +24,8 @@ import { lsTool } from "./tools/ls.ts";
 import { findTool } from "./tools/find.ts";
 import { grepTool } from "./tools/grep.ts";
 import { createShowImageTool } from "./tools/show-image.ts";
+import { createWebTools } from "./tools/web.ts";
+import type { SearchProvider } from "../core/search.ts";
 import { healToolRecord } from "./tools/heal.ts";
 import type { GraphStore } from "../core/ports.ts";
 
@@ -465,6 +467,36 @@ export function createTeacherTools(
 			...jobTools({ chatId: ctx.chatId, jobStore: ctx.jobStore, spawn: ctx.spawn, searchAvailable: ctx.searchAvailable }),
 		},
 		withoutMechanics(enabled),
+		),
+	);
+}
+
+/**
+ * Plain study-chat registry (study-chat spec): the ordinary chat tools —
+ * learner files, image display, job dispatch and the web pair — with NO
+ * teaching/assessment/planning tools. Study-specific tools (including
+ * save_chat_notes) arrive through the per-turn study contributions.
+ */
+export interface StudyChatToolContext extends TeacherToolContext {
+	search: () => SearchProvider | null;
+}
+
+export function createStudyChatTools(
+	ctx: StudyChatToolContext,
+	enabled?: EnabledTools,
+): Record<string, AgentTool<any>> {
+	return healToolRecord(
+		filterEnabledTools(
+			{
+				read: readTool,
+				ls: lsTool,
+				find: findTool,
+				grep: grepTool,
+				show_image: createShowImageTool(ctx),
+				...jobTools({ chatId: ctx.chatId, jobStore: ctx.jobStore, spawn: ctx.spawn, searchAvailable: ctx.searchAvailable }),
+				...createWebTools(ctx.search),
+			},
+			withoutMechanics(enabled),
 		),
 	);
 }

@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { studyTools, type StudyToolPorts } from "../src/agent/tools/study.ts";
+import { createStudyChatTools } from "../src/agent/tools.ts";
 import { emptyCards, type CardSet } from "../src/core/study/cards.ts";
 import { studyInstructions } from "../src/core/study/doctrine.ts";
 import { addMaterial, createSubject, createTopic, emptyLibrary, setContext, type Library } from "../src/core/study/model.ts";
@@ -41,6 +42,19 @@ describe("study instructions", () => {
 		const empty = studyInstructions({ library: { ...f.lib, materials: [] }, placement: { subjectId: f.subjectId, startMode: "scratch" }, kind: "teach" });
 		assert.match(empty, /None uploaded yet/);
 	});
+
+	it("plain mode keeps the library listing but none of the teaching doctrine", () => {
+		const f = fixture();
+		const text = studyInstructions({ library: f.lib, placement: { subjectId: f.subjectId, topicId: f.topicId, startMode: "scratch" }, kind: "teach", mode: "plain" });
+		assert.match(text, /This chat belongs to the subject "Machine Learning", topic "Dynamic programming"/);
+		assert.ok(text.indexOf("TOPIC-CTX") < text.indexOf("SUBJECT-CTX"), "topic context comes first");
+		assert.match(text, /## Materials/);
+		assert.match(text, /dp\.pdf/);
+		assert.match(text, /ml\.pdf/);
+		for (const forbidden of [/Where to look, in this order/, /START FROM SCRATCH/, /CHECK WHAT THEY KNOW FIRST/, /HANDING OVER FILES IS NOT A QUESTION/, /Notes: keep the learner's class notes/, /Flashcards:/, /PRACTICE chat/]) {
+			assert.ok(!forbidden.test(text), `plain mode must omit ${forbidden}`);
+		}
+	});
 });
 
 describe("study tools", () => {
@@ -68,7 +82,7 @@ describe("study tools", () => {
 			const result = await (tools[name]!.execute as (id: string, i: unknown) => Promise<{ content: Array<{ text?: string }> }>)("t1", input);
 			return result.content.map((c) => c.text ?? "").join("");
 		};
-		return { f, tools, run, calls, stores };
+		return { f, tools, run, calls, stores, ports };
 	};
 
 	it("looks up and reads by material id or file name, and refuses unknown ones with the choices", async () => {
@@ -101,6 +115,43 @@ describe("study tools", () => {
 		assert.match(await run("study_practice_next", { mode: "due" }), /Nothing to practise/);
 		assert.match(await run("study_cards", { action: "remove", id }), /Removed/);
 		assert.match(await run("study_practice_next", { mode: "all" }), /no cards yet/);
+	});
+
+	it("plain mode exposes only context/material/notes/note-export and no cards or practice tools", () => {
+		const { ports } = setup();
+		const tools = studyTools(ports, "plain");
+		assert.deepEqual(Object.keys(tools).sort(), ["save_chat_notes", "study_context", "study_material", "study_notes"]);
+		for (const excluded of ["study_cards", "study_practice_next", "study_practice_rate", "probe", "quiz", "explain", "recall", "ask_user_question"]) {
+			assert.equal(tools[excluded], undefined, `${excluded} must not be in a plain study chat`);
+		}
+	});
+
+	it("save_chat_notes writes Markdown through the port and returns the saved material details", async () => {
+		const { ports } = setup();
+		const saved = { id: "mat_1", title: "Chat notes", subjectId: ports.placement().subjectId, topicId: ports.placement().topicId, subjectName: "Machine Learning", topicName: "Dynamic programming" };
+		let written: { title: string; markdown: string } | undefined;
+		const tool = studyTools({ ...ports, async saveChatNotes(title, markdown) { written = { title, markdown }; return saved; } }, "plain").save_chat_notes!;
+		const result = await (tool.execute as (id: string, input: unknown) => Promise<{ details: unknown }>)("t1", { title: "Chat notes", markdown: "# Notes\nBellman." });
+		assert.deepEqual(written, { title: "Chat notes", markdown: "# Notes\nBellman." });
+		assert.deepEqual(result.details, { tool: "save_chat_notes", saved: true, ...saved });
+	});
+
+	it("the plain chat's own registry excludes teaching, question and planning tools", () => {
+		const ctx = {
+			chatId: "c1",
+			chatStore: { getChat: () => undefined, saveImageSnapshot: async () => {} },
+			jobStore: { list: () => [] },
+			spawn: () => {},
+			search: () => null,
+			searchAvailable: () => false,
+		} as unknown as Parameters<typeof createStudyChatTools>[0];
+		const names = Object.keys(createStudyChatTools(ctx));
+		for (const required of ["read", "ls", "find", "grep", "show_image", "research", "demo", "visual", "pdf", "web_search", "web_fetch"]) {
+			assert.ok(names.includes(required), `${required} should be available in a plain study chat`);
+		}
+		for (const excluded of ["probe", "quiz", "explain", "recall", "ask_user_question", "plan_init", "plan_add", "plan_done", "study_cards", "study_practice_next", "study_practice_rate", "save_chat_notes"]) {
+			assert.ok(!names.includes(excluded), `${excluded} must not be in the plain chat's own registry`);
+		}
 	});
 });
 

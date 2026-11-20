@@ -6,7 +6,7 @@
 import { contextScopes, materialsIn, materialsUnder, materialTopicName, relatedContexts, subjectOf, topicOf, type ChatPlacement, type Library } from "./model.ts";
 
 /** Tool names this module adds (reserved so plugins cannot shadow them). */
-export const STUDY_TOOL_NAMES = ["study_context", "study_material", "study_cards", "study_notes", "study_practice_next", "study_practice_rate"] as const;
+export const STUDY_TOOL_NAMES = ["study_context", "study_material", "study_cards", "study_notes", "study_practice_next", "study_practice_rate", "save_chat_notes"] as const;
 
 const LAYERS = `Where to look, in this order — stop at the first layer that answers:
 1. The topic context and subject context shown above (already in front of you; never re-fetch them).
@@ -50,11 +50,14 @@ export interface DoctrineInput {
 	library: Library;
 	placement: ChatPlacement;
 	kind: "teach" | "practice";
+	/** "plain" keeps only the subject/topic context + materials list. The teaching
+	 *  blocks (layers, start mode, files, notes, cards, practice) stay out. */
+	mode?: "teach" | "plain";
 	/** Cheap per-material read state, e.g. "read 12 of 80 pages". */
 	readState?: (materialId: string) => string;
 }
 
-export function studyInstructions({ library, placement, kind, readState }: DoctrineInput): string {
+export function studyInstructions({ library, placement, kind, mode = "teach", readState }: DoctrineInput): string {
 	const subject = subjectOf(library, placement.subjectId);
 	if (!subject) return "";
 	const topic = placement.topicId ? topicOf(library, placement.topicId) : undefined;
@@ -67,7 +70,11 @@ export function studyInstructions({ library, placement, kind, readState }: Doctr
 	const materials = visibleMaterials(library, placement);
 	out.push(materials.length
 		? "## Materials\n" + materials.map((m) => `- ${m.fileName} — ${m.pageCount} ${m.kind === "text" ? "text pages" : "pages"}${materialTopicName(library, m) ? `, in topic "${materialTopicName(library, m)}"` : ""}${readState ? `, ${readState(m.id)}` : ""} [id ${m.id}]`).join("\n")
-		: "## Materials\nNone uploaded yet. Teach from what you know and what the learner says; they can add slides or notes any time.");
+		: `## Materials\nNone uploaded yet. ${mode === "plain" ? "Answer" : "Teach"} from what you know and what the learner says; they can add slides or notes any time.`);
+	// Plain study chats are ordinary Claude-style conversations: the library
+	// listing above is useful context, but none of the teaching/assessment
+	// doctrine applies (startMode is ignored for these chats).
+	if (mode === "plain") return out.join("\n\n");
 	out.push(LAYERS);
 	out.push(kind === "practice" ? PRACTICE : placement.startMode === "scratch" ? SCRATCH : CHECK);
 	if (kind !== "practice") out.push(FILES_ONLY);

@@ -2,6 +2,7 @@ import type { Usage } from "@earendil-works/pi-ai";
 import {
 	createPracticeAgent,
 	createProberAgent,
+	createStudyChatAgent,
 	createTeacherAgent,
 	type AgentBuildOptions,
 	type TeachingAgent,
@@ -63,7 +64,7 @@ import { registerTurn, rememberTurnFailure, unregisterTurn } from "./turn-runs.t
 import { persistTurn, triggerExtraction, TurnPersistenceError } from "./turn-service.ts";
 import { hasProbeDone, hasUnresolvedQuestion, pendingPluginQuestionOf, pluginQuestionCallsOf, questionCallsOf } from "../core/native-messages.ts";
 import { samePluginQuestionOccurrence } from "../core/plugin-questions.ts";
-import { composeInstructions } from "../agent/teacher-agent.ts";
+import { composeInstructions, composeStudyChatInstructions } from "../agent/teacher-agent.ts";
 import { ensureCompacted, kickCompaction, effectiveThresholdTokens, projectedContextTokens, compactionInFlight } from "./compaction.ts";
 import { COMPACTION_RESERVE_TOKENS } from "../core/compaction.ts";
 import { catalogContextLimits, refreshConnectionCatalog } from "./model-catalog.ts";
@@ -229,6 +230,10 @@ export async function handleChatInput(
 		return Response.json({ error: "Unknown chat" }, { status: 404 });
 	}
 	let record = initialRecord;
+	// A placed chat that is not a practice session is a plain study chat:
+	// one conversation state, ordinary chat tools, no probe/plan/teach arc.
+	// startMode is deliberately ignored here and everywhere downstream.
+	const plainStudy = !!record.placement && record.kind !== "practice";
 
 	const capturedSession = { createdAt: record.createdAt, kind: record.kind };
 	const freshSubmission = input.type === "text" || input.type === "thinking" || input.type === "answer" || input.type === "plugin-question-answer" || input.type === "plugin-problem-submission";
@@ -370,7 +375,9 @@ export async function handleChatInput(
 	const modelIdForCompaction = `${conversationEngine.model.provider}:${conversationEngine.model.id}`;
 	const contextWindow = catalogContextLimits().get(modelIdForCompaction);
 	const thresholdTokens = effectiveThresholdTokens(effective.compaction?.thresholdTokens, contextWindow);
-	const systemPromptTokens = Math.ceil(composeInstructions(record.kind === "practice" ? "practice" : "teacher").length / 4);
+	const systemPromptTokens = Math.ceil((plainStudy
+		? composeStudyChatInstructions()
+		: composeInstructions(record.kind === "practice" ? "practice" : "teacher")).length / 4);
 	const estimateModel = effective.compaction.includeReasoning ? conversationEngine.model : undefined;
 	const fitsSideContext = (messages: readonly LhMessage[]) => {
 		const live = messages.filter((message) => (message as { role: string }).role !== "system");
@@ -395,7 +402,7 @@ export async function handleChatInput(
 			engine: compactionEngine,
 			canStart: () => !isTurnRunning(chatId) && connectionBackgroundAllowed(conversation.provider),
 			modelId: modelIdForCompaction,
-			kind: record.kind === "practice" ? "practice" : hasProbeDone(record.messages) || record.placement?.startMode === "scratch" ? "teach" : "probe",
+			kind: record.kind === "practice" ? "practice" : plainStudy ? "teach" : hasProbeDone(record.messages) || record.placement?.startMode === "scratch" ? "teach" : "probe",
 			includeReasoning: effective.compaction.includeReasoning,
 			thresholdTokens,
 			systemPromptTokens,
@@ -455,7 +462,7 @@ export async function handleChatInput(
 			const studyKind = record.kind === "practice" ? "practice" : "teach";
 			pluginContributions = (context, reserved) => {
 				const base = plugins?.(context, reserved) ?? { instructions: [], tools: [] };
-				const study = studyContributions(chatId, placement, studyKind, { engineFor: resolveEngine, onUsage: (usage) => studyUsage?.(usage) });
+				const study = studyContributions(chatId, placement, studyKind, { engineFor: resolveEngine, onUsage: (usage) => studyUsage?.(usage) }, plainStudy ? "plain" : "teach");
 				if (!study) return base;
 				const taken = new Set(reserved);
 				return { ...base, instructions: [...study.instructions, ...base.instructions], tools: [...base.tools, ...study.tools.filter((tool) => !taken.has(tool.name))] };
@@ -669,7 +676,7 @@ export async function handleChatInput(
 	// Both share this whole composition (write-ahead persist, liveness,
 	// steers, usage, extraction) — only the agent differs.
 	// Start from scratch (Study): no probe — the teacher takes the chat from its first turn.
-	const teaching = hasProbeDone(agentMessages) || record.placement?.startMode === "scratch";
+	const teaching = plainStudy || hasProbeDone(agentMessages) || record.placement?.startMode === "scratch";
 	// BYOK (owner, 2026-09-22): the conversation chain was resolved by the
 	// turn gate above (chat.model override → strong slot → refused) — the
 	// engine build is pure from here; thinking levels clamp natively.
@@ -762,7 +769,20 @@ export async function handleChatInput(
 	// uniform across kinds).
 	const constructed: TeachingAgent = buildAgent
 		? buildAgent({ ...agentOpts, teaching })
-		: record.kind === "practice"
+		: plainStudy
+			? createStudyChatAgent(
+					{
+						chatId,
+						chatStore: stores.chatStore,
+						jobStore: stores.jobStore,
+						spawn: (job, input) => void jobRunner.runJob(job.id, input),
+						searchAvailable,
+						// Web tools get the same live provider seam as the researcher.
+						search: searchProvider,
+					},
+					agentOpts,
+				)
+			: record.kind === "practice"
 			? createPracticeAgent(
 					{
 						chatId,
@@ -977,18 +997,21 @@ export async function handleChatInput(
 						const kickModelId = `${kickEngine.model.provider}:${kickEngine.model.id}`;
 						const freshRecord = stores.chatStore.getChat(chatId);
 						if (!freshRecord) return null;
+						const freshPlainStudy = !!freshRecord.placement && freshRecord.kind !== "practice";
 						return {
 							chatStore: stores.chatStore,
 							engine: kickEngine,
 							canStart: () => !isTurnRunning(chatId) && connectionBackgroundAllowed(spec.provider),
 							modelId: kickModelId,
-							kind: freshRecord.kind === "practice" ? "practice" : hasProbeDone(freshRecord.messages) || freshRecord.placement?.startMode === "scratch" ? "teach" : "probe",
+							kind: freshRecord.kind === "practice" ? "practice" : freshPlainStudy ? "teach" : hasProbeDone(freshRecord.messages) || freshRecord.placement?.startMode === "scratch" ? "teach" : "probe",
 							includeReasoning: fresh.compaction.includeReasoning,
 							thresholdTokens: effectiveThresholdTokens(
 								fresh.compaction?.thresholdTokens,
 								catalogContextLimits().get(kickModelId),
 							),
-							systemPromptTokens: Math.ceil(composeInstructions(freshRecord.kind === "practice" ? "practice" : "teacher").length / 4),
+							systemPromptTokens: Math.ceil((freshPlainStudy
+								? composeStudyChatInstructions()
+								: composeInstructions(freshRecord.kind === "practice" ? "practice" : "teacher")).length / 4),
 						};
 					}, chatId);
 			},

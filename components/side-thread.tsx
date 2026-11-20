@@ -19,7 +19,7 @@ import { isInteractionScopeEligible } from "./plugin-input-focus";
  * is an independent action that inserts a chip into the main/thinking field. */
 export function createSideQuestionActions({ open }: { open: (args: SideThreadOpenArgs) => void }): SelectionAction[] {
 	return [{
-		id: "side-ask", label: "Ask", ariaLabel: "Ask a side question about this selection", icon: MessageCircleQuestion, visible: () => true,
+		id: "side-ask", label: "Ask follow-up", ariaLabel: "Ask a follow-up about this selection", icon: MessageCircleQuestion, visible: () => true,
 		disabledLabel: (capture) => capture.selector.text.length > SIDE_QUOTE_MAX_CHARS ? "Shorten selection" : null,
 		onSelect: (capture) => {
 			const { text, start, end, prefix, suffix } = capture.selector;
@@ -119,7 +119,7 @@ export function SideThreadBody({ state, chatId, draft, readDraft, dictation, onD
 				data-testid="side-thread-header" onPointerDown={onDragStart}>
 				{onDragStart && <GripVertical aria-hidden="true" className="-ml-1 size-3.5 text-muted-foreground" />}
 				<MessageCircleQuestion aria-hidden="true" className="size-3.5 text-muted-foreground" />
-				<span className="flex-1 font-ui text-xs text-muted-foreground">Side question</span>
+				<span className="flex-1 font-ui text-xs text-muted-foreground">Follow-up</span>
 				<Button type="button" size="icon-xs" variant="ghost" aria-label={state.mode === "popover" ? "Dock side conversation" : "Float side conversation"}
 					title={state.mode === "popover" ? "Pin to side" : "Unpin to float"} onClick={state.mode === "popover" ? onExpand : onFloat}>
 					{state.mode === "popover" ? <Pin aria-hidden="true" /> : <PinOff aria-hidden="true" />}
@@ -275,8 +275,8 @@ export function SideThreadPopover({ state, chatId, composer, ...handlers }: { st
 	};
 	const style: React.CSSProperties = frame ? { left: frame.x, top: frame.y, width: frame.width, height: frame.height }
 		: placement ? { ...placement.style, maxHeight: placement.maxHeight } : { left: 0, top: 0, visibility: "hidden" };
-	return <div ref={boxRef} role="dialog" aria-label="Side question" data-testid="side-thread-popover"
-		style={{ position: "fixed", zIndex: 60, ...style }} className="lh-no-drag flex flex-col overflow-hidden rounded-xl border bg-background/50 p-3 text-sm shadow-xl backdrop-blur-[18px]">
+	return <div ref={boxRef} role="dialog" aria-label="Follow-up" data-testid="side-thread-popover"
+		style={{ position: "fixed", zIndex: 60, ...style }} className="lh-no-drag flex flex-col overflow-hidden rounded-xl border bg-card p-3 text-sm shadow-lg">
 		<SideThreadBody key={state.threadId} state={state} chatId={chatId} {...handlers} onDragStart={startDrag} />
 		{RESIZE_HANDLES.map(({ edge, className }) => <div key={edge} aria-hidden="true" data-side-resize={edge}
 			data-testid={edge === "s" ? "side-thread-resize" : `side-thread-resize-${edge}`} className={`absolute touch-none ${className}`}
@@ -284,5 +284,5 @@ export function SideThreadPopover({ state, chatId, composer, ...handlers }: { st
 	</div>;
 }
 export function SideThreadPanel({ children }: { children: ReactNode }) {
-	return <aside aria-label="Side question" data-testid="side-thread-panel" className="flex w-[22rem] shrink-0 flex-col border-l border-border bg-background p-3">{children}</aside>;
+	return <aside aria-label="Follow-up" data-testid="side-thread-panel" className="flex w-[22rem] shrink-0 flex-col border-l border-border bg-background p-3">{children}</aside>;
 }

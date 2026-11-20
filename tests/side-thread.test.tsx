@@ -69,9 +69,9 @@ describe("floating/docked raw side conversation", () => {
 });
 
 describe("side entry points", () => {
-	it("has one quiet selection Ask action, independent of whether a companion is already open", () => {
+	it("has one quiet selection Ask follow-up action, independent of whether a companion is already open", () => {
 		const actions = createSideQuestionActions({ open() {} });
-		assert.deepEqual(actions.map((action) => action.label), ["Ask"]);
+		assert.deepEqual(actions.map((action) => action.label), ["Ask follow-up"]);
 		assert.equal(actions[0]!.visible({ messageId: "lesson", range: render().createRange(), selector: { text: "Words", start: 0, end: 5, prefix: "", suffix: "" } }), true);
 	});
 });

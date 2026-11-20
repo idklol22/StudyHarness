@@ -25,6 +25,8 @@ export const PATHS = {
 	root: ROOT,
 	/** Teacher system prompt — the agent's instructions (src/agent/). */
 	teacherPrompt: path.join(ROOT, "src", "agent", "system-prompt.md"),
+	/** Plain study-chat system prompt — replaces the teaching doctrine for placed, non-practice chats. */
+	studyChatPrompt: path.join(/* turbopackIgnore: true */ ROOT, "src", "agent", "study-chat-prompt.md"),
 	data: DATA_ROOT,
 	/** Chat sessions (AI SDK UIMessage transcripts, one JSON file per chat). */
 	chats: path.join(/* turbopackIgnore: true */ DATA_ROOT, "chats"),

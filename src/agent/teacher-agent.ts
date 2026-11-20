@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { Agent } from "@earendil-works/pi-agent-core";
 import type { AgentEvent, AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
 import { invalidInputResult, questionResult } from "./tool-execute.ts";
@@ -9,8 +10,10 @@ import { effectivePromptSegments } from "./prompt-segments.ts";
 import {
 	askUserQuestionTool,
 	createProberTools,
+	createStudyChatTools,
 	createTeacherTools,
 	type ProbeDoneContext,
+	type StudyChatToolContext,
 	type ProberToolContext,
 	type TeacherToolContext,
 } from "./tools.ts";
@@ -91,6 +94,19 @@ export function composeInstructions(kind: AgentKind, switches?: Record<string, b
 		.map((t) => t.trim())
 		.filter(Boolean)
 		.join("\n\n---\n\n");
+}
+
+/**
+ * Plain study chats use ONE shipped prompt file instead of the composed
+ * teacher/prober doctrine (and ignore prompt overrides). The study-library
+ * listing is appended per turn through studyContributions.
+ */
+let studyChatInstructionsCache: string | undefined;
+export function composeStudyChatInstructions(): string {
+	if (studyChatInstructionsCache === undefined) {
+		studyChatInstructionsCache = fs.readFileSync(PATHS.studyChatPrompt, "utf8").trim();
+	}
+	return studyChatInstructionsCache;
 }
 
 // The switch-free source composition, cached per kind (module-load once).
@@ -202,7 +218,7 @@ function makeQuestionStopper(kind: AgentKind) {
 }
 
 function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: AgentTool<any, any>[], nodeExists?: (nodeId: string) => boolean,
-	practice?: { gate: PracticeGate; graphNodes: PracticeToolContext["graphNodes"] }) {
+	practice?: { gate: PracticeGate; graphNodes: PracticeToolContext["graphNodes"] }, systemPromptOverride?: string) {
 	// Practice never reaches the role fallback (the handler ALWAYS injects
 	// the session's conversation engine — practice rides the same
 	// conversation-spec resolution as teaching); the cast keeps AgentKind
@@ -211,9 +227,9 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	const stopper = makeQuestionStopper(kind);
 	const narrationGuard = narrationGuardApplies(kind, engine.model, opts.tools !== undefined);
 	const narrationHooks = narrationGuard ? makeNarrationGuard() : undefined;
-	const composedPrompt = opts.promptSwitches
+	const composedPrompt = systemPromptOverride ?? (opts.promptSwitches
 		? composeInstructions(kind, opts.promptSwitches)
-		: composedInstructions[kind]!;
+		: composedInstructions[kind]!);
 	const builtinPrompt = narrationGuard ? `${composedPrompt}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : composedPrompt;
 	// Bind native read and preserve the kind/model-aware Claude output gate
 	// before resolving additive plugins. Explicit registries remain caller-owned.
@@ -358,6 +374,17 @@ export function createTeacherAgent(
 		: undefined);
 }
 
+/**
+ * Plain study chat (study-chat spec): a placed chat whose kind is not
+ * "practice". One conversation state, the shipped study-chat prompt, and
+ * the ordinary chat tools plus per-turn study contributions. No
+ * prober/teacher split, no question dock, no plan tools.
+ */
+export function createStudyChatAgent(ctx: StudyChatToolContext, opts: AgentBuildOptions = {}) {
+	const tools = opts.tools ?? createStudyChatTools(ctx, opts.toolToggles);
+	return baseAgentOptions("teacher", opts, Object.values(tools), undefined, undefined, composeStudyChatInstructions());
+}
+
 /** The bare teach question set (tests, bare agents): quiz with the shared
  *  authoring refinement (quizInputProblems, run in execute — returns an
  *  invalidInputResult isError result the model retries on, pi 1.0
@@ -407,6 +434,7 @@ export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOp
 
 export type ProberAgent = ReturnType<typeof createProberAgent>;
 export type TeacherAgent = ReturnType<typeof createTeacherAgent>;
+export type StudyChatAgent = ReturnType<typeof createStudyChatAgent>;
 export type PracticeAgent = ReturnType<typeof createPracticeAgent>;
-export type TeachingAgent = ProberAgent | TeacherAgent | PracticeAgent;
+export type TeachingAgent = ProberAgent | TeacherAgent | StudyChatAgent | PracticeAgent;
 
