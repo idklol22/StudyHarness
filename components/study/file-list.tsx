@@ -10,7 +10,6 @@ import { CopyPlusIcon, FileTextIcon, FolderInputIcon, Trash2Icon } from "lucide-
 import { useServerEvent } from "@/components/server-events";
 import { coverageByFile, materialTopicName, otherTopicsOf, type Coverage, type Library, type Material } from "@/src/core";
 import { PutInTopic } from "./suggestions-card";
-import { SlideViewer } from "./slide-viewer";
 
 type Act = (body: unknown) => Promise<void>;
 interface NotebookCover { id: string; title: string; scopeName: string; href: string; covers?: Coverage[] }
@@ -19,7 +18,6 @@ const fmtBytes = (n: number) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(
 
 export function FileList({ library, subjectId, files, topicPage, act, onMessage }: { library: Library; subjectId: string; files: readonly Material[]; topicPage: boolean; act: Act; onMessage: (m: string) => void }) {
 	const [notebooks, setNotebooks] = useState<NotebookCover[]>([]);
-	const [viewing, setViewing] = useState<{ material: Material; page: number } | null>(null);
 	const [placing, setPlacing] = useState<{ id: string; mode: "move" | "link" } | null>(null);
 	const load = useCallback(async () => {
 		try {
@@ -42,7 +40,7 @@ export function FileList({ library, subjectId, files, topicPage, act, onMessage 
 						<li key={m.id} className="rounded-lg border px-3 py-2 text-sm">
 							<div className="flex items-center gap-2">
 								<FileTextIcon className="size-4 shrink-0 text-muted-foreground" />
-								<button type="button" onClick={() => setViewing({ material: m, page: m.pages?.from ?? 1 })} title="View pages" className="min-w-0 flex-1 truncate text-left hover:underline" data-testid="open-file">{m.fileName}</button>
+								<Link href={`/subjects/${encodeURIComponent(subjectId)}/read/${encodeURIComponent(m.id)}?page=${m.pages?.from ?? 1}`} title="View pages" className="min-w-0 flex-1 truncate text-left hover:underline" data-testid="open-file">{m.fileName}</Link>
 								{!topicPage && topicName && <Link href={`/subjects/${subjectId}/${m.scope.topicId}`} className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-accent">{topicName}</Link>}
 								<span className="shrink-0 text-xs text-muted-foreground">{m.pages ? `pp. ${m.pages.from}–${m.pages.to} of ${m.pageCount}` : `${m.pageCount} ${m.kind === "text" ? "text pages" : "pages"}`} · {fmtBytes(m.bytes)}</span>
 								{!m.scope.topicId && (
@@ -69,7 +67,6 @@ export function FileList({ library, subjectId, files, topicPage, act, onMessage 
 				})}
 				{files.length === 0 && <li className="text-sm text-muted-foreground">No files yet.</li>}
 			</ul>
-			{viewing && <SlideViewer material={viewing.material} startPage={viewing.page} onClose={() => setViewing(null)} />}
 		</>
 	);
 }

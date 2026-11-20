@@ -11,7 +11,6 @@ import { CopyPlusIcon, EllipsisIcon, FileTextIcon, FolderInputIcon, SearchIcon, 
 import { useServerEvent } from "@/components/server-events";
 import { coverageByFile, materialTopicName, otherTopicsOf, type Library, type Material } from "@/src/core";
 import { PutInTopic, SuggestionsCard } from "./suggestions-card";
-import { SlideViewer } from "./slide-viewer";
 
 type Act = (body: unknown) => Promise<void>;
 interface NotebookCover { id: string; title: string; scopeName: string; href: string; covers?: Array<{ materialId: string; from: number; to: number }> }
@@ -87,7 +86,6 @@ export function FilesTable({
 	const [query, setQuery] = useState("");
 	const [sort, setSort] = useState<FileSort>("name");
 	const [notebooks, setNotebooks] = useState<NotebookCover[]>([]);
-	const [viewing, setViewing] = useState<{ material: Material; page: number } | null>(null);
 	const [placing, setPlacing] = useState<Placement | null>(null);
 	const [menuFor, setMenuFor] = useState<string | null>(null);
 	const [over, setOver] = useState(false);
@@ -185,7 +183,7 @@ export function FilesTable({
 									<td className="max-w-0 px-3 py-2">
 										<div className="flex items-center gap-1.5">
 											<FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" />
-											<button type="button" onClick={() => setViewing({ material: m, page: m.pages?.from ?? 1 })} data-testid="open-file" title="View pages" className="min-w-0 truncate text-left hover:underline">{m.fileName}</button>
+											<Link href={`/subjects/${encodeURIComponent(subjectId)}/read/${encodeURIComponent(m.id)}?page=${m.pages?.from ?? 1}`} data-testid="open-file" title="View pages" className="min-w-0 truncate text-left hover:underline">{m.fileName}</Link>
 										</div>
 										{topicPage && otherTopicsOf(library, m.id).length > 0 && (
 											<div className="mt-0.5 flex flex-wrap items-center gap-1 pl-5 text-[11px] text-muted-foreground">
@@ -219,7 +217,7 @@ export function FilesTable({
 										><EllipsisIcon className="size-4" /></button>
 										{open && (
 											<div className="absolute right-2 top-full z-20 flex w-44 flex-col rounded-lg border bg-card p-1 text-xs shadow-lg" data-testid="file-menu-items">
-												<button type="button" data-testid="file-action-view" onClick={() => { setMenuFor(null); setViewing({ material: m, page: m.pages?.from ?? 1 }); }} className="rounded px-2 py-1.5 text-left hover:bg-accent">View pages</button>
+												<Link href={`/subjects/${encodeURIComponent(subjectId)}/read/${encodeURIComponent(m.id)}?page=${m.pages?.from ?? 1}`} data-testid="file-action-view" onClick={() => setMenuFor(null)} className="rounded px-2 py-1.5 text-left hover:bg-accent">View pages</Link>
 												{!m.scope.topicId && <button type="button" data-testid="file-action-put-in-topic" onClick={() => { setMenuFor(null); setPlacing({ id: m.id, mode: "move" }); }} className="flex items-center gap-1.5 rounded px-2 py-1.5 text-left hover:bg-accent"><FolderInputIcon className="size-3" />Put in topic</button>}
 												<button type="button" data-testid="file-action-also-in-topic" onClick={() => { setMenuFor(null); setPlacing({ id: m.id, mode: "link" }); }} className="flex items-center gap-1.5 rounded px-2 py-1.5 text-left hover:bg-accent"><CopyPlusIcon className="size-3" />Also in topic</button>
 												{!m.scope.topicId && !pending && <button type="button" data-testid="file-action-find-topics" onClick={() => actAndClose(m.id, { action: "understand-material", id: m.id }, `Understanding ${m.fileName} — watch the activity panel; suggested topics will appear here.`)} className="flex items-center gap-1.5 rounded px-2 py-1.5 text-left hover:bg-accent"><SparklesIcon className="size-3" />Find topics</button>}
@@ -236,7 +234,6 @@ export function FilesTable({
 			</div>
 
 			{placing && <div className="mt-2"><PutInTopic library={library} subjectId={subjectId} materialId={placing.id} act={act} mode={placing.mode} onDone={() => setPlacing(null)} /></div>}
-			{viewing && <SlideViewer material={viewing.material} startPage={viewing.page} onClose={() => setViewing(null)} />}
 		</div>
 	);
 }

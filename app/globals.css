@@ -594,6 +594,50 @@ body {
 	display: none;
 }
 
+/* pdf.js text layer (in-app reader). Only the layout rules TextLayer needs —
+   the canvas supplies the visuals and the page keeps its white background. */
+.textLayer {
+	--scale-round-x: 1px;
+	--scale-round-y: 1px;
+	color-scheme: only light;
+	position: absolute;
+	inset: 0;
+	overflow: clip;
+	text-align: initial;
+	line-height: 1;
+	letter-spacing: normal;
+	word-spacing: normal;
+	text-size-adjust: none;
+	forced-color-adjust: none;
+	transform-origin: 0 0;
+	caret-color: CanvasText;
+	z-index: 1;
+}
+.textLayer :is(span, br) {
+	color: transparent;
+	position: absolute;
+	white-space: pre;
+	cursor: text;
+	transform-origin: 0 0;
+	user-select: text;
+}
+.textLayer > :not(.markedContent),
+.textLayer .markedContent span:not(.markedContent) {
+	z-index: 1;
+	--font-height: 0;
+	font-size: calc(var(--total-scale-factor, 1) * var(--font-height));
+	--scale-x: 1;
+	--rotate: 0deg;
+	transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv, 1));
+}
+.textLayer .markedContent {
+	display: contents;
+}
+.textLayer span[role="img"] {
+	user-select: none;
+	cursor: default;
+}
+
 /* Runtime font contracts: Appearance overrides the reading family and,
    independently, whether titles use serif or the reading family. Non-inline
    utilities read these vars; Source Sans 3 remains the default/loading face. */
