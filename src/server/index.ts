@@ -70,6 +70,7 @@ export { claudeCodeInstallationResponse } from "./claude-code.ts";
 export * from "./custom-provider.ts";
 export { customProviderGet, customProviderMutation } from "./custom-provider-http.ts";
 export { studyMapView } from "./study-map.ts";
+export { createCapture, listCaptures, retryCapture, MAX_CAPTURE_FILE_BYTES, MAX_CAPTURE_FILES, MAX_CAPTURE_TEXT } from "./study-inbox.ts";
 export { classifySubject, digestMaterial, seedAcceptedTopics } from "./study-digest-job.ts";
 export { plannerCorsHeaders, plannerOrigins, plannerPreflight } from "./planner-cors.ts";
 export {

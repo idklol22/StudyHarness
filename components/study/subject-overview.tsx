@@ -9,8 +9,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
 	DEADLINE_KINDS, buildTodo, coverageRows, coverageTotals, deadlineLabel, daysUntil, materialsUnder, recentItems,
-	relativeDue, timeAgo, upcoming, type Card, type ChatListItem, type DeadlineKind, type GroupSummary, type Library,
-	type MaterialProgress, type RecentItem, type StudyScope, type TodoItem,
+	relativeDue, timeAgo, upcoming, type Card, type Capture, type CaptureStatus, type ChatListItem, type DeadlineKind,
+	type GroupSummary, type Library, type MaterialProgress, type RecentItem, type StudyScope, type TodoItem,
 } from "@/src/core";
 import { useServerEvent } from "@/components/server-events";
 
@@ -47,6 +47,8 @@ function TodoLink({ item }: { item: TodoItem }) {
 }
 
 const RECENT_LABEL: Record<RecentItem["kind"], string> = { file: "File", chat: "Chat", note: "Notes" };
+const CAPTURE_STATUS: Record<CaptureStatus, string> = { processing: "processing", added: "added", failed: "failed" };
+const CAPTURE_TYPES = "image/png,image/jpeg,image/webp";
 
 export function SubjectOverview({ subjectId, topicId, library, chats, notebooks, onLibrary }: SubjectOverviewProps) {
 	const scope: StudyScope = { subjectId, ...(topicId ? { topicId } : {}) };
@@ -58,16 +60,23 @@ export function SubjectOverview({ subjectId, topicId, library, chats, notebooks,
 	const [title, setTitle] = useState("");
 	const [due, setDue] = useState("");
 	const [kind, setKind] = useState<DeadlineKind>("assignment");
+	const [captures, setCaptures] = useState<Capture[]>([]);
+	const [captureFiles, setCaptureFiles] = useState<File[]>([]);
+	const [captureText, setCaptureText] = useState("");
+	const [captureBusy, setCaptureBusy] = useState(false);
+	const [dragging, setDragging] = useState(false);
 
 	const load = useCallback(async () => {
 		const query = new URLSearchParams({ subjectId, ...(topicId ? { topicId } : {}) }).toString();
 		try {
-			const [c, p] = await Promise.all([
+			const [c, p, i] = await Promise.all([
 				fetch(`/api/study/cards?${query}`, { cache: "no-store" }).then((r) => r.json() as Promise<CardsData>),
 				fetch(`/api/study/progress?subjectId=${encodeURIComponent(subjectId)}`, { cache: "no-store" }).then((r) => r.json() as Promise<{ materials?: MaterialProgress[] }>),
+				fetch(`/api/study/inbox?subjectId=${encodeURIComponent(subjectId)}`, { cache: "no-store" }).then((r) => r.json() as Promise<{ captures?: Capture[] }>),
 			]);
 			setCards(c.cards ? c : { cards: [], groups: [] });
 			setProgress(p.materials ?? []);
+			setCaptures(i.captures ?? []);
 		} catch { setError("Could not load the overview."); }
 	}, [subjectId, topicId]);
 	useEffect(() => { void load(); }, [load]);
@@ -80,6 +89,41 @@ export function SubjectOverview({ subjectId, topicId, library, chats, notebooks,
 			if (!data.library) { setError(data.error ?? "That did not work."); return false; }
 			onLibrary(data.library); setError(""); return true;
 		} catch { setError("Could not reach the app."); return false; }
+	};
+
+	const addCaptureFiles = (incoming: FileList | File[] | null) => {
+		const images = Array.from(incoming ?? []).filter((f) => ["image/png", "image/jpeg", "image/webp"].includes(f.type));
+		if (images.length) setCaptureFiles((prev) => [...prev, ...images].slice(0, 12));
+	};
+
+	const sendCapture = async (body: FormData) => {
+		setCaptureBusy(true);
+		setError("");
+		try {
+			const res = await fetch("/api/study/inbox", { method: "POST", body });
+			const data = await res.json() as { capture?: Capture; error?: string };
+			if (!data.capture) { setError(data.error ?? "Could not add that capture."); return; }
+			setCaptureFiles([]);
+			setCaptureText("");
+			await load();
+		} catch { setError("Could not reach the app."); }
+		finally { setCaptureBusy(false); }
+	};
+
+	const addCapture = async () => {
+		if (!captureFiles.length && !captureText.trim()) return;
+		const body = new FormData();
+		body.set("subjectId", subjectId);
+		if (topicId) body.set("topicId", topicId);
+		for (const file of captureFiles) body.append("files", file);
+		if (captureText.trim()) body.set("text", captureText);
+		await sendCapture(body);
+	};
+
+	const retryCapture = async (id: string) => {
+		const body = new FormData();
+		body.set("captureId", id);
+		await sendCapture(body);
 	};
 
 	const files = materialsUnder(library, scope);
@@ -99,6 +143,58 @@ export function SubjectOverview({ subjectId, topicId, library, chats, notebooks,
 	return (
 		<section className="mt-4 min-w-0" data-testid="overview-section">
 			{error && <p role="alert" className="mb-3 rounded-md border border-destructive/40 bg-card px-3 py-2 text-xs text-destructive">{error}</p>}
+			<div className={card} data-testid="overview-inbox">
+				<h2 className={heading}>Inbox</h2>
+				<div className="grid min-w-0 gap-2 sm:grid-cols-2">
+					<div
+						data-testid="inbox-drop"
+						onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+						onDragLeave={() => setDragging(false)}
+						onDrop={(e) => { e.preventDefault(); setDragging(false); addCaptureFiles(e.dataTransfer.files); }}
+						className={`flex min-h-20 items-center justify-center rounded-md border border-dashed px-3 py-2 text-center text-xs ${dragging ? "bg-accent text-foreground" : "text-muted-foreground"}`}
+					>
+						<span>
+							Drop screenshots here or{" "}
+							<label className="cursor-pointer underline">
+								browse
+								<input type="file" accept={CAPTURE_TYPES} multiple aria-label="Choose screenshots" className="hidden" onChange={(e) => { addCaptureFiles(e.target.files); e.target.value = ""; }} />
+							</label>
+							{" "}(PNG, JPG, WebP)
+						</span>
+					</div>
+					<div className="flex min-w-0 flex-col gap-2">
+						<textarea
+							value={captureText}
+							onChange={(e) => setCaptureText(e.target.value)}
+							onPaste={(e) => addCaptureFiles(e.clipboardData.files)}
+							placeholder="Paste class text here"
+							aria-label="Paste class text"
+							data-testid="inbox-paste"
+							className="min-h-16 min-w-0 flex-1 rounded-md border border-border bg-background p-2 text-xs outline-none"
+						/>
+						<button type="button" data-testid="inbox-add" disabled={captureBusy || (!captureFiles.length && !captureText.trim())} onClick={() => void addCapture()} className="h-8 shrink-0 rounded-md border border-border px-3 text-xs transition-colors hover:bg-accent disabled:opacity-50">Add</button>
+					</div>
+				</div>
+				{captureFiles.length > 0 && (
+					<ul className="mt-2 flex flex-wrap gap-1" data-testid="inbox-selected">
+						{captureFiles.map((file, i) => (
+							<li key={`${file.name}-${i}`} className="flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]">
+								<span className="truncate">{file.name}</span>
+								<button type="button" aria-label={`Remove ${file.name}`} className="text-muted-foreground hover:text-foreground" onClick={() => setCaptureFiles((prev) => prev.filter((_, n) => n !== i))}>×</button>
+							</li>
+						))}
+					</ul>
+				)}
+				<ul className="mt-2 flex flex-col gap-1" data-testid="inbox-list">
+					{captures.length === 0 ? <li className="text-xs text-muted-foreground">No captures yet.</li> : captures.map((c) => (
+						<li key={c.id} className="flex min-w-0 items-center gap-2 text-xs">
+							<span className="min-w-0 flex-1 truncate">{c.files.length ? `${c.files.length} screenshot${c.files.length === 1 ? "" : "s"}` : "Pasted text"}</span>
+							<span title={c.error} className={`shrink-0 rounded-full border px-2 py-0.5 ${c.status === "failed" ? "text-destructive" : "text-muted-foreground"}`}>{CAPTURE_STATUS[c.status]}</span>
+							{c.status === "failed" && <button type="button" data-testid="inbox-retry" className="shrink-0 rounded-md border border-border px-2 py-0.5 transition-colors hover:bg-accent" onClick={() => void retryCapture(c.id)}>Retry</button>}
+						</li>
+					))}
+				</ul>
+			</div>
 			<div className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-2">
 				<div className={card} data-testid="overview-todo">
 					<h2 className={heading}>To do</h2>

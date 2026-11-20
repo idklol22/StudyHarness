@@ -72,6 +72,39 @@ export async function readPages(images: readonly PageImage[], hint: string, env:
 	return read;
 }
 
+const INBOX_PROMPT = "Extract the course content from these class captures: definitions, formulas (LaTeX), diagrams described briefly, examples, deadlines/announcements. Markdown, concise, no commentary.";
+const inboxSchema = Type.Object({ markdown: Type.String() });
+
+/**
+ * Extract one capture batch (class screenshots/photos plus pasted text) into concise Markdown. Uses the same
+ * vision role as the page reader; the caller supplies `engineFor("pdfReader")`.
+ */
+export async function extractInbox(images: readonly PageImage[], text: string, env: WorkerEnv): Promise<string> {
+	const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [];
+	images.forEach((img, i) => {
+		content.push({ type: "text", text: `Capture ${i + 1}:` });
+		content.push({ type: "image", data: img.data, mimeType: img.mimeType });
+	});
+	content.push({ type: "text", text: `Pasted text:\n${text.trim() || "(none)"}\n\nSubmit the extracted course content.` });
+	const messages = [{ role: "user", content, timestamp: Date.now() }] as unknown as AgentMessage[];
+	const out = await runSubmitAgent<{ markdown: string }>({
+		role: "pdfReader",
+		toolName: "submit_captures",
+		toolDescription: "Submit the extracted course content as Markdown.",
+		parameters: inboxSchema,
+		fill: (i) => ({ markdown: String(i.markdown ?? "") }),
+		systemPrompt: INBOX_PROMPT,
+		messages,
+		engine: env.engine,
+		signal: env.signal,
+		chatId: env.chatId,
+		onStep: (usage, model) => env.onUsage?.(usage, model),
+		neverSubmitted: "The capture reader did not submit.",
+		validate: (v) => (v.markdown.trim() ? null : "Submit the extracted content as Markdown."),
+	});
+	return out.markdown.trim();
+}
+
 const KEEPER_PROMPT = `You maintain the context document of one study topic or subject: the running memory a tutor reads before every session.
 Merge the new information into the current document and submit the whole updated document. Keep it under ${CONTEXT_CHAR_CAP} characters; drop least-useful detail first.
 Use these short sections, only where there is something to say:

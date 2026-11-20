@@ -112,6 +112,7 @@ export * from "./plugin-agents.ts";
 export * from "./study/model.ts";
 export * from "./study/colors.ts";
 export * from "./study/deadlines.ts";
+export * from "./study/inbox.ts";
 export * from "./study/overview.ts";
 export * from "./study/lecture-meta.ts";
 export * from "./study/notes.ts";
