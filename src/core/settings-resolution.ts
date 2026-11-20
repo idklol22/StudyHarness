@@ -150,6 +150,20 @@ export function resolveSideQuestionSpec(chat: ChatSettings | undefined, record: 
 	return { provider: model.provider, id: model.id, thinkingLevel: override?.thinkingLevel ?? conversation?.thinkingLevel };
 }
 
+/** Follow-up header pick: an explicit {provider, id} wins outright — with no
+ *  thinking level, which piEngineForSpec defaults from the model's own ladder
+ *  (src/agent/models.ts). Otherwise the thread keeps today's Settings chain.
+ *  Pure: the caller reports OpenRouter key presence. */
+export function resolveFollowUpSpec(
+	override: ChatSettings["model"] | undefined,
+	chat: ChatSettings | undefined,
+	record: UserSettings | null,
+	openRouterKeyPresent = false,
+): EffectiveModelSpec | null {
+	if (override && override.provider && override.id) return { provider: override.provider, id: override.id };
+	return resolveSideQuestionSpec(chat, record, openRouterKeyPresent);
+}
+
 /** Roles whose slot is CHEAP route to the OpenRouter small-task model when
  *  it is on (no per-role override wins over it). */
 export function resolveRoleSpecRouted(role: ModelRole, record: UserSettings | null, openRouterKeyPresent: boolean): EffectiveModelSpec | undefined {

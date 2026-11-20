@@ -432,6 +432,30 @@ describe("side chat service", () => {
 		assert.equal((await service.ask(chatId, { threadId: thread.id, text: "", quotes: [], retry: true })).status, 409, "nothing to retry");
 	});
 
+	it("persists a first-ask model pick, stamps the answer, and keeps it on retry", async () => {
+		const { faux, chatId, anchor, answer } = setup();
+		const engine: PiEngine = { model: faux.getModel(), streamFn: faux.streamSimple };
+		const seen: Array<{ provider: string; id: string } | undefined> = [];
+		const service = createSideChatService({
+			chatStore,
+			engineFor: async (_record, model) => { seen.push(model); return engine; },
+			instructions: () => "SIDE-INSTRUCTIONS",
+		});
+		const picked = { provider: "claude-code", id: "haiku" };
+		answer(fauxAssistantMessage("", { stopReason: "error", errorMessage: "upstream 500" }));
+		const first = (await readAll(await service.ask(chatId, { anchor, text: "q", quotes: [], model: picked }))).at(-1)!.thread!;
+		assert.deepEqual(first.model, picked, "the streamed thread carries the explicit pick");
+		assert.deepEqual(seen[0], picked, "the engine is built from the pick, not Settings");
+		const stored = chatStore.getChat(chatId)!.sideChats![0]!;
+		assert.deepEqual(stored.model, picked, "the thread persists the explicit pick");
+		assert.equal(stored.messages.at(-1)!.model, `${engine.model.provider}:${engine.model.id}`, "the answer keeps the engine's stamp");
+
+		answer("retried answer");
+		const retried = (await readAll(await service.ask(chatId, { threadId: stored.id, text: "", quotes: [], retry: true }))).at(-1)!.thread!;
+		assert.deepEqual(retried.model, picked, "a retry without a model keeps the persisted choice");
+		assert.deepEqual(seen[1], picked, "the retry uses the persisted model");
+	});
+
 	it("closing keeps messages and generation; deleting the whole session never resurrects it", async () => {
 		const { service, chatId, anchor, answer, faux } = setup();
 		answer("a");

@@ -166,6 +166,10 @@ export interface SideChatThread {
 	/** Compatibility snapshot retained when reading records that use a one-shot
 	 * context cutoff. Current delivery uses immutable native update entries. */
 	contextSnapshot?: SideChatMessage[];
+	/** Explicit model picked in the follow-up header for the NEXT ask. Absence
+	 * means "resolve from Settings as today"; existing answers keep their own
+	 * recorded model. Same shape as ChatSettings.model. */
+	model?: { provider: string; id: string };
 }
 
 /** Persisted token accounting for one model call. Undefined means the

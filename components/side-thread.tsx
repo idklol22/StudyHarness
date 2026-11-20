@@ -3,7 +3,8 @@
 import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import { ArrowRight, Camera, CornerDownLeft, GripVertical, MessageCircleQuestion, Mic, Paperclip, Pin, PinOff, Square, X } from "lucide-react";
-import { actionForBinding, collectCitations, eventBinding, SIDE_QUOTE_MAX_CHARS, SIDE_QUESTION_MAX_CHARS, type TextSelector, type TutorCitation } from "@/src/core";
+import { actionForBinding, collectCitations, eventBinding, SIDE_QUOTE_MAX_CHARS, SIDE_QUESTION_MAX_CHARS, type ChatSettings, type TextSelector, type TutorCitation } from "@/src/core";
+import { prettyModel } from "@/components/usage-format";
 import { rmsToMeter, type DictationPhase } from "./dictation";
 import { CitationActionsContext } from "./citation-chip";
 import { MessageResponse } from "./ai-elements/message";
@@ -20,6 +21,7 @@ import type { SelectionAction } from "./selection-toolbar";
 import type { SideThreadAnchor, SideThreadOpenArgs, SideThreadState } from "./use-side-thread";
 import { useOptionalInteractionLayers } from "./interaction-layers";
 import { isInteractionScopeEligible } from "./plugin-input-focus";
+import { SideThreadModelPicker } from "./side-thread-model-picker";
 
 /** Ask always opens the selected teaching segment's ONE conversation. Cite
  * is an independent action that inserts a chip into the main/thinking field. */
@@ -50,6 +52,8 @@ export interface SideThreadHandlers {
 	onFloat: () => void;
 	onClose: () => void;
 	onCurrentStep?: () => void;
+	/** The header picker's choice for the NEXT ask in this thread. */
+	onModelChange?: (model?: ChatSettings["model"]) => void;
 }
 function Passage({ text, chatId, sourceMessageId, selector, citation: savedCitation }: { text: string; chatId?: string; sourceMessageId?: string; selector?: Omit<TextSelector, "text">; citation?: TutorCitation }) {
 	const actions = useContext(CitationActionsContext);
@@ -76,7 +80,7 @@ function SideInputMeter({ levelRef }: { levelRef?: { current: number } }) {
 
 /** #451's companion body, rendering the durable raw messages supplied by
  * #487's service. There is no sharing toggle, generated note, or deletion. */
-export function SideThreadBody({ state, chatId, draft, readDraft, dictation, onDraftChange, onAsk, onStop, onExpand, onFloat, onClose, onCurrentStep, onDragStart }: {
+export function SideThreadBody({ state, chatId, draft, readDraft, dictation, onDraftChange, onAsk, onStop, onExpand, onFloat, onClose, onCurrentStep, onModelChange, onDragStart }: {
 	state: SideThreadState; chatId?: string; onDragStart?: (event: React.PointerEvent<HTMLElement>) => void;
 } & SideThreadHandlers) {
 	const controller = useOptionalInteractionLayers();
@@ -140,6 +144,7 @@ export function SideThreadBody({ state, chatId, draft, readDraft, dictation, onD
 				{onDragStart && <GripVertical aria-hidden="true" className="-ml-1 size-3.5 text-muted-foreground" />}
 				<MessageCircleQuestion aria-hidden="true" className="size-3.5 text-muted-foreground" />
 				<span className="flex-1 font-ui text-xs text-muted-foreground">Follow-up</span>
+				<SideThreadModelPicker model={state.model} onPick={(next) => onModelChange?.(next)} disabled={state.answering} />
 				<Button type="button" size="icon-xs" variant="ghost" aria-label={state.mode === "popover" ? "Dock side conversation" : "Float side conversation"}
 					title={state.mode === "popover" ? "Pin to side" : "Unpin to float"} onClick={state.mode === "popover" ? onExpand : onFloat}>
 					{state.mode === "popover" ? <Pin aria-hidden="true" /> : <PinOff aria-hidden="true" />}
@@ -150,7 +155,10 @@ export function SideThreadBody({ state, chatId, draft, readDraft, dictation, onD
 				{state.messages.map((message) => (
 					<div key={message.id} data-testid={message.role === "user" ? "side-learner-message" : "side-helper-message"} className={message.role === "user" ? "ml-auto flex w-fit max-w-[70%] flex-col gap-1.5 rounded-xl bg-muted px-3 py-2 text-sm [overflow-wrap:anywhere]" : "flex flex-col gap-1.5 text-sm"}>
 						{message.quotes?.map((quote, index) => <Passage key={index} text={quote} citation={collectCitations(message.quoteCitations?.[index] ?? "")[0]?.citation} />)}
-						{message.role === "user" ? <p className="whitespace-pre-wrap font-medium">{message.text}</p> : <MessageResponse>{message.text}</MessageResponse>}
+						{message.role === "user" ? <p className="whitespace-pre-wrap font-medium">{message.text}</p> : <>
+							{message.role === "assistant" && message.model && <span data-testid="side-model-label" title={message.model} className="font-ui text-[11px] leading-[1.4] text-muted-foreground">{prettyModel(message.model!, true)}</span>}
+							<MessageResponse>{message.text}</MessageResponse>
+						</>}
 						{message.role === "user" && <SubmittedImages images={message.images} />}
 						{message.stopped && <span className="font-ui text-xs text-muted-foreground">Stopped</span>}
 						{message.error && <span role="alert" className="text-xs text-destructive">{message.error}</span>}

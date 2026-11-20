@@ -5,7 +5,7 @@
  * subscribe to a still-running answer. No close-time commits or tutor notes. */
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { ImageContent } from "@earendil-works/pi-ai";
-import { serializeCitation, sideSegmentId, type LhMessage, type TextSelector, type SideChatMessage, type SideChatThread } from "@/src/core";
+import { serializeCitation, sideSegmentId, type ChatSettings, type LhMessage, type TextSelector, type SideChatMessage, type SideChatThread } from "@/src/core";
 import { useServerEvent, useServerResync } from "./server-events";
 
 export type SideThreadAnchor = { kind: "range"; range: Range } | { kind: "element"; element: HTMLElement } | { kind: "composer" };
@@ -27,6 +27,9 @@ export interface SideThreadState {
 	anchor: SideThreadAnchor;
 	error?: string;
 	failedQuestion?: string;
+	/** Explicit follow-up-header pick for the NEXT ask in this thread. Not
+	 *  persisted until an ask actually uses it. */
+	model?: { provider: string; id: string };
 }
 export type SideThreadAction =
 	| { type: "open"; segmentId: string; anchor: SideThreadAnchor; passage?: SidePassage; thread?: SideChatThread }
@@ -37,6 +40,7 @@ export type SideThreadAction =
 	| { type: "error"; threadId: string; error: string; question?: string }
 	| { type: "done"; thread: SideChatThread }
 	| { type: "mode"; mode: "popover" | "panel" }
+	| { type: "model"; threadId: string; model?: { provider: string; id: string } }
 	| { type: "close" };
 export function sideThreadReducer(state: SideThreadState | null, action: SideThreadAction): SideThreadState | null {
 	if (action.type === "close") return null;
@@ -50,8 +54,10 @@ export function sideThreadReducer(state: SideThreadState | null, action: SideThr
 	if (action.type === "mode") return { ...state, mode: action.mode };
 	const threadId = "thread" in action ? action.thread.id : action.threadId;
 	if (threadId !== state.threadId) return state;
+	if (action.type === "model") return { ...state, model: action.model };
 	if (action.type === "snapshot" || action.type === "done") return {
 		...state, messages: action.thread.messages,
+		...(action.type === "snapshot" ? { model: action.thread.model } : {}),
 		...(action.type === "done" || (action.type === "snapshot" && action.answering === false && action.thread.messages.at(-1)?.role === "assistant") ? { error: undefined } : {}),
 		...(action.type === "done" ? { answering: false, streamText: "" } : {
 			...(action.answering !== undefined ? { answering: action.answering } : {}),
@@ -184,11 +190,12 @@ export function useSideThread(chatId: string, messages: readonly LhMessage[], ge
 		try {
 			const existing = threadsRef.current.some((thread) => thread.id === current.threadId);
 			const working = current.segmentId === sideSegmentId(messagesRef.current) ? workingRef.current?.() : undefined;
+			const chosen = current.model;
 			const response = await fetch(`/api/chats/${chatId}/side-chats`, {
 				method: "POST", headers: { "Content-Type": "application/json" }, signal: controller.signal,
 				body: JSON.stringify({ ...(existing ? { threadId: current.threadId } : { anchor: {
 					messageId: current.segmentId, partId: `${current.segmentId}-t0`, blockIndex: 0, blockText: "This teaching segment and its question.",
-				} }), text, quotes: passage ? [passage.text] : [], ...(quote ? { quoteCitations: [quote] } : {}), ...(images?.length ? { images: images.map(image => ({ ...image })) } : {}), requestId, ...(retry ? { retry: true, threadId: current.threadId } : {}), ...(working ? { working } : {}) }),
+				} }), text, quotes: passage ? [passage.text] : [], ...(quote ? { quoteCitations: [quote] } : {}), ...(images?.length ? { images: images.map(image => ({ ...image })) } : {}), requestId, ...(retry ? { retry: true, threadId: current.threadId } : {}), ...(working ? { working } : {}), ...(chosen ? { model: chosen } : {}) }),
 			});
 			if (!response.ok) { await consume(response, current.threadId, token); return false; }
 			// Accepted and durable before streaming: the UI can clear its draft.
@@ -208,7 +215,11 @@ export function useSideThread(chatId: string, messages: readonly LhMessage[], ge
 		const current = stateRef.current;
 		if (current) void fetch(`/api/chats/${chatId}/side-chats/${current.threadId}/stop`, { method: "POST" }).catch(() => {});
 	}, [chatId]);
-	return { state, threads, open, close, ask, stop, draftFor, saveDraft, currentSegmentId: sideSegmentId(messages),
+	const setModel = useCallback((model?: ChatSettings["model"]) => {
+		const current = stateRef.current;
+		if (current) dispatch({ type: "model", threadId: current.threadId, model });
+	}, []);
+	return { state, threads, open, close, ask, stop, setModel, draftFor, saveDraft, currentSegmentId: sideSegmentId(messages),
 		expand: () => dispatch({ type: "mode", mode: "panel" }),
 		float: () => dispatch({ type: "mode", mode: "popover" }),
 		hasHistory: (sourceMessageId: string) => {

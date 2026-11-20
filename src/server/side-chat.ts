@@ -3,7 +3,7 @@
  * Every main request captures new raw activity across all threads. Delivery
  * is append-only; a live helper never delays the teacher. */
 import { emit } from "../core/events.ts";
-import type { ChatRecord, SideChatMessage, SideChatThread } from "../core/contracts.ts";
+import type { ChatRecord, ChatSettings, SideChatMessage, SideChatThread } from "../core/contracts.ts";
 import type { ChatStore } from "../core/ports.ts";
 import { failedOutputCallIds, newMessageId, userFacingTextOf } from "../core/native-messages.ts";
 import { ChatInputError } from "../core/input-events.ts";
@@ -13,7 +13,7 @@ import {
 } from "../core/side-chat.ts";
 import { collectCitations } from "../core/citations.ts";
 import { COMPACTION_RESERVE_TOKENS } from "../core/compaction.ts";
-import { resolveSideQuestionSpec } from "../core/settings-resolution.ts";
+import { resolveFollowUpSpec } from "../core/settings-resolution.ts";
 import { modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope } from "../core/settings.ts";
 import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
 import { prepareSubmissionImages } from "./submission-images.ts";
@@ -35,7 +35,9 @@ export type SideStreamEvent =
 type SideEngine = PiEngine & { sideUsageAdmitted?: () => boolean };
 export interface SideChatDeps {
 	chatStore: ChatStore;
-	engineFor: (record: ChatRecord) => Promise<SideEngine | Response>;
+	/** The optional model is the explicit follow-up-header choice (or the
+	 *  thread's persisted one); absence means resolve from Settings. */
+	engineFor: (record: ChatRecord, model?: ChatSettings["model"]) => Promise<SideEngine | Response>;
 	instructions: () => string;
 	beforeAsk?: (chatId: string) => Promise<void>;
 }
@@ -125,7 +127,8 @@ export function createSideChatService(deps: SideChatDeps): SideChatService {
 		await deps.beforeAsk?.(chatId);
 		const initial = deps.chatStore.getChat(chatId);
 		if (!initial) return Response.json({ error: "Unknown chat" }, { status: 404 });
-		const engine = await deps.engineFor(initial);
+		const chosenModel = input.model ?? (input.threadId ? initial.sideChats?.find((thread) => thread.id === input.threadId)?.model : undefined);
+		const engine = await deps.engineFor(initial, chosenModel);
 		if (engine instanceof Response) return engine;
 		// Follow-up pictures ride the same native admission as chat pictures:
 		// byte/format check, model capability gate, provider resize policy.
@@ -146,11 +149,14 @@ export function createSideChatService(deps: SideChatDeps): SideChatService {
 		if (!target && input.anchor) {
 			const segment = sideSegmentId(record.messages, input.anchor.messageId);
 			if (!segment) return Response.json({ error: "The source is not a teaching segment in this session" }, { status: 400 });
-			target = threads.find((thread) => thread.anchor.messageId === segment) ?? newSideThread({
-				...input.anchor, messageId: segment, partId: `${segment}-t0`, blockIndex: 0,
-				// The client chooses a segment, not what the tutor allegedly said.
-				blockText: userFacingTextOf(record.messages.find((message) => message.id === segment && message.role === "assistant")?.content ?? [], failedOutputCallIds(record.messages)).join("\n\n").slice(0, 4_000) || "This teaching segment and its associated question.",
-			});
+			target = threads.find((thread) => thread.anchor.messageId === segment) ?? {
+				...newSideThread({
+					...input.anchor, messageId: segment, partId: `${segment}-t0`, blockIndex: 0,
+					// The client chooses a segment, not what the tutor allegedly said.
+					blockText: userFacingTextOf(record.messages.find((message) => message.id === segment && message.role === "assistant")?.content ?? [], failedOutputCallIds(record.messages)).join("\n\n").slice(0, 4_000) || "This teaching segment and its associated question.",
+				}),
+				...(input.model ? { model: input.model } : {}),
+			};
 		}
 		if (!target) return Response.json({ error: "A teaching segment or threadId is required" }, { status: 400 });
 		if (input.quoteCitations) {
@@ -183,7 +189,9 @@ export function createSideChatService(deps: SideChatDeps): SideChatService {
 			const question = newSideQuestion(input.text, input.quotes, images);
 			if (input.quoteCitations?.length) question.quoteCitations = [...input.quoteCitations];
 			if (input.requestId) question.id = input.requestId;
-			thread = { ...target, open: true, messages: [...target.messages, question] };
+			// Only an explicit picker choice writes the thread's model; retries
+			// (above) leave it alone and an absent choice keeps following Settings.
+			thread = { ...target, open: true, messages: [...target.messages, question], ...(input.model ? { model: input.model } : {}) };
 			modelThread = thread;
 		}
 		const lesson = sideChatLessonDocument(record.messages);
@@ -282,8 +290,8 @@ export function createSideChatService(deps: SideChatDeps): SideChatService {
 		settled: (chatId, threadId) => runs.get(runKey(chatId, threadId))?.settled ?? Promise.resolve() };
 }
 
-async function productionEngineFor(record: ChatRecord): Promise<SideEngine | Response> {
-	const spec = resolveSideQuestionSpec(record.settings, stores.settingsStore.readSettings(), providerKeyPresent("openrouter"));
+async function productionEngineFor(record: ChatRecord, model?: ChatSettings["model"]): Promise<SideEngine | Response> {
+	const spec = resolveFollowUpSpec(model, record.settings, stores.settingsStore.readSettings(), providerKeyPresent("openrouter"));
 	if (!spec) return Response.json(modelsNotConfigured(["strong"]), { status: 503 });
 	if (isSubscriptionProvider(spec.provider)) await refreshConnectionCatalog(spec.provider);
 	if (!providerKeyPresent(spec.provider)) return Response.json(providerKeyMissingEnvelope(spec.provider, ["strong"]), { status: 503 });

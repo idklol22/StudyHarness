@@ -74,6 +74,21 @@ export interface LhViewMessage {
 	parts: LhViewPart[];
 	/** The subagentResult meta the steer cards read (marker details). */
 	metadata?: unknown;
+	/** Provider-qualified model ("provider:id") of the last native assistant
+	 *  step in this group; absent on legacy messages with no model stamp. */
+	model?: string;
+}
+
+/** The provider-qualified model stamp of a native assistant message — or
+ *  undefined for legacy messages and for non-assistant roles. The host's
+ *  `responseModel` is a different thing (the provider's actual served id)
+ *  and is deliberately ignored. Pure. */
+export function assistantViewModel(message: LhMessage): string | undefined {
+	if (message.role !== "assistant") return undefined;
+	const assistant = message as AssistantMessage;
+	if (typeof assistant.provider !== "string" || !assistant.provider) return undefined;
+	if (typeof assistant.model !== "string" || !assistant.model) return undefined;
+	return `${assistant.provider}:${assistant.model}`;
 }
 
 /** A tool call's live execution outcome (from tool_execution_end). */
@@ -309,11 +324,16 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 				}
 			}
 			const group = lastAssistant();
+			const model = assistantViewModel(m);
 			if (group) {
 				// Same group: the step separator renders between the steps.
+				// Several native steps can share one view message; the last
+				// known model wins, and a legacy step never clears it.
 				group.parts.push({ type: "step-start", sourceMessageId: m.id }, ...parts);
+				const nextModel = model ?? group.model;
+				if (nextModel !== undefined) group.model = nextModel;
 			} else {
-				out.push({ id: m.id, role: "assistant", parts: [{ type: "step-start", sourceMessageId: m.id }, ...parts] });
+				out.push({ id: m.id, role: "assistant", parts: [{ type: "step-start", sourceMessageId: m.id }, ...parts], ...(model ? { model } : {}) });
 			}
 			continue;
 		}

@@ -6,6 +6,9 @@
  * POST → ask: { threadId, text, quotes? } (follow-up), { anchor, text,
  *        quotes? } (first question at a teacher-prose block), or
  *        { threadId, retry: true } (re-answer a failed last answer).
+ *        All three accept an optional `model: { provider, id }` — an explicit
+ *        follow-up-header pick that applies to this ask (and is persisted on
+ *        a non-retry ask); absence resolves from Settings.
  *        Streams NDJSON (src/server/side-chat.ts documents the wire);
  *        refusals are ordinary JSON errors (400/404/409/503).
  *
