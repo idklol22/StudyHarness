@@ -63,7 +63,8 @@ export function capturePluginSessionView(source: SessionViewSource): PluginSessi
   const { input, ...rest } = source;
   if (input.type === "unavailable") return freeze(structuredClone(source)) as unknown as PluginSessionViewContext;
   const { surfaceTarget, ...data } = input;
-  const copy = freeze(structuredClone({ ...rest, input: data }));
+  // Untyped clone: inferring structuredClone over the full view type exceeds TS's instantiation depth.
+  const copy = freeze(structuredClone({ ...rest, input: data } as unknown) as Record<string, unknown> & { input: Record<string, unknown> });
   return Object.freeze({ ...copy, input: Object.freeze({ ...copy.input, surfaceTarget }) }) as PluginSessionViewContext;
 }
 /** Lazy for render-time disabled predicates; the chrome forces a fresh capture on click. */
