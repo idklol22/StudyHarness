@@ -6,14 +6,11 @@
  *  The picker posts `{action:"set-color", id, color}` and calls `onChanged` so the caller
  *  can refetch its library/graph. */
 import { useState } from "react";
+import { subjectColorCss } from "@/src/core";
+export { subjectColorCss } from "@/src/core";
 
 /** Muted swatches, deliberately low-saturation for the black/white UI. */
 export const SUBJECT_SWATCHES = [205, 150, 95, 35, 340, 280, 250, 20, 175, 310] as const;
-
-/** The single CSS colour used everywhere a subject is shown (graph dots, sidebar, menus). */
-export function subjectColorCss(hue: number, lightness = 58): string {
-	return `hsl(${Math.round(hue) % 360} 26% ${lightness}%)`;
-}
 
 export function SubjectColor({
 	subjectId,
