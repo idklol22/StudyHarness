@@ -42,6 +42,7 @@
 import {
 	AUTH_KEYS,
 	AUTH_PROVIDER_KEYS,
+	HUB_KEYS,
 	AUTH_PROVIDER_ENV_VARS,
 	CUSTOM_PROVIDER,
 	type AuthKeyInfo,
@@ -96,6 +97,7 @@ export function initAuthEnv(): void {
 	const managed = new Set<string>([
 		...Object.keys(fileVars),
 		...AUTH_KEYS.map((k) => k.id),
+		...HUB_KEYS.map((k) => k.id),
 		// Provider env vars are managed names too (provider-keys interlude):
 		// an env-exported OPENAI_API_KEY with a file copy gets honest shadow
 		// semantics, exactly like the curated vars.
@@ -144,7 +146,7 @@ export function resolveKeyStatuses(
 	 *  discovery surface). Curated keys always get rows, present or not. */
 	providerEnvVars: ReadonlySet<string> = new Set(),
 ): AuthKeyStatus[] {
-	const ids = new Set<string>([...AUTH_KEYS.map((k) => k.id), ...Object.keys(fileVars)]);
+	const ids = new Set<string>([...AUTH_KEYS.map((k) => k.id), ...HUB_KEYS.map((k) => k.id), ...Object.keys(fileVars)]);
 	for (const envVar of providerEnvVars) {
 		if (env[envVar] !== undefined || fileVars[envVar] !== undefined) ids.add(envVar);
 	}
@@ -160,11 +162,13 @@ export function resolveKeyStatuses(
 		const live = envValue !== undefined ? envValue : fileValue;
 		rows.push({
 			id,
-			info: AUTH_KEYS.find((k) => k.id === id) ?? null,
+			info: AUTH_KEYS.find((k) => k.id === id) ?? HUB_KEYS.find((k) => k.id === id) ?? null,
 			present: live !== undefined,
 			// Custom keys may be one character: even a masked suffix can expose
 			// the entire credential. Preserve inventory, return no key characters.
-			masked: live !== undefined ? id === CUSTOM_PROVIDER.envVar ? "••••" : `${maskKey(live)} (${live.trim().length} chars)` : null,
+			masked: live !== undefined
+				? id === CUSTOM_PROVIDER.envVar ? "••••" : id === "HUB_URL" ? live : `${maskKey(live)} (${live.trim().length} chars)`
+				: null,
 			source: isRealEnv ? "env" : live !== undefined ? "file" : "none",
 			shadowedByEnv: isRealEnv && fileValue !== undefined && envValue !== fileValue,
 		});

@@ -29,6 +29,8 @@ import {
 	CUSTOM_MODEL_DEFAULT_CONTEXT_WINDOW,
 	CUSTOM_MODEL_DEFAULT_MAX_TOKENS,
 	CUSTOM_PROVIDER,
+	HUB_KEY_IDS,
+	HUB_KEYS,
 	normalizeBaseUrl,
 	type AuthKeyStatus,
 	type CustomModel,
@@ -105,11 +107,14 @@ export function classifyKeys(
 	toolRows: AuthKeyStatus[];
 	/** Unknown file vars — preserved, read-only. */
 	unknownRows: AuthKeyStatus[];
+	/** The cloud-agent connection pair (always shown, synthesized when absent). */
+	hubRows: AuthKeyStatus[];
 	/** Providers without a stored key — the Add dropdown's options. */
 	addable: ProviderKeyInfo[];
 } {
 	const byId = new Map(statuses.map((s) => [s.id, s]));
 	const isTool = (id: string) => (TOOL_IDS as readonly string[]).includes(id);
+	const isHub = (id: string) => HUB_KEY_IDS.has(id);
 	const providerEnv = new Set((providers ?? []).map((p) => p.envVar));
 	const synth = (id: string): AuthKeyStatus => ({
 		id,
@@ -122,7 +127,7 @@ export function classifyKeys(
 	const providerRows: AuthKeyStatus[] = [];
 	const unknownRows: AuthKeyStatus[] = [];
 	for (const s of statuses) {
-		if (isTool(s.id)) continue;
+		if (isTool(s.id) || isHub(s.id)) continue;
 		// The custom endpoint's key has its OWN home (the Custom endpoint
 		// section), so it never shows here — not as a provider row, not as an
 		// "other stored variable".
@@ -137,6 +142,7 @@ export function classifyKeys(
 		providerRows,
 		toolRows: TOOL_IDS.map((id) => byId.get(id) ?? synth(id)),
 		unknownRows,
+		hubRows: HUB_KEYS.map((key) => byId.get(key.id) ?? synth(key.id)),
 		addable: (providers ?? []).filter((p) => !byId.has(p.envVar)),
 	};
 }
@@ -472,7 +478,7 @@ export function KeysSection({
 		return <p className="px-6 py-5 text-xs text-muted-foreground/70">Loading keys…</p>;
 	}
 
-	const { providerRows, toolRows, unknownRows, addable } = classifyKeys(statuses, providers);
+	const { providerRows, toolRows, unknownRows, hubRows, addable } = classifyKeys(statuses, providers);
 
 	async function saveNewProvider(p: ProviderKeyInfo, value: string) {
 		const err = await saveKey(p.envVar, value);
@@ -570,6 +576,27 @@ export function KeysSection({
 						<span className="font-mono text-[11px] text-muted-foreground">{status.masked}</span>
 					</div>)}
 				</div>}
+			</SettingsGroup>
+
+			<SettingsGroup label="Cloud hub" testid="group-hub-keys">
+				{hubRows.map((status) => (
+					<KeyTableRow
+						key={status.id}
+						label={status.info?.label ?? status.id}
+						docsUrl={status.info?.docsUrl}
+						status={status}
+						expanded={openRow === status.id}
+						onToggle={() => setOpenRow(openRow === status.id ? null : status.id)}
+						onSave={async (v) => {
+							const err = await saveKey(status.id, v);
+							if (!err) setOpenRow(null);
+							return err;
+						}}
+						onCancel={() => setOpenRow(null)}
+						onDelete={() => deleteKey(status.id)}
+						testid={`key-${status.id.toLowerCase()}`}
+					/>
+				))}
 			</SettingsGroup>
 
 			<SettingsGroup label="Subscriptions" testid="group-subscriptions">

@@ -68,7 +68,28 @@ export const AUTH_KEYS: readonly AuthKeyInfo[] = [
 	},
 ] as const;
 
-const AUTH_KEY_IDS: ReadonlySet<string> = new Set(AUTH_KEYS.map((k) => k.id));
+/**
+ * The cloud-agent connection pair. They ride the same auth.json / keys API as
+ * provider keys (env wins), but live in their own Settings group: HUB_URL is
+ * not a credential and is shown in full, HUB_TOKEN is masked like every key.
+ */
+export const HUB_KEYS: readonly AuthKeyInfo[] = [
+	{
+		id: "HUB_URL",
+		label: "Hub URL",
+		description: "The deployed Planner Hub Worker URL, e.g. https://planner-hub.example.workers.dev.",
+		docsUrl: "https://developers.cloudflare.com/workers/",
+	},
+	{
+		id: "HUB_TOKEN",
+		label: "Hub device token",
+		description: "The device bearer token the Harness uses to mirror the library and claim Planner commands.",
+		docsUrl: "https://developers.cloudflare.com/workers/",
+	},
+] as const;
+
+export const HUB_KEY_IDS: ReadonlySet<string> = new Set(HUB_KEYS.map((k) => k.id));
+const AUTH_KEY_IDS: ReadonlySet<string> = new Set([...AUTH_KEYS, ...HUB_KEYS].map((k) => k.id));
 
 export function isKnownAuthKey(id: string): boolean {
 	return AUTH_KEY_IDS.has(id);
@@ -203,6 +224,18 @@ export function validateKeyShape(id: string, rawValue: string): KeyShapeResult {
 		case "DEEPGRAM_API_KEY":
 			// No public format — the length floor only catches truncated pastes.
 			return nonEmpty(20);
+		case "HUB_URL":
+			if (/\s/.test(value)) return { ok: false, error: "HUB_URL cannot contain whitespace" };
+			try {
+				const url = new URL(value);
+				return url.protocol === "http:" || url.protocol === "https:"
+					? { ok: true }
+					: { ok: false, error: "HUB_URL must be an http(s) URL" };
+			} catch {
+				return { ok: false, error: "HUB_URL must be an http(s) URL" };
+			}
+		case "HUB_TOKEN":
+			return nonEmpty(8);
 		default:
 			return { ok: false, error: `unknown key "${id}" (supported: ${[...AUTH_KEY_IDS].join(", ")})` };
 	}
