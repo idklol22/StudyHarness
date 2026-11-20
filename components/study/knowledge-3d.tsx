@@ -223,7 +223,7 @@ export function Knowledge3D({ placement }: { placement?: PlacementState }) {
 			<div ref={hostRef} className={`absolute inset-0 transition-opacity duration-300 ${transitioning ? "opacity-60" : "opacity-100"}`} />
 			{empty && (
 				<div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-muted-foreground" data-testid="knowledge-empty">
-					<p>Nothing here yet. Start a chat below and pick “New subject”, or add files to a subject: subjects, their topics and key ideas grow here.</p>
+					<p className="max-w-lg rounded-lg px-4 py-3 [html:not([data-scene=none])_&]:border [html:not([data-scene=none])_&]:border-border [html:not([data-scene=none])_&]:bg-card/80 [html:not([data-scene=none])_&]:backdrop-blur">Nothing here yet. Start a chat below and pick “New subject”, or add files to a subject: subjects, their topics and key ideas grow here.</p>
 				</div>
 			)}
 			{map && !empty && (
