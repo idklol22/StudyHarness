@@ -57,6 +57,8 @@ import {
 	firstSourceTextParts,
 	cliContextWindowOf,
 	messageAnchorId,
+	promptAnchorId,
+	promptEntriesOf,
 	sideEntryPoints,
 	sideSegmentId,
 	textPartMessageId,
@@ -84,6 +86,7 @@ import { pluginQuestionOccurrenceKey, type PluginQuestionSnapshot } from "@/src/
 import type { PluginQuestionDraft } from "./session-core";
 import { SessionFind } from "@/components/session-find";
 import { SessionMessageNavigation } from "@/components/session-navigation";
+import { PromptNavigationProvider, StickyPrompt } from "./prompt-navigation";
 import { SelectionToolbar } from "@/components/selection-toolbar";
 import { createCiteAction, type CitationEditTarget } from "@/components/citation-actions";
 import { CitationActionsContext, type CitationActions } from "@/components/citation-chip";
@@ -376,6 +379,10 @@ export function Chat({
 	const textTarget = (): Extract<PluginSubmissionTarget, { type: "text" }> | undefined => surfaceTarget ? { type: "text", sessionId: chatId, sessionKind: kind === "practice" ? "practice" : "teaching", surfaceTarget, channels: ["content"] } : undefined;
 	const scrollContextRef = useRef<StickToBottomContext | null>(null);
 	const sourceTextParts = useMemo(() => firstSourceTextParts(messages), [messages]);
+	const promptEntries = useMemo(() => promptEntriesOf(messages), [messages]);
+	// Only the FIRST row for a legacy duplicate id carries the anchor, so the
+	// DOM id stays unique (promptEntriesOf de-duplicates by native id).
+	const promptByIndex = useMemo(() => new Map(promptEntries.map((entry) => [entry.index, entry])), [promptEntries]);
 	const sideEntries = useMemo(() => sideEntryPoints(nativeMessages, messages), [nativeMessages, messages]);
 
 	// The reattach settled terminal → the sync-and-continue seam (below).
@@ -1800,7 +1807,9 @@ export function Chat({
 				<Conversation className="h-full min-w-0 flex-1" initial="instant" contextRef={scrollContextRef}>
 					<SessionMessageNavigation />
 					<TranscriptElementReporter onElement={setTranscriptElement} />
+					<PromptNavigationProvider entries={promptEntries} scopeRef={sessionFindScopeRef}>
 					<ConversationContent className="min-h-full gap-0 p-0">
+						<StickyPrompt />
 						<div data-session-find-root="" className={`${COLUMN} flex flex-1 flex-col gap-4 pt-4`}>
 							{messages.length === 0 && !busy && (
 								<ConversationEmptyState
@@ -1914,6 +1923,11 @@ export function Chat({
 										    Rendered WITHOUT the Message wrapper — that is the bubble. */
 											<div
 										data-testid="user-message"
+										// Native-id anchor for the sticky prompt (T20). Only the first
+										// row of a legacy duplicate id is in promptByIndex, keeping
+										// the DOM id unique; a missing id gets no anchor at all.
+										id={m.id ? promptByIndex.get(mi)?.anchorId : undefined}
+										data-prompt-id={m.id ? promptByIndex.get(mi)?.id : undefined}
 										/* THE DOCUMENT, ALL-IN (owner rounds two+three, 2026-10-07):
 										    no chat side — the user message is a full-width card-color
 										    BAND, the IDENTICAL geometry as the thinking rows: 5px band
@@ -2102,6 +2116,7 @@ export function Chat({
 						    effect reports before paint). */}
 						<div aria-hidden data-testid="dock-spacer" style={{ height: dockReserve }} />
 				</ConversationContent>
+					</PromptNavigationProvider>
 				{/* The dock: an overlay sibling of the scroller (the
 				    use-stick-to-bottom pattern). The scroll-down button lives
 				    INSIDE the overlay now (owner refinement round, 2026-09-24):
