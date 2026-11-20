@@ -44,6 +44,7 @@ import { titleAfterFirstTurn } from "./chat-title.ts";
 import { preparePluginQuestionSubmission, reconcilePluginQuestionCompatibility, type QuestionTypeResolver } from "./plugin-questions.ts";
 import { searchAvailable, searchProvider } from "./search.ts";
 import { prepareSubmissionImages, prepareSubmissionImageChannels, prepareProblemSubmissionImageChannels, submissionImagePolicyKey } from "./submission-images.ts";
+import { saveTurnImageSnapshots } from "./chat-image-snapshots.ts";
 import { preparePluginProblemSubmission, requirePluginProblemTarget, type ProblemTypeResolver } from "./plugin-problems.ts";
 import { providerKeyPresent } from "./keys.ts";
 import { CLAUDE_CODE_PROVIDER } from "../core/contracts/claude-code.ts";
@@ -657,6 +658,10 @@ async function handleChatInputInner(
 	let persistBaseCount = stagedAutomatic ? record.messages.length : agentMessages.length;
 	try {
 		if (!stagedAutomatic) {
+			// Save the submitted pictures under stable SHA-256 identities before
+			// the message append that references them: a reload (and any tool
+			// reading snapshots) must find the same bytes as the sent message.
+			saveTurnImageSnapshots(chatId, input, stores.chatStore);
 			stores.chatStore.saveMessages(chatId, merged);
 			inputSaved = true;
 		}

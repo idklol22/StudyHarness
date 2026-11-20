@@ -3,7 +3,7 @@
 import { cloneElement, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactElement, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { PaperclipIcon } from "lucide-react";
-import { directoryReferencePath, quoteFilePath } from "@/src/core";
+import { directoryReferencePath, isImageFile, quoteFilePath } from "@/src/core";
 import { Hint } from "@/components/ui/hint";
 import { INSERT_FILE_PATHS_EVENT } from "@/components/path-input";
 import { BROWSER_NOTICE } from "@/components/file-path-drop-zone";
@@ -83,7 +83,7 @@ function AttachmentPopup({ anchorRef, rootRef, open, close, children }: {
  * folder choice returns the directory itself, including an empty directory.
  * aria-disabled, not disabled, so the tooltip still shows.
  */
-export function AttachFilesButton({ editorRef }: { editorRef: React.RefObject<HTMLDivElement | null> }) {
+export function AttachFilesButton({ editorRef, onImages }: { editorRef: React.RefObject<HTMLDivElement | null>; onImages?: (files: File[]) => void }) {
 	const controller = useOptionalInteractionLayers();
 	const pickerRef = useRef<HTMLInputElement>(null);
 	const desktop = useDesktopPaths();
@@ -155,13 +155,19 @@ export function AttachFilesButton({ editorRef }: { editorRef: React.RefObject<HT
 					const resolve = window.lh?.getPathForFile;
 					const picked = Array.from(e.currentTarget.files ?? []);
 					e.currentTarget.value = ""; // allow re-picking the same file
+					// Pictures ride as inline image content, not as path chips.
+					// The picker deliberately keeps `accept` off: a user may
+					// still attach a mixed batch of notes and screenshots.
+					const pictures = onImages ? picked.filter(isImageFile) : [];
+					const files = picked.filter(file => !pictures.includes(file));
+					if (pictures.length) { setNotice(""); onImages!(pictures); }
 					const editor = editorRef.current;
 					const insert = (paths: string[]) => { if (paths.length > 0 && editor?.isConnected) editor.dispatchEvent(new CustomEvent(INSERT_FILE_PATHS_EVENT, { detail: paths })); };
-					if (resolve) { insert(pathsForFiles(picked, resolve).paths); return; }
+					if (resolve) { insert(pathsForFiles(files, resolve).paths); return; }
 					// Browser: upload, then attach the saved copies' paths.
-					if (!picked.length) return;
-					setNotice(UPLOADING_NOTICE(picked.length));
-					void uploadFilesForPaths(picked).then((paths) => { insert(paths); setNotice(""); }, (error: unknown) => setNotice(error instanceof Error ? error.message : "Could not upload the files."));
+					if (!files.length) return;
+					setNotice(UPLOADING_NOTICE(files.length));
+					void uploadFilesForPaths(files).then((paths) => { insert(paths); setNotice(""); }, (error: unknown) => setNotice(error instanceof Error ? error.message : "Could not upload the files."));
 				}}
 			/>
 			<Hint label={desktop ? "Attach files or a folder" : "Attach files (uploaded to this app)"}>

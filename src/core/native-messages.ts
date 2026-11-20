@@ -36,6 +36,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ImageContent, Message, TextContent, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 import type { PluginSubmissionImages, PluginSubmissionOccurrence } from "./plugin-submissions.ts";
+import { learnerModelContent } from "./chat-images.ts";
 import { ImmutableReadCache } from "./immutable-data.ts";
 import { QUESTION_TOOLS, type PendingQuestion } from "./pending.ts";
 import { pluginProblemForCall, readPluginProblemSubmission, type PluginProblemSnapshot } from "./plugin-problems.ts";
@@ -209,7 +210,7 @@ export function newMessageId(): string {
 /** A learner-authored user message (text input, verdict note). */
 /** Keep legacy text-only storage unchanged; explicit images become native blocks. */
 export function nativeInlineImageContent(text: string, images?: readonly ImageContent[]): string | (TextContent | ImageContent)[] {
-	return images?.length ? [...(text ? [{ type: "text" as const, text }] : []), ...images.map(image => ({ ...image }))] : text;
+	return learnerModelContent(text, images);
 }
 
 /** Compact answer text is the sole text authority; labels identify image channels. */

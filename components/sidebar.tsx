@@ -74,6 +74,8 @@ declare global {
 			getPathForFile?: (file: File) => string;
 			/** Choose one original directory path, without reading its contents. */
 			chooseAttachmentFolder?: () => Promise<string | null>;
+			/** Capture the primary display as a PNG data URL (desktop screenshot). */
+			captureScreen?: () => Promise<string>;
 			/** External Next desktop-dev uses the server's web connections. */
 			subscriptionTransport?: "desktop" | "web";
 			openSubscriptionBrowser?: (action: string) => Promise<void>;

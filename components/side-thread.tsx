@@ -1,11 +1,17 @@
 "use client";
 
 import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowRight, CornerDownLeft, GripVertical, MessageCircleQuestion, Mic, Pin, PinOff, Square, X } from "lucide-react";
+import type { ImageContent } from "@earendil-works/pi-ai";
+import { ArrowRight, Camera, CornerDownLeft, GripVertical, MessageCircleQuestion, Mic, Paperclip, Pin, PinOff, Square, X } from "lucide-react";
 import { actionForBinding, collectCitations, eventBinding, SIDE_QUOTE_MAX_CHARS, SIDE_QUESTION_MAX_CHARS, type TextSelector, type TutorCitation } from "@/src/core";
 import { rmsToMeter, type DictationPhase } from "./dictation";
 import { CitationActionsContext } from "./citation-chip";
 import { MessageResponse } from "./ai-elements/message";
+import { SubmittedImages } from "./submitted-images";
+import { ImageAttachments, useImageAttachments } from "./image-attachments";
+import { canCaptureScreen, captureScreenFrame } from "./screen-capture";
+import { ScreenCropOverlay } from "./screen-crop";
+import { isImageFile } from "@/src/core/chat-images";
 import { BrailleSpinner } from "./braille-spinner";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
@@ -38,7 +44,7 @@ export interface SideThreadHandlers {
 	readDraft?: () => string;
 	draft?: string;
 	onDraftChange?: (text: string) => void;
-	onAsk: (question: string, retry?: boolean) => Promise<boolean>;
+	onAsk: (question: string, retry?: boolean, images?: readonly Readonly<ImageContent>[]) => Promise<boolean>;
 	onStop: () => void;
 	onExpand: () => void;
 	onFloat: () => void;
@@ -86,6 +92,10 @@ export function SideThreadBody({ state, chatId, draft, readDraft, dictation, onD
 	useLayoutEffect(() => {
 		if (draft !== undefined && draft !== draftRef.current) { draftRef.current = draft; setQuestion(draft); }
 	}, [draft]);
+	const attachments = useImageAttachments();
+	const imageInputRef = useRef<HTMLInputElement>(null);
+	const [cropSource, setCropSource] = useState<string | null>(null);
+	const [captureError, setCaptureError] = useState("");
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
 	useEffect(() => { if (isInteractionScopeEligible(inputRef.current, controller)) inputRef.current?.focus({ preventScroll: true }); }, [state.mode, controller]);
@@ -100,8 +110,18 @@ export function SideThreadBody({ state, chatId, draft, readDraft, dictation, onD
 		// A dictation flush updates the saved draft synchronously, before
 		// React commits its new prop. Never submit the pre-flush local text.
 		const sent = readDraft?.() ?? draftRef.current;
-		if (!sent.trim()) return;
-		if (await onAsk(sent) && (readDraft?.() ?? draftRef.current) === sent) changeDraft("");
+		const sentImages = attachments.imagesRef.current.map(image => ({ ...image }));
+		if (!sent.trim() && !sentImages.length) return;
+		if (await onAsk(sent, false, sentImages) && (readDraft?.() ?? draftRef.current) === sent) {
+			changeDraft("");
+			attachments.clear();
+		}
+	};
+	const addImageFiles = (files: readonly File[]) => { void attachments.add(files); };
+	const takeScreenshot = async () => {
+		setCaptureError("");
+		try { setCropSource(await captureScreenFrame()); }
+		catch (error) { setCaptureError(error instanceof Error ? error.message : "Could not capture the screen."); }
 	};
 	const last = state.messages.at(-1);
 	return (
@@ -131,6 +151,7 @@ export function SideThreadBody({ state, chatId, draft, readDraft, dictation, onD
 					<div key={message.id} data-testid={message.role === "user" ? "side-learner-message" : "side-helper-message"} className={message.role === "user" ? "ml-auto flex w-fit max-w-[70%] flex-col gap-1.5 rounded-xl bg-muted px-3 py-2 text-sm [overflow-wrap:anywhere]" : "flex flex-col gap-1.5 text-sm"}>
 						{message.quotes?.map((quote, index) => <Passage key={index} text={quote} citation={collectCitations(message.quoteCitations?.[index] ?? "")[0]?.citation} />)}
 						{message.role === "user" ? <p className="whitespace-pre-wrap font-medium">{message.text}</p> : <MessageResponse>{message.text}</MessageResponse>}
+						{message.role === "user" && <SubmittedImages images={message.images} />}
 						{message.stopped && <span className="font-ui text-xs text-muted-foreground">Stopped</span>}
 						{message.error && <span role="alert" className="text-xs text-destructive">{message.error}</span>}
 					</div>
@@ -149,10 +170,40 @@ export function SideThreadBody({ state, chatId, draft, readDraft, dictation, onD
 				</button>}
 				{state.pendingPassage && <Passage text={state.pendingPassage.text} chatId={chatId} sourceMessageId={state.pendingPassage.sourceMessageId} selector={state.pendingPassage.selector} />}
 				{dictation?.error && <p role="alert" className="font-ui text-xs text-destructive">{dictation.error}</p>}
+				{captureError && <p role="alert" className="font-ui text-xs text-destructive">{captureError}</p>}
+				<ImageAttachments images={attachments.images} onRemove={attachments.remove} error={attachments.error} />
 				<div className="flex items-end gap-1.5">
-					<div data-testid="side-composer-surface" className="relative min-w-0 flex-1 rounded-[10px] border bg-card focus-within:border-primary/50">
+					<input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden
+						data-testid="side-image-input" aria-label="Attach images"
+						onChange={(event) => {
+							addImageFiles(Array.from(event.currentTarget.files ?? []));
+							event.currentTarget.value = "";
+						}} />
+					<button type="button" data-testid="side-attach-image" aria-label="Attach images to follow-up" title="Attach images"
+						onClick={() => imageInputRef.current?.click()}
+						className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+						<Paperclip aria-hidden="true" className="size-3.5" />
+					</button>
+					{canCaptureScreen() && <button type="button" data-testid="side-screenshot" aria-label="Screenshot" title="Screenshot"
+						onClick={() => { void takeScreenshot(); }}
+						className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+						<Camera aria-hidden="true" className="size-3.5" />
+					</button>}
+					<div data-testid="side-composer-surface" className="relative min-w-0 flex-1 rounded-[10px] border bg-card focus-within:border-primary/50"
+						onDragOver={(event) => { if (Array.from(event.dataTransfer.types).includes("Files")) { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; } }}
+						onDrop={(event) => {
+							const pictures = Array.from(event.dataTransfer.files).filter(isImageFile);
+							if (!pictures.length) return;
+							event.preventDefault(); event.stopPropagation(); addImageFiles(pictures);
+						}}>
 					<Textarea ref={inputRef} aria-label="Side question" data-testid="side-thread-input" className="min-h-9 resize-none border-0 bg-transparent pr-14 font-prose text-sm shadow-none focus-visible:ring-0 dark:bg-transparent" rows={1}
 						value={question} maxLength={SIDE_QUESTION_MAX_CHARS} placeholder={sideThreadPlaceholder(state)} onChange={(event) => changeDraft(event.target.value)}
+						onPaste={(event) => {
+							const pictures = Array.from(event.clipboardData.files).filter(isImageFile);
+							if (!pictures.length) return;
+							if (!event.clipboardData.getData("text/plain")) event.preventDefault();
+							addImageFiles(pictures);
+						}}
 						onKeyDown={(event) => {
 							if (event.nativeEvent.isComposing || !isInteractionScopeEligible(inputRef.current, controller)) return;
 							if (event.key === "Enter" && (!event.shiftKey || event.metaKey || event.ctrlKey)) { event.preventDefault(); event.stopPropagation(); void submit(); }
@@ -169,12 +220,15 @@ export function SideThreadBody({ state, chatId, draft, readDraft, dictation, onD
 					</button></div>}
 					</div>
 					<button type="button" aria-label={state.answering ? "Stop side answer" : "Send side question"}
-						disabled={!state.answering && !question.trim() && !dictation?.active} onClick={state.answering ? onStop : () => void submit()}
+						disabled={!state.answering && !question.trim() && !attachments.images.length && !dictation?.active} onClick={state.answering ? onStop : () => void submit()}
 						className={`flex size-9 shrink-0 items-center justify-center rounded-[10px] transition-colors ${state.answering ? "bg-secondary text-foreground hover:bg-accent" : "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40"}`}>
 						{state.answering ? <Square aria-hidden="true" className="size-4" /> : <CornerDownLeft aria-hidden="true" className="size-5" />}
 					</button>
 				</div>
 			</div>
+			{cropSource && <ScreenCropOverlay src={cropSource}
+				onCancel={() => setCropSource(null)}
+				onConfirm={(image) => { attachments.addContent(image); setCropSource(null); }} />}
 		</div>
 	);
 }

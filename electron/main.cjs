@@ -24,7 +24,7 @@
  *     would shadow every settings-page key change until restart.
  */
 
-const { app, BrowserWindow, Menu, ipcMain, nativeTheme, session, shell, dialog } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, nativeTheme, session, shell, dialog, desktopCapturer, screen } = require("electron");
 const { pickAttachmentPath } = require("./attachment-picker.cjs");
 const { createChatGPT, fileStore } = require("./chatgpt.cjs");
 const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt-ipc.cjs");
@@ -769,6 +769,22 @@ async function main() {
 	ipcMain.handle("lh:attachment:pick", (event, mode) => pickAttachmentPath(event, mode, {
 		BrowserWindow, dialog, trustedAppWindows, origin: new URL(url).origin,
 	}));
+
+	// Follow-up screenshot: primary display at native pixel size, returned as a
+	// PNG data URL. No filesystem path or arbitrary source crosses the bridge;
+	// the renderer crops the frame and keeps only the chosen region.
+	ipcMain.handle("lh:capture-screen", async (event) => {
+		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) throw new Error("Untrusted desktop request.");
+		const display = screen.getPrimaryDisplay();
+		const size = {
+			width: Math.max(1, Math.round(display.size.width * display.scaleFactor)),
+			height: Math.max(1, Math.round(display.size.height * display.scaleFactor)),
+		};
+		const sources = await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: size });
+		const source = sources.find((entry) => String(entry.display_id) === String(display.id)) ?? sources[0];
+		if (!source) throw new Error("No screen could be captured.");
+		return source.thumbnail.toDataURL();
+	});
 
 	installMenu();
 

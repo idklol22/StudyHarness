@@ -4,6 +4,7 @@
  * Closing detaches a view; messages are already saved, and returning can
  * subscribe to a still-running answer. No close-time commits or tutor notes. */
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import type { ImageContent } from "@earendil-works/pi-ai";
 import { serializeCitation, sideSegmentId, type LhMessage, type TextSelector, type SideChatMessage, type SideChatThread } from "@/src/core";
 import { useServerEvent, useServerResync } from "./server-events";
 
@@ -165,9 +166,9 @@ export function useSideThread(chatId: string, messages: readonly LhMessage[], ge
 		connection.current?.controller.abort(); connection.current = null;
 		dispatch({ type: "close" });
 	}, []);
-	const ask = useCallback(async (text: string, retry = false, expectedThreadId?: string): Promise<boolean> => {
+	const ask = useCallback(async (text: string, retry = false, expectedThreadId?: string, images?: readonly Readonly<ImageContent>[]): Promise<boolean> => {
 		const current = stateRef.current;
-		if (!current || (expectedThreadId && expectedThreadId !== current.threadId) || current.answering || (!text.trim() && !retry)) return false;
+		if (!current || (expectedThreadId && expectedThreadId !== current.threadId) || current.answering || (!text.trim() && !images?.length && !retry)) return false;
 		const passage = current.pendingPassage;
 		const quote = passage ? serializeCitation({ version: 1, chatId, messageId: passage.sourceMessageId, text: passage.text,
 			...(passage.selector ?? { start: 0, end: passage.text.length, prefix: "", suffix: "" }) }) : undefined;
@@ -187,7 +188,7 @@ export function useSideThread(chatId: string, messages: readonly LhMessage[], ge
 				method: "POST", headers: { "Content-Type": "application/json" }, signal: controller.signal,
 				body: JSON.stringify({ ...(existing ? { threadId: current.threadId } : { anchor: {
 					messageId: current.segmentId, partId: `${current.segmentId}-t0`, blockIndex: 0, blockText: "This teaching segment and its question.",
-				} }), text, quotes: passage ? [passage.text] : [], ...(quote ? { quoteCitations: [quote] } : {}), requestId, ...(retry ? { retry: true, threadId: current.threadId } : {}), ...(working ? { working } : {}) }),
+				} }), text, quotes: passage ? [passage.text] : [], ...(quote ? { quoteCitations: [quote] } : {}), ...(images?.length ? { images: images.map(image => ({ ...image })) } : {}), requestId, ...(retry ? { retry: true, threadId: current.threadId } : {}), ...(working ? { working } : {}) }),
 			});
 			if (!response.ok) { await consume(response, current.threadId, token); return false; }
 			// Accepted and durable before streaming: the UI can clear its draft.

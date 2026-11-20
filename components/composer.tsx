@@ -1,10 +1,13 @@
 "use client";
 
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import type { ImageContent } from "@earendil-works/pi-ai";
 import { ArrowRightIcon, CornerDownLeftIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isImageFile } from "@/src/core/chat-images";
 import { PathInput } from "@/components/path-input";
 import { AttachFilesButton } from "@/components/attach-files-button";
+import { ImageAttachments } from "@/components/image-attachments";
 import { useOptionalInteractionLayers } from "./interaction-layers";
 import { isInteractionScopeEligible } from "./plugin-input-focus";
 
@@ -61,6 +64,10 @@ export function ChatSessionComposer({
 	nextProblem,
 	onNext,
 	pendingInput = false,
+	images = [],
+	onImagesAdd,
+	onImagesRemove,
+	imageError,
 }: {
 	busy: boolean;
 	value: string;
@@ -77,10 +84,15 @@ export function ChatSessionComposer({
 	nextProblem?: boolean;
 	onNext?: () => void;
 	pendingInput?: boolean;
+	/** Attached inline pictures, owned by the session (see chat.tsx). */
+	images?: readonly Readonly<ImageContent>[];
+	onImagesAdd?: (files: readonly File[]) => void;
+	onImagesRemove?: (index: number) => void;
+	imageError?: string;
 }) {
 	const [draft, setDraft] = useState(value);
 	useLayoutEffect(() => { setDraft(value); }, [revision, value]);
-	const canSend = sendAllowed && (draft.trim().length > 0 || dictationActive || pendingInput);
+	const canSend = sendAllowed && (draft.trim().length > 0 || images.length > 0 || dictationActive || pendingInput);
 	const applyDraft = useCallback((next: string) => {
 		setDraft(next);
 		onChange(next);
@@ -100,6 +112,10 @@ export function ChatSessionComposer({
 			placeholder={placeholder}
 			nextProblem={nextProblem}
 			onNext={onNext}
+			images={images}
+			onImagesAdd={onImagesAdd}
+			onImagesRemove={onImagesRemove}
+			imageError={imageError}
 		/>
 	);
 }
@@ -119,6 +135,10 @@ export function Composer({
 	onNext,
 	defaultDropTarget = true,
 	fileInsertion = true,
+	images = [],
+	onImagesAdd,
+	onImagesRemove,
+	imageError,
 }: {
 	busy: boolean;
 	value: string;
@@ -147,6 +167,10 @@ export function Composer({
 	/** Neutral plugin composers opt out without changing core defaults. */
 	defaultDropTarget?: boolean;
 	fileInsertion?: boolean;
+	images?: readonly Readonly<ImageContent>[];
+	onImagesAdd?: (files: readonly File[]) => void;
+	onImagesRemove?: (index: number) => void;
+	imageError?: string;
 }) {
 	const controller = useOptionalInteractionLayers();
 	const act = () => {
@@ -157,21 +181,51 @@ export function Composer({
 	};
 	const ownInputRef = useRef<HTMLDivElement>(null);
 	const editorRef = inputRef ?? ownInputRef;
+	const addFiles = (files: readonly File[]) => {
+		if (!onImagesAdd) return false;
+		const pictures = files.filter(isImageFile);
+		if (!pictures.length) return false;
+		onImagesAdd(pictures);
+		return true;
+	};
 	return (
 		<form
 			data-testid="composer"
-			className="flex items-end gap-1.5 p-1.5"
+			className="flex flex-col"
 			onSubmit={(e) => {
 				e.preventDefault();
 				act();
 			}}
+			onDragOver={(event) => {
+				if (!onImagesAdd || !Array.from(event.dataTransfer.types).includes("Files")) return;
+				event.preventDefault();
+				event.dataTransfer.dropEffect = "copy";
+			}}
+			onDrop={(event) => {
+				const pictures = Array.from(event.dataTransfer.files ?? []).filter(isImageFile);
+				if (!pictures.length || !onImagesAdd) return;
+				// Images are ours; other dropped files keep the path/upload flow.
+				event.preventDefault();
+				event.stopPropagation();
+				onImagesAdd(pictures);
+			}}
 		>
+			<ImageAttachments images={images} onRemove={(index) => onImagesRemove?.(index)} error={imageError} />
+			<div className="flex items-end gap-1.5 p-1.5">
 			<PathInput
 				ref={editorRef}
 				value={value}
 				onValueChange={onChange}
 				defaultDropTarget={defaultDropTarget}
 				fileInsertion={fileInsertion}
+				onPaste={(event) => {
+					const pictures = Array.from(event.clipboardData?.files ?? []).filter(isImageFile);
+					if (pictures.length && onImagesAdd) {
+						event.preventDefault();
+						event.stopPropagation();
+						onImagesAdd(pictures);
+					}
+				}}
 				onKeyDown={(e) => {
 					if (!isInteractionScopeEligible(e.currentTarget, controller)) return;
 					// Esc ends dictation before anything else Esc might someday mean
@@ -197,7 +251,7 @@ export function Composer({
 				autoFocus={autoFocus}
 				className="field-sizing-content lh-input max-h-48 min-h-8 flex-1 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
 			/>
-			<AttachFilesButton editorRef={editorRef} />
+			<AttachFilesButton editorRef={editorRef} onImages={onImagesAdd ? (files) => { void addFiles(files); } : undefined} />
 			{/* The button follows the text (owner report 2026-10-03): while
 				 a turn runs WITH text typed it stays the SEND affordance
 				 (click = steer — steering must be clickable, not Enter-only);
@@ -237,6 +291,7 @@ export function Composer({
 						{busy && !canSend ? <SquareIcon className="size-4" /> : <CornerDownLeftIcon className="size-4" />}
 					</button>
 				)}
+			</div>
 		</form>
 	);
 }

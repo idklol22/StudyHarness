@@ -6,6 +6,7 @@
  * master. Pure types + protocol docs + tiny pure helpers. See docs/archive/vision.md.
  */
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { ImageContent } from "@earendil-works/pi-ai";
 import type { LhMessage } from "../native-messages.ts";
 import type { Phase3 } from "../phases.ts";
 import type { PlanNodeStatus, PlanTree } from "./plan.ts";
@@ -133,6 +134,8 @@ export interface SideChatMessage {
 	text: string;
 	/** user only: the passages the learner attached to this question. */
 	quotes?: string[];
+	/** user only: inline pictures sent with the follow-up (native blocks). */
+	images?: ImageContent[];
 	/** Matching canonical Tutor quote links retain each passage's actual
 	 * native source and exact-text selector, independent of segment identity.
 	 * Legacy string-only quotes remain readable without a guessed target. */

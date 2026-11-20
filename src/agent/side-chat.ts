@@ -17,11 +17,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { normalizeContext, type AssistantMessage, type Message, type Usage } from "@earendil-works/pi-ai";
+import { normalizeContext, type Api, type AssistantMessage, type Message, type Model, type Usage } from "@earendil-works/pi-ai";
 import { backgroundCaptureStream, createBackgroundCapture } from "./background-capture.ts";
 import { providerEventObserver } from "./provider-events.ts";
 import { PATHS } from "../../config.ts";
 import type { SideModelTurn } from "../core/side-chat.ts";
+import { learnerModelContent } from "../core/chat-images.ts";
 import type { PiEngine } from "./models.ts";
 import { readPromptOverride } from "./prompt-segments.ts";
 
@@ -72,6 +73,28 @@ function textOf(message: AssistantMessage): string {
 		.join("");
 }
 
+/** The one turns → model-messages conversion for follow-ups. The learner's
+ *  question becomes native text+image content, so every engine — Claude Code
+ *  included — receives the same image blocks a plain chat message would. */
+export function sideChatModelMessages(
+	turns: readonly SideModelTurn[],
+	model: Pick<Model<Api>, "api" | "provider" | "id">,
+): Message[] {
+	const now = Date.now();
+	return turns.map(turn => turn.role === "user"
+		? { role: "user", content: learnerModelContent(turn.text, turn.images), timestamp: now }
+		: ({
+				role: "assistant",
+				content: [{ type: "text", text: turn.text }],
+				api: model.api,
+				provider: model.provider,
+				model: model.id,
+				usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+				stopReason: "stop",
+				timestamp: now,
+			} as AssistantMessage));
+}
+
 /**
  * Stream one side answer. `onText` receives the FULL text so far on every
  * text delta (replace, never append — the same slot discipline as the
@@ -88,21 +111,7 @@ export async function streamSideAnswer(opts: {
 	chatId?: string;
 	runId?: string;
 }): Promise<SideAnswerResult> {
-	const now = Date.now();
-	const messages: Message[] = opts.turns.map((turn) =>
-		turn.role === "user"
-			? { role: "user", content: turn.text, timestamp: now }
-			: ({
-					role: "assistant",
-					content: [{ type: "text", text: turn.text }],
-					api: opts.engine.model.api,
-					provider: opts.engine.model.provider,
-					model: opts.engine.model.id,
-					usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-					stopReason: "stop",
-					timestamp: now,
-				} as AssistantMessage),
-	);
+	const messages: Message[] = sideChatModelMessages(opts.turns, opts.engine.model);
 	let text = "";
 	let failure: unknown;
 	const capture = createBackgroundCapture({ role: "sideQuestion", runId: opts.runId ?? randomUUID(), sourceId: opts.chatId });

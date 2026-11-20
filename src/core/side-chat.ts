@@ -21,7 +21,7 @@
  * Browser-safe: pure logic + types, no node builtins.
  */
 
-import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ImageContent, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { ChatRecord, SideChatAnchor, SideChatMessage, SideChatThread } from "./contracts/chat.ts";
 import type { LhMarkerMessage, LhMessage } from "./native-messages.ts";
 import type { LhViewMessage, LhViewPart } from "./view.ts";
@@ -42,6 +42,8 @@ import { citationsToReadableText, collectCitations } from "./citations.ts";
 import { messageMarkdown } from "./session-markdown.ts";
 import { normalizeOptions, seededRandom, shuffleOptions, type QuestionAnswerData } from "./question-core.ts";
 import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
+import { limitImageContents, learnerModelContent } from "./chat-images.ts";
+import { validatePluginSubmissionImageArray } from "./plugin-submissions.ts";
 import { readPluginQuestionMessageAnnotation, readPluginQuestionAnswer, readPluginQuestionCancellation } from "./plugin-questions.ts";
 import { pluginProblemForCall, readPluginProblemSubmission } from "./plugin-problems.ts";
 
@@ -220,6 +222,8 @@ export interface SideAskInput {
 	anchor?: SideChatAnchor;
 	text: string;
 	quotes: string[];
+	/** Inline pictures attached to this follow-up. */
+	images?: ImageContent[];
 	quoteCitations?: string[];
 	retry?: boolean;
 	/** Stable across an uncertain POST retry: never generate twice for one ask. */
@@ -229,6 +233,14 @@ export interface SideAskInput {
 }
 
 const ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+
+/** Strict native blocks (the same transport as every other image channel)
+ *  with the composer's count ceiling. Byte sniffing happens server-side. */
+function parseSideImages(raw: unknown): ImageContent[] | undefined {
+	if (raw === undefined) return undefined;
+	const images = limitImageContents(validatePluginSubmissionImageArray(raw));
+	return images.length ? images : undefined;
+}
 
 function clip(text: string, max: number): string {
 	return text.length > max ? `${text.slice(0, max)}…` : text;
@@ -259,13 +271,15 @@ export function parseSideAskInput(raw: unknown): SideAskInput {
 	const body = raw as Record<string, unknown>;
 	if (body.requestId !== undefined && (typeof body.requestId !== "string" || !ID_RE.test(body.requestId))) throw new SideChatInputError("requestId is invalid");
 	if (body.working !== undefined && (typeof body.working !== "string" || body.working.length > SIDE_QUESTION_MAX_CHARS)) throw new SideChatInputError("working is invalid or too long");
-	const extra = { ...(typeof body.requestId === "string" ? { requestId: body.requestId } : {}), ...(typeof body.working === "string" ? { working: body.working } : {}) };
+	const images = parseSideImages(body.images);
+	const extra = { ...(typeof body.requestId === "string" ? { requestId: body.requestId } : {}), ...(typeof body.working === "string" ? { working: body.working } : {}), ...(images ? { images } : {}) };
 	if (body.retry === true) {
 		if (typeof body.threadId !== "string" || !ID_RE.test(body.threadId)) throw new SideChatInputError("retry needs a valid threadId");
-		return { threadId: body.threadId, text: "", quotes: [], retry: true, ...extra };
+		const { images: _ignored, ...retryExtra } = extra;
+		return { threadId: body.threadId, text: "", quotes: [], retry: true, ...retryExtra };
 	}
 	const text = typeof body.text === "string" ? body.text.trim() : "";
-	if (!text) throw new SideChatInputError("text must be a non-empty string");
+	if (!text && !images?.length) throw new SideChatInputError("text or images are required");
 	if (text.length > SIDE_QUESTION_MAX_CHARS) throw new SideChatInputError(`text exceeds ${SIDE_QUESTION_MAX_CHARS} characters`);
 	const quotesRaw = body.quotes ?? [];
 	if (!Array.isArray(quotesRaw) || quotesRaw.some((q) => typeof q !== "string")) {
@@ -308,8 +322,9 @@ export function newSideThread(anchor: SideChatAnchor, at = new Date().toISOStrin
 	return { id: `side_${anchor.messageId}`, anchor, open: true, createdAt: at, messages: [] };
 }
 
-export function newSideQuestion(text: string, quotes: readonly string[], at = new Date().toISOString()): SideChatMessage {
-	return { id: newMessageId(), role: "user", text, ...(quotes.length > 0 ? { quotes: [...quotes] } : {}), at };
+export function newSideQuestion(text: string, quotes: readonly string[], images?: readonly Readonly<ImageContent>[], at = new Date().toISOString()): SideChatMessage {
+	return { id: newMessageId(), role: "user", text, ...(quotes.length > 0 ? { quotes: [...quotes] } : {}),
+		...(images?.length ? { images: images.map(image => ({ ...image })) } : {}), at };
 }
 
 /** Is `partId` real, settled teacher prose in this record? The anchor's
@@ -551,11 +566,12 @@ export function sideChatLessonDocument(messages: readonly LhMessage[]): string {
 
 // ─── the model turns ─────────────────────────────────────────────────────────
 
-/** One text turn for the side model (the agent layer maps these onto
- *  native user/assistant messages). */
+/** One turn for the side model (the agent layer maps these onto native
+ *  user/assistant messages). User turns may carry inline image blocks. */
 export interface SideModelTurn {
 	role: "user" | "assistant";
 	text: string;
+	images?: readonly Readonly<ImageContent>[];
 }
 
 function quoteBlocks(quotes: readonly string[] | undefined): string {
@@ -582,7 +598,7 @@ export function sideChatModelTurns(thread: SideChatThread, lessonDocument: strin
 			const quotes = quoteBlocks(message.quotes);
 			if (quotes) parts.push(`The learner highlighted:\n\n${quotes}`);
 			parts.push(`Side question: ${message.text}`);
-			turns.push({ role: "user", text: parts.join("\n\n") });
+			turns.push({ role: "user", text: parts.join("\n\n"), ...(message.images?.length ? { images: message.images } : {}) });
 		} else {
 			const notes: string[] = [];
 			if (message.stopped) notes.push("(The learner stopped this answer here.)");

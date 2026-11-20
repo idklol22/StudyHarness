@@ -6,6 +6,7 @@ import { emit } from "../core/events.ts";
 import type { ChatRecord, SideChatMessage, SideChatThread } from "../core/contracts.ts";
 import type { ChatStore } from "../core/ports.ts";
 import { failedOutputCallIds, newMessageId, userFacingTextOf } from "../core/native-messages.ts";
+import { ChatInputError } from "../core/input-events.ts";
 import {
 	newSideQuestion, newSideThread, sideSegmentId, sideChatLessonDocument,
 	sideChatModelTurns, sideThreadAwaitsAnswer, type SideAskInput,
@@ -15,6 +16,8 @@ import { COMPACTION_RESERVE_TOKENS } from "../core/compaction.ts";
 import { resolveSideQuestionSpec } from "../core/settings-resolution.ts";
 import { modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope } from "../core/settings.ts";
 import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
+import { prepareSubmissionImages } from "./submission-images.ts";
+import { saveSubmittedImageSnapshots } from "./chat-image-snapshots.ts";
 import "./usage.ts";
 import { isSubscriptionProvider } from "../agent/subscription-connections.ts";
 import { usageWasAdmitted } from "../agent/subscription-request-cycle.ts";
@@ -124,7 +127,17 @@ export function createSideChatService(deps: SideChatDeps): SideChatService {
 		if (!initial) return Response.json({ error: "Unknown chat" }, { status: 404 });
 		const engine = await deps.engineFor(initial);
 		if (engine instanceof Response) return engine;
-		// No awaits between reading, deduplicating, saving and registration.
+		// Follow-up pictures ride the same native admission as chat pictures:
+		// byte/format check, model capability gate, provider resize policy.
+		let images = input.retry ? undefined : input.images;
+		if (images?.length) {
+			try { images = await prepareSubmissionImages(images, engine); }
+			catch (error) {
+				if (error instanceof ChatInputError) return Response.json({ error: error.message }, { status: 400 });
+				throw error;
+			}
+		}
+		// No awaits between re-reading, deduplicating, saving and registration.
 		const record = deps.chatStore.getChat(chatId);
 		if (!record) return Response.json({ error: "Unknown chat" }, { status: 404 });
 		const threads = record.sideChats ?? [];
@@ -167,7 +180,7 @@ export function createSideChatService(deps: SideChatDeps): SideChatService {
 				modelThread = { ...target, messages: target.messages.slice(0, target.messages.findLastIndex((message) => message.role === "user") + 1) };
 			} else if (!sideThreadAwaitsAnswer(target)) return Response.json({ error: "Nothing to retry" }, { status: 409 });
 		} else {
-			const question = newSideQuestion(input.text, input.quotes);
+			const question = newSideQuestion(input.text, input.quotes, images);
 			if (input.quoteCitations?.length) question.quoteCitations = [...input.quoteCitations];
 			if (input.requestId) question.id = input.requestId;
 			thread = { ...target, open: true, messages: [...target.messages, question] };
@@ -184,6 +197,10 @@ export function createSideChatService(deps: SideChatDeps): SideChatService {
 		const stored = deps.chatStore.updateSideChats(chatId, (current) => current.some((entry) => entry.id === thread.id)
 			? current.map((entry) => entry.id === thread.id ? thread : entry) : [...current, thread]);
 		if (!stored) return Response.json({ error: "Unknown chat" }, { status: 404 });
+		if (images?.length) {
+			try { saveSubmittedImageSnapshots(chatId, images, deps.chatStore); }
+			catch (error) { console.error(`[chat ${chatId}] side image snapshot failed:`, error); }
+		}
 		const run: SideRun = {
 			controller: new AbortController(), text: "", answerId: newMessageId(), updatedAt: new Date().toISOString(),
 			model: `${engine.model.provider}:${engine.model.id}`, operationId: input.requestId,
