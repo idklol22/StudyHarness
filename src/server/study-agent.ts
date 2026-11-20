@@ -13,8 +13,9 @@ import { ideasOf } from "../core/study/ideas.ts";
 import { studyTools } from "../agent/tools/study.ts";
 import { emptyCards, type CardSet } from "../core/study/cards.ts";
 import { studyInstructions, visibleMaterials, STUDY_TOOL_NAMES } from "../core/study/doctrine.ts";
+import { placementWriteScope, selectedTopicIds, subjectOf, topicOf, topicsOf } from "../core/study/model.ts";
 import { formatLookup } from "../core/study/material-memory.ts";
-import { topicOf, topicsOf, subjectOf, type ChatPlacement } from "../core/study/model.ts";
+import type { ChatPlacement } from "../core/study/model.ts";
 import { sha256Of, studyStore } from "../store/study.ts";
 import { chatStore } from "../store/chats.ts";
 import { study } from "./study-runtime.ts";
@@ -52,7 +53,9 @@ export function studyContributions(
 	const instructions = studyInstructions({ library: lib, placement, kind, mode, readState });
 
 	const ownKey = () => {
-		const topic = placement.topicId ? topicOf(study.library(), placement.topicId) : undefined;
+		// Several topics read as a union but have no single notebook/card set to own the write: use the subject.
+		const ids = selectedTopicIds(study.library(), placement);
+		const topic = ids.length === 1 ? topicOf(study.library(), ids[0]!) : undefined;
 		return topic ? { key: topic.id, group: topic.name } : { key: placement.subjectId, group: "General" };
 	};
 	const tools = studyTools({
@@ -83,11 +86,16 @@ export function studyContributions(
 		},
 		cards() {
 			const lib2 = study.library();
-			const topic = placement.topicId ? topicOf(lib2, placement.topicId) : undefined;
-			if (topic) return [{ key: topic.id, group: topic.name, set: cardsOf(topic.id) }];
+			const ids = selectedTopicIds(lib2, placement);
+			if (ids.length === 1) {
+				const topic = topicOf(lib2, ids[0]!);
+				if (topic) return [{ key: topic.id, group: topic.name, set: cardsOf(topic.id) }];
+			}
+			// Whole-subject and multi-topic chats can play cards from the subject and from each selected topic.
+			const topics = ids.length ? topicsOf(lib2, placement.subjectId).filter((t) => ids.includes(t.id)) : topicsOf(lib2, placement.subjectId);
 			return [
 				{ key: placement.subjectId, group: "General", set: cardsOf(placement.subjectId) },
-				...topicsOf(lib2, placement.subjectId).map((t) => ({ key: t.id, group: t.name, set: cardsOf(t.id) })),
+				...topics.map((t) => ({ key: t.id, group: t.name, set: cardsOf(t.id) })),
 			].map((e) => ({ ...e, set: { ...e.set, cards: e.set.cards.map((c) => ({ ...c, group: e.group })) } }));
 		},
 		saveCards: (key, set) => studyStore.writeDoc("cards", key, set),
@@ -97,7 +105,7 @@ export function studyContributions(
 			async edit(id, patch) { await editNote(placement, id, patch); return "Updated."; },
 		},
 		async saveChatNotes(title, markdown) {
-			const scope = { subjectId: placement.subjectId, ...(placement.topicId ? { topicId: placement.topicId } : {}) };
+			const scope = placementWriteScope(placement);
 			const safeTitle = title.replace(/[\\/\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 116) || "Chat notes";
 			const { material } = await study.addMaterial({
 				bytes: Buffer.from(markdown, "utf8"),
@@ -109,9 +117,9 @@ export function studyContributions(
 				id: material.id,
 				title: safeTitle,
 				subjectId: placement.subjectId,
-				...(placement.topicId ? { topicId: placement.topicId } : {}),
+				...(scope.topicId ? { topicId: scope.topicId } : {}),
 				subjectName: subjectOf(fresh, placement.subjectId)?.name ?? "Subject",
-				topicName: placement.topicId ? topicOf(fresh, placement.topicId)?.name : undefined,
+				topicName: scope.topicId ? topicOf(fresh, scope.topicId)?.name : undefined,
 			};
 		},
 		ownCardKey: ownKey,
@@ -130,12 +138,12 @@ export function keepContextAfterTurn(chatId: string, placement: ChatPlacement | 
 	seen.turns++;
 	if (now - seen.at < KEEP_EVERY_MS && seen.turns < KEEP_EVERY_TURNS) { lastKept.set(chatId, seen); return; }
 	lastKept.set(chatId, { at: now, turns: 0 });
-	void refreshContext(placement, `Recent exchange in a tutoring chat:\n${exchange.slice(-3500)}`, deps, chatId).catch((e) => console.error("[study] context refresh failed:", e));
+	const scope = placementWriteScope(placement);
+	void refreshContext(scope, `Recent exchange in a tutoring chat:\n${exchange.slice(-3500)}`, deps, chatId).catch((e) => console.error("[study] context refresh failed:", e));
 	// The ideas this exchange worked on join the topic's (or subject's) ideas, linked to this chat (the map shows them).
 	void (async () => {
 		const lib = study.library();
-		const scope = { subjectId: placement.subjectId, ...(placement.topicId ? { topicId: placement.topicId } : {}) };
-		const name = (placement.topicId ? topicOf(lib, placement.topicId)?.name : undefined) ?? subjectOf(lib, placement.subjectId)?.name;
+		const name = (scope.topicId ? topicOf(lib, scope.topicId)?.name : undefined) ?? subjectOf(lib, placement.subjectId)?.name;
 		if (!name) return;
 		const ideas = await keepIdeas({ scopeName: name, existing: ideasOf(lib, scope), exchange }, worker(deps, "extractor", chatId));
 		if (ideas.length) study.addIdeas(scope, ideas.map((i) => ({ name: i.name, summary: i.summary, chat: chatId })));

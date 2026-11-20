@@ -21,7 +21,11 @@ export interface PlacementState {
 	/** Why Start is blocked ("" when ready). */
 	missing: string;
 	setSubject(id: string): void;
+	/** Replace the topic selection with one topic ("" = whole subject). */
 	setTopic(id: string): void;
+	/** Add/remove one topic; the whole subject means an empty selection. */
+	toggleTopic(id: string): void;
+	setTopics(ids: string[]): void;
 	setStartMode(mode: StartMode): void;
 	createSubject(name: string): Promise<void>;
 	createTopic(name: string): Promise<void>;
@@ -62,15 +66,22 @@ export function useStudyPlacement(practice = false): PlacementState {
 		return () => { alive = false; };
 	}, [refresh]);
 
-	const remember = (c: Choice) => { try { localStorage.setItem(LAST_CHOICE_KEY, JSON.stringify({ subjectId: c.subjectId, topicId: c.topicId })); } catch { /* best-effort */ } };
-	const update = (patch: Partial<Choice>) => setChoice((cur) => { const next = { ...cur, ...patch }; remember(next); return next; });
+	const remember = (c: Choice) => { try { localStorage.setItem(LAST_CHOICE_KEY, JSON.stringify({ subjectId: c.subjectId, topicIds: c.topicIds })); } catch { /* best-effort */ } };
+	// Functional updates matter here: the graph can select a subject and toggle one of its topics in the same tick.
+	const update = (patch: Partial<Choice> | ((cur: Choice) => Partial<Choice>)) => setChoice((cur) => {
+		const next = { ...cur, ...(typeof patch === "function" ? patch(cur) : patch) };
+		remember(next);
+		return next;
+	});
 
 	return {
 		library, loaded, choice, error,
 		placement: useMemo(() => placementFromChoice(library, choice, practice), [library, choice, practice]),
 		missing: missingPlacement(library, choice, practice),
-		setSubject: (id) => update({ subjectId: id, topicId: "" }),
-		setTopic: (id) => update({ topicId: id }),
+		setSubject: (id) => update({ subjectId: id, topicIds: [] }),
+		setTopic: (id) => update({ topicIds: id ? [id] : [] }),
+		toggleTopic: (id) => update((cur) => !id ? { topicIds: [] } : { topicIds: cur.topicIds.includes(id) ? cur.topicIds.filter((x) => x !== id) : [...cur.topicIds, id] }),
+		setTopics: (ids) => update({ topicIds: [...new Set(ids)] }),
 		setStartMode: (mode) => update({ startMode: mode }),
 		async createSubject(name) {
 			setError("");
@@ -78,7 +89,7 @@ export function useStudyPlacement(practice = false): PlacementState {
 			if (r.error || !r.library) { setError(r.error ?? "Could not create the subject."); return; }
 			setLibrary(r.library);
 			const subject = r.library.subjects.find((s) => s.name.toLowerCase() === name.trim().replace(/\s+/g, " ").toLowerCase());
-			if (subject) update({ subjectId: subject.id, topicId: "" });
+			if (subject) update({ subjectId: subject.id, topicIds: [] });
 		},
 		async createTopic(name) {
 			setError("");
@@ -87,7 +98,7 @@ export function useStudyPlacement(practice = false): PlacementState {
 			if (r.error || !r.library) { setError(r.error ?? "Could not create the topic."); return; }
 			setLibrary(r.library);
 			const topic = topicsOf(r.library, choice.subjectId).find((t) => t.name.toLowerCase() === name.trim().replace(/\s+/g, " ").toLowerCase());
-			if (topic) update({ topicId: topic.id });
+			if (topic) update((cur) => ({ topicIds: cur.topicIds.includes(topic.id) ? cur.topicIds : [...cur.topicIds, topic.id] }));
 		},
 	};
 }
@@ -99,6 +110,7 @@ export function PlacementPickerView({ state, practice = false, showMissing = fal
 	const [creating, setCreating] = useState<"" | "subject" | "topic">("");
 	const [name, setName] = useState("");
 	const topics = state.choice.subjectId ? topicsOf(state.library, state.choice.subjectId) : [];
+	const firstTopic = state.choice.topicIds[0] ?? "";
 	const submit = async (e: React.FormEvent) => {
 		e.preventDefault();
 		const value = name.trim();
@@ -126,7 +138,7 @@ export function PlacementPickerView({ state, practice = false, showMissing = fal
 					aria-label="Topic"
 					data-testid="placement-topic"
 					className={SELECT}
-					value={creating === "topic" ? NEW : state.choice.topicId}
+					value={creating === "topic" ? NEW : firstTopic}
 					onChange={(e) => {
 						if (e.target.value === NEW) { setCreating("topic"); setName(""); } else { setCreating(""); state.setTopic(e.target.value); }
 					}}
@@ -153,7 +165,7 @@ export function PlacementPickerView({ state, practice = false, showMissing = fal
 			)}
 			{state.choice.subjectId && (
 				<Link
-					href={`/subjects/${state.choice.subjectId}${state.choice.topicId ? `/${state.choice.topicId}` : ""}#files`}
+					href={`/subjects/${state.choice.subjectId}${firstTopic ? `/${firstTopic}` : ""}#files`}
 					data-testid="placement-add-files"
 					className="rounded-md border border-border/60 bg-background px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 				>

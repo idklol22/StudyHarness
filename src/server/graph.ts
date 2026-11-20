@@ -12,7 +12,7 @@ import {
 import { extractionStatuses } from "../agent/subagents/extraction.ts";
 import { stores } from "./stores.ts";
 import { study } from "./study-runtime.ts";
-import { subjectOf, topicOf } from "../core/study/model.ts";
+import { placementScopeLabel, selectedTopicIds, subjectOf } from "../core/study/model.ts";
 import { callCost } from "./pricing.ts";
 
 /**
@@ -30,8 +30,8 @@ export function graphView(): GraphSnapshot {
 			const placement = stores.chatStore.getChat(chatId)?.placement;
 			const subject = placement && subjectOf(library, placement.subjectId);
 			if (!placement || !subject) return undefined;
-			const topic = placement.topicId ? topicOf(library, placement.topicId) : undefined;
-			return { subjectId: subject.id, ...(topic ? { topicId: topic.id } : {}), label: topic ? `${subject.name} › ${topic.name}` : subject.name };
+			const topicIds = selectedTopicIds(library, placement);
+			return { subjectId: subject.id, ...(topicIds.length ? { topicId: topicIds[0] } : {}), label: placementScopeLabel(library, placement) };
 		},
 	});
 }

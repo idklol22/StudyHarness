@@ -18,7 +18,7 @@ import { ComposerActions, NodePickerControl } from "@/components/composer-action
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter } from "@/components/start-session";
 import { useStudyPlacement } from "@/components/study/placement-picker";
-import { BoundPlacementPills } from "@/components/study/placement-pills";
+import { BoundContextPickerBar } from "@/components/study/placement-pills";
 import type { ChatPlacement } from "@/src/core";
 import type { ChatSettings, GraphSnapshot } from "@/src/core";
 
@@ -352,7 +352,7 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				picks={picks}
 				onOpenPicker={openPicker}
 				onClearPicks={() => applyPicks([])}
-				placementPicker={<BoundPlacementPills state={placement} showMissing={showMissing} />}
+				placementPicker={<BoundContextPickerBar state={placement} showMissing={showMissing} />}
 				overlay={
 					// THE PICKER (owner round 10b): hosted INSIDE the content
 					// column — absolute inset-0 resolves to the column's relative

@@ -7,7 +7,7 @@ import type { ModelRole } from "../../config.ts";
 import type { PiEngine } from "../agent/models.ts";
 import { titleChat } from "../agent/subagents/study-workers.ts";
 import { titleFromPrompt } from "../core/contracts.ts";
-import { subjectOf, topicOf } from "../core/study/model.ts";
+import { placementScopeLabel, subjectOf } from "../core/study/model.ts";
 import { stores } from "./stores.ts";
 import { study } from "./study-runtime.ts";
 import { chatLines } from "./study-digest.ts";
@@ -37,9 +37,9 @@ export function titleAfterFirstTurn(chatId: string, deps: { engineFor: (role: Mo
 	titled.add(chatId);
 	const lib = study.library();
 	const subject = record.placement ? subjectOf(lib, record.placement.subjectId) : undefined;
-	const topic = record.placement?.topicId ? topicOf(lib, record.placement.topicId) : undefined;
+	const place = record.placement && subject ? placementScopeLabel(lib, record.placement) : "no subject";
 	void (async () => {
-		const title = await titleChat({ opening: opening.text, reply: reply.slice("Tutor: ".length), files: opening.files, place: subject ? `${subject.name}${topic ? ` › ${topic.name}` : ""}` : "no subject" }, { engine: deps.engineFor("extractor"), signal: undefined, chatId });
+		const title = await titleChat({ opening: opening.text, reply: reply.slice("Tutor: ".length), files: opening.files, place }, { engine: deps.engineFor("extractor"), signal: undefined, chatId });
 		const current = stores.chatStore.getChat(chatId);
 		if (title && current && current.title === record.title) stores.chatStore.renameChat(chatId, title);
 	})().catch((error) => { titled.delete(chatId); console.error("[title] could not title the chat:", error); });

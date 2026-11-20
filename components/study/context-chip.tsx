@@ -1,18 +1,17 @@
 "use client";
 
-/** Context chip helpers: the pure label rule and the read-only chip for existing chats. New chats pick placement with the pills (placement-pills.tsx). */
+/** Context chip helpers: the pure label rule and the read-only chip for existing chats. New chats pick placement with the context bar (placement-pills.tsx). */
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { emptyLibrary, type ChatPlacement, type Library } from "@/src/core";
+import { placementLabel } from "./placement";
 
 /** Accepts a Choice (new chat) OR a ChatPlacement (existing chat): both carry scope + start mode. */
-type ChipChoice = { subjectId: string; topicId?: string; startMode?: string };
+type ChipChoice = { subjectId: string; topicId?: string; topicIds?: string[]; startMode?: string };
 
 /** Pure: the chip's text. Mirrors placementLabel, adding the (never-defaulted) start mode. */
 export function contextChipLabel(library: Library, choice: ChipChoice, practice = false): string {
-	const subject = library.subjects.find((s) => s.id === choice.subjectId)?.name;
-	const topic = choice.topicId ? library.topics.find((t) => t.id === choice.topicId)?.name : undefined;
-	const scope = [subject, topic].filter(Boolean).join(" › ");
+	const scope = placementLabel(library, choice);
 	const mode = practice ? "Practice" : "";
 	return [scope, mode].filter(Boolean).join(" · ");
 }
@@ -30,7 +29,8 @@ export function ReadOnlyContextChip({ placement, practice = false, className = "
 		return () => { alive = false; };
 	}, []);
 	const label = contextChipLabel(library, placement, practice) || placement.subjectId;
-	const href = `/subjects/${placement.subjectId}${placement.topicId ? `/${placement.topicId}` : ""}`;
+	const ids = placement.topicIds ?? (placement.topicId ? [placement.topicId] : []);
+	const href = `/subjects/${placement.subjectId}${ids.length === 1 ? `/${ids[0]}` : ""}`;
 	return (
 		<Link
 			href={href}

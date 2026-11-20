@@ -38,6 +38,7 @@ describe("files roll up from topics to the subject", () => {
 	it("a chat sees its own files first; a topic chat can reach the subject's and its neighbours'; a subject chat sees all", () => {
 		const f = library();
 		assert.deepEqual(visibleMaterials(f.lib, { subjectId: f.s.id, topicId: f.a.id, startMode: "check" }).map((m) => m.fileName), ["sched.pdf", "book.pdf", "paging.md"]);
+		assert.deepEqual(visibleMaterials(f.lib, { subjectId: f.s.id, topicIds: [f.b.id, f.a.id], startMode: "check" }).map((m) => m.fileName), ["paging.md", "sched.pdf", "book.pdf"], "every selected topic's files come first, then the subject's");
 		assert.deepEqual(visibleMaterials(f.lib, { subjectId: f.s.id, startMode: "check" }).map((m) => m.fileName).sort(), ["book.pdf", "paging.md", "sched.pdf"]);
 	});
 });
@@ -54,6 +55,11 @@ describe("what the agent knows flows between a subject and its topics", () => {
 		const subjectChat = studyInstructions({ library: lib, placement: { subjectId: f.s.id, startMode: "check" }, kind: "teach" });
 		assert.ok(subjectChat.includes("TOPIC-A") && subjectChat.includes("TOPIC-B") && /What each topic holds/.test(subjectChat));
 		assert.match(topicChat, /paging\.md[^\n]*text pages[^\n]*topic "Memory"/);
+
+		const multiChat = studyInstructions({ library: lib, placement: { subjectId: f.s.id, topicIds: [f.b.id, f.a.id], startMode: "check" }, kind: "teach" });
+		assert.match(multiChat, /topics "Memory", "Scheduling"/);
+		assert.ok(multiChat.indexOf("TOPIC-A") < multiChat.indexOf("SUBJECT:") && multiChat.indexOf("TOPIC-B") < multiChat.indexOf("SUBJECT:"), "both selected topics come before the subject");
+		assert.deepEqual(relatedContexts(lib, { subjectId: f.s.id, topicIds: [f.a.id, f.b.id] }), [], "selected topics are not neighbours");
 	});
 
 	it("long neighbouring contexts are shortened and empty ones skipped", () => {

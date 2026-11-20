@@ -20,7 +20,7 @@ import { PathInput } from "@/components/path-input";
 import { AttachFilesButton } from "@/components/attach-files-button";
 import { SessionStarter } from "@/components/start-session";
 import { useStudyPlacement } from "@/components/study/placement-picker";
-import { BoundPlacementPills, MentionMenu } from "@/components/study/placement-pills";
+import { BoundContextPickerBar, MentionMenu } from "@/components/study/placement-pills";
 import { mentionOptions, mentionQuery, stripMention, type MentionOption } from "@/components/study/placement";
 import type { TurnUsage } from "@/src/core";
 
@@ -211,7 +211,7 @@ export function Home({
 			<main className="absolute inset-0">
 				{rendering ? (
 					/* The one knowledge graph (owner 2026-11-19): a 3D globe of subjects → topics → ideas. */
-					<Knowledge3D />
+					<Knowledge3D placement={placement} />
 				) : (
 					<MinimalHome
 						chainSelectOpen={chainSelectOpen}
@@ -230,7 +230,7 @@ export function Home({
 			<div className="pointer-events-none absolute inset-x-0 bottom-0 pb-5">
 				<div className="pointer-events-auto mx-auto w-full max-w-[46rem] px-4">
 					{mentionOpen && <MentionMenu options={mentionOpts} index={Math.min(mentionIndex, mentionOpts.length - 1)} onPick={pickMention} />}
-					<BoundPlacementPills state={placement} showMissing={showMissing} />
+					<BoundContextPickerBar state={placement} showMissing={showMissing} />
 					{/* The pick bar (owner vision, 2026-10-04): the chain
 					    table's selection is PERSISTENT — picked
 					    propositions show here as a count + Clear in EITHER

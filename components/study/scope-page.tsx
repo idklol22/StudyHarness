@@ -149,7 +149,7 @@ export function ScopePage({ subjectId, topicId }: { subjectId: string; topicId?:
 		setLibrary(r.library); setMessage(""); after?.(r.library);
 	};
 	const newChatHere = () => {
-		try { localStorage.setItem(LAST_CHOICE_KEY, JSON.stringify({ subjectId, topicId: topic?.id ?? "" })); } catch { /* best-effort */ }
+		try { localStorage.setItem(LAST_CHOICE_KEY, JSON.stringify({ subjectId, topicIds: topic ? [topic.id] : [] })); } catch { /* best-effort */ }
 		router.push("/");
 	};
 	const createNotes = () => { setNotesTrigger(true); setActiveTab("notes"); };

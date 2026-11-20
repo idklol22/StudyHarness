@@ -7,7 +7,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
 	addMaterial, checkPlacement, contextScopes, createSubject, createTopic, deleteSubject, deleteTopic, emptyLibrary,
-	materialsIn, moveMaterial, removeMaterial, renameSubject, renameTopic, setContext, topicsOf, type Library,
+	materialsIn, moveMaterial, placementIncludesTopic, placementScopeLabel, placementTopicIds, placementWriteScope,
+	relatedContexts, removeMaterial, renameSubject, renameTopic, setContext, topicsOf, type Library,
 } from "../src/core/study/model.ts";
 import {
 	emptyMemory, formatLookup, lookup, pageRanges, parseRange, recordBatch, recordPages, unread,
@@ -111,10 +112,56 @@ describe("context and placement", () => {
 
 	it("a chat placement needs a real subject/topic and an explicit start mode", () => {
 		const { lib, ml, dp } = setup();
-		assert.deepEqual(checkPlacement(lib, { subjectId: ml.id, topicId: dp.id, startMode: "scratch" }), { subjectId: ml.id, topicId: dp.id, startMode: "scratch" });
+		assert.deepEqual(checkPlacement(lib, { subjectId: ml.id, topicId: dp.id, startMode: "scratch" }), { subjectId: ml.id, topicId: dp.id, topicIds: [dp.id], startMode: "scratch" });
 		assert.equal(checkPlacement(lib, { subjectId: ml.id }).startMode, "scratch");
 		assert.throws(() => checkPlacement(lib, { startMode: "check" }), /Choose a subject/);
+		assert.throws(() => checkPlacement(lib, { subjectId: "sub_gone", startMode: "check" }), /no longer exists/);
 		assert.throws(() => checkPlacement(lib, { subjectId: ml.id, topicId: "top_gone", startMode: "check" }), /no longer exists/);
+	});
+
+	it("accepts several topics: the write carries topicIds, single writes also carry topicId", () => {
+		const { lib, ml, dp, rl } = setup();
+		assert.deepEqual(checkPlacement(lib, { subjectId: ml.id, topicIds: [dp.id, rl.id], startMode: "scratch" }), { subjectId: ml.id, topicIds: [dp.id, rl.id], startMode: "scratch" });
+		assert.deepEqual(checkPlacement(lib, { subjectId: ml.id, topicIds: [dp.id], startMode: "check" }), { subjectId: ml.id, topicIds: [dp.id], topicId: dp.id, startMode: "check" });
+		assert.deepEqual(checkPlacement(lib, { subjectId: ml.id, topicIds: [dp.id, dp.id] }).topicIds, [dp.id], "ids are deduped in order");
+	});
+
+	it("refuses a stale or wrong-subject id in either shape, never guessing a home", () => {
+		let { lib } = setup();
+		const ml = lib.subjects[0]!;
+		const other = createSubject(lib, "Algorithms"); lib = other.library;
+		const alien = createTopic(lib, other.subject.id, "Graphs"); lib = alien.library;
+		assert.throws(() => checkPlacement(lib, { subjectId: ml.id, topicIds: ["top_gone"] }), /no longer exists/);
+		assert.throws(() => checkPlacement(lib, { subjectId: ml.id, topicIds: [alien.topic.id] }), /another subject/);
+		const ownTopic = lib.topics.find((t) => t.subjectId === ml.id)!;
+		assert.throws(() => checkPlacement(lib, { subjectId: ml.id, topicIds: [ownTopic.id], topicId: alien.topic.id }), /another subject/);
+		assert.throws(() => checkPlacement(lib, { subjectId: ml.id, topicIds: [null as unknown as string] }), /topic id must be text/);
+		assert.throws(() => checkPlacement(lib, { subjectId: ml.id, topicIds: "nope" as unknown as string[] }), /list/);
+	});
+
+	it("reads the old topicId shape and scopes reads to the union of selected topics", () => {
+		const { lib, ml, dp, rl } = setup();
+		assert.deepEqual(placementTopicIds({ topicId: dp.id }), [dp.id]);
+		assert.deepEqual(placementTopicIds({ topicIds: [dp.id, rl.id] }), [dp.id, rl.id]);
+		assert.deepEqual(placementTopicIds({ topicIds: [], topicId: dp.id }), [], "the newest shape wins when both are present");
+		assert.deepEqual(placementWriteScope({ subjectId: ml.id, topicId: dp.id }), { subjectId: ml.id, topicId: dp.id });
+		assert.deepEqual(placementWriteScope({ subjectId: ml.id, topicIds: [dp.id, rl.id] }), { subjectId: ml.id }, "several topics write subject-wide");
+		assert.ok(placementIncludesTopic({ topicIds: [dp.id, rl.id] }, rl.id));
+		assert.ok(!placementIncludesTopic({ topicId: dp.id }, rl.id));
+		assert.equal(placementScopeLabel(lib, { subjectId: ml.id }), "Machine Learning");
+		assert.equal(placementScopeLabel(lib, { subjectId: ml.id, topicId: dp.id }), "Machine Learning › Dynamic programming");
+		assert.equal(placementScopeLabel(lib, { subjectId: ml.id, topicIds: [dp.id, rl.id] }), "Machine Learning › 2 topics");
+	});
+
+	it("includes every selected topic's context, then the subject, excluding selected topics from the neighbours", () => {
+		let { lib } = setup();
+		const ml = lib.subjects[0]!;
+		const dp = lib.topics[0]!, rl = lib.topics[1]!;
+		lib = setContext(lib, { subjectId: ml.id }, "ML overview.");
+		lib = setContext(lib, { subjectId: ml.id, topicId: dp.id }, "DP context.");
+		lib = setContext(lib, { subjectId: ml.id, topicId: rl.id }, "RL context.");
+		assert.deepEqual(contextScopes(lib, { subjectId: ml.id, topicIds: [dp.id, rl.id] }).map((l) => l.name), ["Dynamic programming", "Reinforcement learning", "Machine Learning"]);
+		assert.deepEqual(relatedContexts(lib, { subjectId: ml.id, topicIds: [dp.id, rl.id] }), []);
 	});
 });
 

@@ -18,17 +18,20 @@ import { DEFAULT_RENDER_SETTINGS, findMapIdea, knowledgeGraph, subjectColor, typ
 import { IdeaCard } from "./idea-card";
 import { GraphTuningPanel, readTuning, saveTuning } from "./graph-tuning-panel";
 import { SubjectColor } from "./subject-color";
-import { DEFAULT_TUNING, type GraphTuning } from "@/components/graph-3d-layout";
+import { DEFAULT_TUNING, hubId, type GraphTuning } from "@/components/graph-3d-layout";
+import type { PlacementState } from "./placement-picker";
 import { SubjectMap } from "./subject-map";
 
 const CENTRE_KEY = "lh.knowledge.centre.v1";
 const CAMERA_KEY = "lh.knowledge.camera3d.v4";
 
-export function Knowledge3D() {
+export function Knowledge3D({ placement }: { placement?: PlacementState }) {
 	const router = useRouter();
 	const hostRef = useRef<HTMLDivElement>(null);
 	const routerRef = useRef(router);
 	routerRef.current = router;
+	const placementRef = useRef(placement);
+	placementRef.current = placement;
 	const rendererRef = useRef<Graph3DRenderer | null>(null);
 	const [map, setMap] = useState<StudyMap | null>(null);
 	const [noGl, setNoGl] = useState("");
@@ -82,6 +85,16 @@ export function Knowledge3D() {
 	const graph = useMemo(() => (map ? knowledgeGraph(map) : null), [map]);
 	// A distinct colour per subject: hues spaced by the golden angle in name order (stable as subjects are added).
 	const subjectHues = useMemo(() => Object.fromEntries((map?.subjects ?? []).map((s) => [s.id, subjectColor(map!.subjects, s.id)])), [map]);
+	// A single click on a subject/topic node also steers the composer's placement; idea clicks only show their card.
+	const applyGraphPick = useCallback((nodeId: string, subjectId?: string) => {
+		const p = placementRef.current;
+		if (!p) return;
+		if (subjectId) { p.setSubject(subjectId); return; }
+		const hit = mapRef.current?.subjects.flatMap((s) => s.topics.map((t) => ({ t, s }))).find((x) => x.t.id === nodeId);
+		if (!hit) return;
+		if (p.choice.subjectId !== hit.s.id) p.setSubject(hit.s.id);
+		p.toggleTopic(hit.t.id);
+	}, []);
 
 	// WebGL context creation is expensive (three.js getContext blocks the main thread). Defer it until
 	// the browser is idle so Home's composer and sidebar are interactive immediately. The scheduled init
@@ -102,9 +115,9 @@ export function Knowledge3D() {
 			try { const raw = localStorage.getItem(CAMERA_KEY); if (raw) camera = JSON.parse(raw); } catch { /* frame itself */ }
 			try {
 				renderer = new Graph3DRenderer(canvas, {
-					// One click selects (and shows a card); a double click opens the subject's or topic's page.
-					onSelect: (nodeId) => setSelected(nodeId),
-					onHub: (subjectId) => setSelected(`subject:${subjectId}`),
+					// One click selects (and shows a card) and steers the context picker; double click opens the page.
+					onSelect: (nodeId) => { setSelected(nodeId); applyGraphPick(nodeId); },
+					onHub: (subjectId) => { setSelected(`subject:${subjectId}`); applyGraphPick("", subjectId); },
 					onOpen: (nodeId, group) => {
 						const m = mapRef.current;
 						if (!m) return;
@@ -162,6 +175,17 @@ export function Knowledge3D() {
 		r.setVisible(only ? new Set(graph.nodes.filter((n) => n.subjectId === only).map((n) => n.id)) : null);
 		if (lastOnly.current !== only) { lastOnly.current = only; r.fit(); } // frame on a filter change, not on every refresh
 	}, [only, graph, rendererReady]);
+	// Mirror the composer's placement onto the graph: the subject hub and the selected topic nodes stay bright.
+	useEffect(() => {
+		const r = rendererRef.current;
+		if (!r || !graph) return;
+		const subjectId = placement?.choice.subjectId ?? "";
+		const ids = subjectId ? [hubId(subjectId)] : [];
+		const pickedTopics = placement?.choice.topicIds.length
+			? placement.choice.topicIds
+			: graph.nodes.filter((n) => n.kind === "topic" && n.subjectId === subjectId).map((n) => n.id);
+		r.setPicked([...ids, ...pickedTopics]);
+	}, [placement?.choice.subjectId, placement?.choice.topicIds, graph, rendererReady]);
 
 	/** Remove what is selected (an idea, a topic with its files and notes, or a whole subject), after asking. */
 	const removeSelected = async () => {

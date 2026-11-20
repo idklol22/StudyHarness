@@ -285,21 +285,69 @@ export function moveMaterial(lib: Library, id: string, scope: StudyScope): Libra
 	return { ...lib, materials: lib.materials.map((m) => (m.id === id ? { ...m, scope: target } : m)) };
 }
 
-/** A chat's place in the library, chosen when it starts. */
+/** A chat's place in the library, chosen when it starts. New writes use `topicIds`; `topicId` is read for
+ *  chats saved before several topics per chat existed and is also written alongside a single selected id. */
 export interface ChatPlacement {
 	subjectId: string;
+	/** Legacy single-topic read (kept in sync on single-topic writes). */
 	topicId?: string;
+	/** All topics this chat draws on. Empty/absent means the whole subject. */
+	topicIds?: string[];
 	/** "scratch" = lesson-first from the material/topic; "check" = probe what the learner knows first. */
 	startMode: "scratch" | "check";
+}
+
+type PlacementTopics = Pick<ChatPlacement, "topicId" | "topicIds">;
+
+/** The selected topic ids, newest shape first with the legacy single id as a fallback. Deduped, order preserved. */
+export function placementTopicIds(p: PlacementTopics): string[] {
+	const raw = Array.isArray(p.topicIds) ? p.topicIds : p.topicId ? [p.topicId] : [];
+	return [...new Set(raw.filter((id): id is string => typeof id === "string" && id.length > 0))];
+}
+
+/** Only ids that exist under this subject. Reads from old records tolerate a deleted topic; writes do not. */
+export function selectedTopicIds(lib: Library, p: { subjectId: string } & PlacementTopics): string[] {
+	return placementTopicIds(p).filter((id) => topicOf(lib, id)?.subjectId === p.subjectId);
+}
+
+/** The single physical scope a chat writes into. Several topics read as a union but write subject-wide. */
+export function placementWriteScope(p: { subjectId: string } & PlacementTopics): StudyScope {
+	const ids = placementTopicIds(p);
+	return ids.length === 1 ? { subjectId: p.subjectId, topicId: ids[0] } : { subjectId: p.subjectId };
+}
+
+/** Whether a chat's selected topics include `topicId` (old `topicId` chats included). */
+export function placementIncludesTopic(p: PlacementTopics, topicId: string): boolean {
+	return placementTopicIds(p).includes(topicId);
+}
+
+/** The label of a placement: `Subject`, `Subject › Topic`, or `Subject › 3 topics`. */
+export function placementScopeLabel(lib: Library, p: { subjectId: string } & PlacementTopics): string {
+	const subject = subjectOf(lib, p.subjectId)?.name ?? "";
+	const names = selectedTopicIds(lib, p).map((id) => topicOf(lib, id)!.name);
+	const scope = names.length === 0 ? subject : names.length === 1 ? `${subject} › ${names[0]}` : `${subject} › ${names.length} topics`;
+	return scope.trim();
 }
 
 /** Validate a placement against the library (stale ids refuse, never guess). */
 export function checkPlacement(lib: Library, raw: unknown): ChatPlacement {
 	const r = (raw ?? {}) as Partial<ChatPlacement>;
 	if (typeof r.subjectId !== "string") return fail("Choose a subject for this chat.");
-	const scope = checkScope(lib, { subjectId: r.subjectId, ...(typeof r.topicId === "string" ? { topicId: r.topicId } : {}) });
+	if (!subjectOf(lib, r.subjectId)) fail("That subject no longer exists.");
+	if (r.topicIds !== undefined && !Array.isArray(r.topicIds)) return fail("Topics must be a list.");
+	// Validate every id in both shapes: a stale or wrong-subject id in an old or new field refuses the write.
+	const given: unknown[] = [...(Array.isArray(r.topicIds) ? r.topicIds : []), ...(r.topicId ? [r.topicId] : [])];
+	for (const rawId of given) {
+		const topicId: string = typeof rawId === "string" && rawId ? rawId : fail("A topic id must be text.");
+		checkScope(lib, { subjectId: r.subjectId, topicId });
+	}
+	const ids = placementTopicIds(r);
 	// No upfront choice any more: a chat that does not say how to start simply starts teaching.
-	return { ...scope, startMode: r.startMode === "check" ? "check" : "scratch" };
+	return {
+		subjectId: r.subjectId,
+		...(ids.length ? { topicIds: ids, ...(ids.length === 1 ? { topicId: ids[0] } : {}) } : {}),
+		startMode: r.startMode === "check" ? "check" : "scratch",
+	};
 }
 
 /**
@@ -307,17 +355,20 @@ export function checkPlacement(lib: Library, raw: unknown): ChatPlacement {
  * and on neighbouring topics; a subject holds what all its topics know). Topics with nothing recorded are
  * skipped; each context is shortened to `each` characters so neighbours never crowd out the chat's own layer.
  */
-export function relatedContexts(lib: Library, placement: Pick<ChatPlacement, "subjectId" | "topicId">, each = 700): Array<{ name: string; context: string; id: string }> {
+export function relatedContexts(lib: Library, placement: Pick<ChatPlacement, "subjectId" | "topicId" | "topicIds">, each = 700): Array<{ name: string; context: string; id: string }> {
+	const chosen = new Set(selectedTopicIds(lib, placement));
 	return topicsOf(lib, placement.subjectId)
-		.filter((t) => t.id !== placement.topicId && t.context.trim())
+		.filter((t) => !chosen.has(t.id) && t.context.trim())
 		.map((t) => ({ id: t.id, name: t.name, context: t.context.trim().length > each ? t.context.trim().slice(0, each).trimEnd() + "…" : t.context.trim() }));
 }
 
-/** The scopes whose context applies to a chat placed at `placement`, most specific first. */
-export function contextScopes(lib: Library, placement: Pick<ChatPlacement, "subjectId" | "topicId">): Array<{ level: "topic" | "subject"; name: string; context: string; id: string }> {
+/** The scopes whose context applies to a chat placed at `placement`: every selected topic, then the subject once. */
+export function contextScopes(lib: Library, placement: Pick<ChatPlacement, "subjectId" | "topicId" | "topicIds">): Array<{ level: "topic" | "subject"; name: string; context: string; id: string }> {
 	const out: Array<{ level: "topic" | "subject"; name: string; context: string; id: string }> = [];
-	const topic = placement.topicId ? topicOf(lib, placement.topicId) : undefined;
-	if (topic) out.push({ level: "topic", name: topic.name, context: topic.context, id: topic.id });
+	const chosen = new Set(selectedTopicIds(lib, placement));
+	for (const topic of topicsOf(lib, placement.subjectId)) {
+		if (chosen.has(topic.id)) out.push({ level: "topic", name: topic.name, context: topic.context, id: topic.id });
+	}
 	const subject = subjectOf(lib, placement.subjectId);
 	if (subject) out.push({ level: "subject", name: subject.name, context: subject.context, id: subject.id });
 	return out;

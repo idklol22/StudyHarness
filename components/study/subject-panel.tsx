@@ -63,7 +63,7 @@ export interface SubjectCounts {
 /** Quiet meta for a subject row: every subject chats count includes its topics' chats. */
 export function subjectCounts(library: Library, grouped: Grouped<ChatLike>, subjectId: string): SubjectCounts {
 	const group = grouped.subjects.find((g) => g.subject.id === subjectId);
-	const chats = group ? group.chats.length + group.topics.reduce((n, t) => n + t.chats.length, 0) : 0;
+	const chats = group ? new Set([...group.chats, ...group.topics.flatMap((t) => t.chats)].map((c) => c.id)).size : 0;
 	return {
 		files: library.materials.filter((m) => m.scope.subjectId === subjectId).length,
 		topics: topicsOf(library, subjectId).length,
@@ -299,7 +299,7 @@ export function SubjectsPanel({
 	// Same contract as the subject page's "New chat here" (scope-page.tsx): remember the placement,
 	// then open Home, where the composer asks for the start mode before creating anything.
 	const newChatHere = (subjectId: string) => {
-		try { localStorage.setItem(LAST_CHOICE_KEY, JSON.stringify({ subjectId, topicId: "" })); } catch { /* best-effort */ }
+		try { localStorage.setItem(LAST_CHOICE_KEY, JSON.stringify({ subjectId, topicIds: [] })); } catch { /* best-effort */ }
 		router.push("/");
 	};
 	return (

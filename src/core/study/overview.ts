@@ -4,7 +4,7 @@
  */
 import { readMaterialMeta, sortMaterials } from "./lecture-meta.ts";
 import { upcoming } from "./deadlines.ts";
-import { materialsUnder, type Deadline, type Library, type Material, type StudyScope } from "./model.ts";
+import { materialsUnder, placementIncludesTopic, type Deadline, type Library, type Material, type StudyScope } from "./model.ts";
 
 const DAY = 86_400_000;
 
@@ -138,7 +138,7 @@ export function timeAgo(iso: string, now: Date | number = new Date()): string {
 export interface RecentInput {
 	scope: StudyScope;
 	library: Library;
-	chats: ReadonlyArray<{ id: string; title: string; updatedAt: string; placement?: { subjectId: string; topicId?: string } }>;
+	chats: ReadonlyArray<{ id: string; title: string; updatedAt: string; placement?: { subjectId: string; topicId?: string; topicIds?: string[] } }>;
 	notebooks: ReadonlyArray<{ id: string; title: string; createdAt: string; href: string; topicId?: string }>;
 	limit?: number;
 }
@@ -150,7 +150,7 @@ export function recentItems({ scope, library, chats, notebooks, limit = 5 }: Rec
 		id: `file:${m.id}`, kind: "file", title: materialTitle(m), at: m.addedAt, href: `/subjects/${scope.subjectId}/read/${m.id}`,
 	}));
 	const scopeChats: RecentItem[] = chats
-		.filter((c) => c.placement?.subjectId === scope.subjectId && (scope.topicId === undefined || c.placement.topicId === scope.topicId))
+		.filter((c) => c.placement?.subjectId === scope.subjectId && (scope.topicId === undefined || placementIncludesTopic(c.placement, scope.topicId)))
 		.map((c) => ({ id: `chat:${c.id}`, kind: "chat", title: c.title, at: c.updatedAt, href: `/chat/${c.id}` }));
 	const scopeNotes: RecentItem[] = notebooks
 		.filter((n) => scope.topicId === undefined || n.topicId === scope.topicId || n.topicId === undefined)

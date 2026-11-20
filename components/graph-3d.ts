@@ -100,6 +100,8 @@ export class Graph3DRenderer {
 	private hoverFrom = 0;
 	private hoverStarted = 0;
 	private focusSet: Set<number> | null = null;
+	/** Study: node ids currently chosen in the composer (subject hub + topic nodes). */
+	private pickedIds: ReadonlySet<string> = new Set();
 
 	private raf: number | null = null;
 	private lastFrame = 0;
@@ -292,6 +294,13 @@ export class Graph3DRenderer {
 	}
 
 	setVisible(visible: ReadonlySet<string> | null): void { this.visible = visible; this.applyVisible(); this.geometryDirty = this.screenDirty = this.labelsDirty = true; this.kick(); }
+
+	/** Study: keep these subject/topic nodes bright and let the rest recede, without moving the camera. */
+	setPicked(ids: Iterable<string>): void {
+		this.pickedIds = new Set(ids);
+		this.colorsDirty = this.labelsDirty = true;
+		this.kick();
+	}
 
 	/** The view's open card, mirrored so the highlight ring follows it. The view only knows ideas: its
 	 *  "no card" never clears a hub or centre selection made here. */
@@ -530,12 +539,18 @@ export class Graph3DRenderer {
 		if (!this.nodeMesh || !this.data) return;
 		const focus = this.focusSet, c = new THREE.Color(), hsl = { h: 0, s: 0, l: 0 };
 		const strength = Math.max(this.hoverT, this.selectedId ? 1 : 0);
+		const hasPicked = this.pickedIds.size > 0;
 		this.real.forEach((li, k) => {
 			c.copy(this.baseColor[li]!);
 			if (focus && !focus.has(li)) {
 				// A selection fades everything else far more than a passing hover.
 				const fadeL = this.selectedId ? 0.6 : 0.18;
 				c.getHSL(hsl); c.setHSL(hsl.h, hsl.s * (1 - 0.85 * strength), hsl.l * (1 - fadeL * strength));
+			}
+			if (hasPicked) {
+				const chosen = this.pickedIds.has(this.layout.ids[li] ?? "");
+				c.getHSL(hsl);
+				c.setHSL(hsl.h, chosen ? Math.min(1, hsl.s + 0.12) : hsl.s * 0.55, chosen ? Math.min(1, hsl.l + 0.12) : hsl.l * 0.45);
 			}
 			this.nodeMesh!.setColorAt(k, c);
 		});

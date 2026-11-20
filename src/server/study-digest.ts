@@ -3,7 +3,7 @@
  * A topic covers the chats placed in that topic; a subject covers every chat in it, topics' included.
  */
 import type { ChatRecord } from "../core/contracts.ts";
-import { subjectOf, topicOf, type StudyScope } from "../core/study/model.ts";
+import { placementIncludesTopic, placementScopeLabel, subjectOf, type StudyScope } from "../core/study/model.ts";
 import { stores } from "./stores.ts";
 import { study } from "./study-runtime.ts";
 
@@ -24,7 +24,7 @@ export function chatLines(record: Pick<ChatRecord, "messages">): string[] {
 /** Chats that belong to the scope, oldest first. */
 export function chatsInScope(scope: StudyScope): ChatRecord[] {
 	return stores.chatStore.listChats()
-		.filter((c) => c.placement && c.placement.subjectId === scope.subjectId && (!scope.topicId || c.placement.topicId === scope.topicId))
+		.filter((c) => c.placement && c.placement.subjectId === scope.subjectId && (!scope.topicId || placementIncludesTopic(c.placement, scope.topicId)))
 		.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 		.flatMap((c) => { const record = stores.chatStore.getChat(c.id); return record ? [record] : []; });
 }
@@ -41,10 +41,10 @@ export function scopeChatDigest(scope: StudyScope, budget = 16000, only?: Readon
 	if (!records.length) return { text: "", chats: 0 };
 	const share = Math.max(MIN_PER_CHAT, Math.floor(budget / records.length));
 	const parts = records.map(({ record, lines }) => {
-		const topic = record.placement?.topicId ? topicOf(lib, record.placement.topicId)?.name : undefined;
+		const place = record.placement ? placementScopeLabel(lib, record.placement) : "";
 		const body = lines.join("\n");
 		const cut = body.length > share ? "…" + body.slice(body.length - share) : body;
-		return `## Chat: ${record.title}${topic ? ` (topic: ${topic})` : ""}\n${cut}`;
+		return `## Chat: ${record.title}${place ? ` (${place})` : ""}\n${cut}`;
 	});
 	return { text: parts.join("\n\n"), chats: records.length };
 }

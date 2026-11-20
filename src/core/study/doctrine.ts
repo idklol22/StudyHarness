@@ -3,7 +3,7 @@
  * Pure: builds the instruction block from the placement, the layered context and the material list.
  * It is added AFTER the built-in teacher/prober/practice prompt, never replacing it.
  */
-import { contextScopes, materialsIn, materialsUnder, materialTopicName, relatedContexts, subjectOf, topicOf, type ChatPlacement, type Library } from "./model.ts";
+import { contextScopes, materialsIn, materialsUnder, materialTopicName, relatedContexts, selectedTopicIds, subjectOf, topicOf, type ChatPlacement, type Library } from "./model.ts";
 
 /** Tool names this module adds (reserved so plugins cannot shadow them). */
 export const STUDY_TOOL_NAMES = ["study_context", "study_material", "show_figure", "study_cards", "study_notes", "study_practice_next", "study_practice_rate", "save_chat_notes"] as const;
@@ -39,8 +39,11 @@ const CARDS = `Flashcards: when the learner gets something right for the first t
  * on what its neighbours hold). A subject chat sees every file in the subject, topics' included.
  */
 export function visibleMaterials(library: Library, placement: ChatPlacement) {
-	if (!placement.topicId) return materialsUnder(library, { subjectId: placement.subjectId });
-	const own = materialsIn(library, { subjectId: placement.subjectId, topicId: placement.topicId });
+	if (!subjectOf(library, placement.subjectId)) return [];
+	const chosen = selectedTopicIds(library, placement);
+	if (!chosen.length) return materialsUnder(library, { subjectId: placement.subjectId });
+	// Every selected topic's own files come first, then subject-wide files, then the remaining topics' files.
+	const own = chosen.flatMap((topicId) => materialsIn(library, { subjectId: placement.subjectId, topicId }));
 	const wide = materialsIn(library, { subjectId: placement.subjectId });
 	const seen = new Set([...own, ...wide].map((m) => m.id));
 	return [...own, ...wide, ...materialsUnder(library, { subjectId: placement.subjectId }).filter((m) => !seen.has(m.id))];
@@ -60,13 +63,14 @@ export interface DoctrineInput {
 export function studyInstructions({ library, placement, kind, mode = "teach", readState }: DoctrineInput): string {
 	const subject = subjectOf(library, placement.subjectId);
 	if (!subject) return "";
-	const topic = placement.topicId ? topicOf(library, placement.topicId) : undefined;
-	const out: string[] = [`# Study context\nThis chat belongs to the subject "${subject.name}"${topic ? `, topic "${topic.name}"` : " (subject-wide)"}.`];
+	const topicNames = selectedTopicIds(library, placement).map((id) => topicOf(library, id)!.name);
+	const where = topicNames.length === 1 ? `, topic "${topicNames[0]}"` : topicNames.length ? `, topics ${topicNames.map((name) => `"${name}"`).join(", ")}` : " (subject-wide)";
+	const out: string[] = [`# Study context\nThis chat belongs to the subject "${subject.name}"${where}.`];
 	for (const layer of contextScopes(library, placement)) {
 		out.push(layer.context.trim() ? `## ${layer.level === "topic" ? "Topic" : "Subject"} context — ${layer.name}\n${layer.context.trim()}` : `## ${layer.level === "topic" ? "Topic" : "Subject"} context — ${layer.name}\n(Nothing recorded yet.)`);
 	}
 	const related = relatedContexts(library, placement);
-	if (related.length) out.push(`## ${topic ? "Related topics in this subject (background only; the chat's own topic comes first)" : "What each topic holds"}\n` + related.map((r) => `### ${r.name}\n${r.context}`).join("\n\n"));
+	if (related.length) out.push(`## ${topicNames.length ? "Related topics in this subject (background only; the chat's selected topics come first)" : "What each topic holds"}\n` + related.map((r) => `### ${r.name}\n${r.context}`).join("\n\n"));
 	const materials = visibleMaterials(library, placement);
 	out.push(materials.length
 		? "## Materials\n" + materials.map((m) => `- ${m.fileName} — ${m.pageCount} ${m.kind === "text" ? "text pages" : "pages"}${materialTopicName(library, m) ? `, in topic "${materialTopicName(library, m)}"` : ""}${readState ? `, ${readState(m.id)}` : ""} [id ${m.id}]`).join("\n")

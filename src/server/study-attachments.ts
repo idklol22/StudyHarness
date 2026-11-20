@@ -10,7 +10,7 @@ import { PATHS } from "../../config.ts";
 import { guardSourcePath, isWithin, realSourcePath } from "../agent/tools/file-access.ts";
 import { MAX_MATERIAL_BYTES } from "./study.ts";
 import { isTextName } from "../core/study/text-material.ts";
-import type { ChatPlacement, Material } from "../core/study/model.ts";
+import { placementWriteScope, type ChatPlacement, type Material } from "../core/study/model.ts";
 import { study } from "./study-runtime.ts";
 
 const isStudyFile = (p: string) => /\.pdf$/i.test(p) || isTextName(p);
@@ -32,7 +32,7 @@ export interface Adopted { fileName: string; material?: Material; /** False when
 /** Save the message's attached files into the chat's scope. Never throws: a bad file is reported, the chat goes on. */
 export async function adoptAttachments(placement: ChatPlacement, text: string): Promise<Adopted[]> {
 	const out: Adopted[] = [];
-	const scope = { subjectId: placement.subjectId, ...(placement.topicId ? { topicId: placement.topicId } : {}) };
+	const scope = placementWriteScope(placement);
 	for (const wanted of attachedPaths(text)) {
 		const fileName = path.basename(wanted);
 		try {
