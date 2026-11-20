@@ -230,6 +230,9 @@ export interface SideAskInput {
 	requestId?: string;
 	/** Current unsubmitted working; reference context, not a submitted answer. */
 	working?: string;
+	/** Explicit follow-up-header pick for THIS ask. Absence means resolve from
+	 *  the thread's saved choice, then Settings. Same shape as ChatSettings.model. */
+	model?: { provider: string; id: string };
 }
 
 const ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
@@ -244,6 +247,19 @@ function parseSideImages(raw: unknown): ImageContent[] | undefined {
 
 function clip(text: string, max: number): string {
 	return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+/** The optional model-picker payload: provider coordinates from the host
+ *  catalog plus a non-blank model id. Absence is legal (Settings resolution);
+ *  anything else is a bad ask body. Pure. */
+const SIDE_MODEL_PROVIDER_RE = /^[A-Za-z0-9_-]{1,64}$/;
+export function parseSideModel(raw: unknown): { provider: string; id: string } | undefined {
+	if (raw === undefined) return undefined;
+	if (!raw || typeof raw !== "object") throw new SideChatInputError("model is invalid");
+	const model = raw as Record<string, unknown>;
+	if (typeof model.provider !== "string" || !SIDE_MODEL_PROVIDER_RE.test(model.provider)) throw new SideChatInputError("model is invalid");
+	if (typeof model.id !== "string" || !model.id.trim() || model.id.length > 200) throw new SideChatInputError("model is invalid");
+	return { provider: model.provider, id: model.id };
 }
 
 /** Validate the anchor shape; the server separately checks it points at
@@ -272,7 +288,8 @@ export function parseSideAskInput(raw: unknown): SideAskInput {
 	if (body.requestId !== undefined && (typeof body.requestId !== "string" || !ID_RE.test(body.requestId))) throw new SideChatInputError("requestId is invalid");
 	if (body.working !== undefined && (typeof body.working !== "string" || body.working.length > SIDE_QUESTION_MAX_CHARS)) throw new SideChatInputError("working is invalid or too long");
 	const images = parseSideImages(body.images);
-	const extra = { ...(typeof body.requestId === "string" ? { requestId: body.requestId } : {}), ...(typeof body.working === "string" ? { working: body.working } : {}), ...(images ? { images } : {}) };
+	const model = parseSideModel(body.model);
+	const extra = { ...(typeof body.requestId === "string" ? { requestId: body.requestId } : {}), ...(typeof body.working === "string" ? { working: body.working } : {}), ...(images ? { images } : {}), ...(model ? { model } : {}) };
 	if (body.retry === true) {
 		if (typeof body.threadId !== "string" || !ID_RE.test(body.threadId)) throw new SideChatInputError("retry needs a valid threadId");
 		const { images: _ignored, ...retryExtra } = extra;

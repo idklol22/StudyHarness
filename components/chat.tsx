@@ -26,6 +26,7 @@ import {
 	ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
+import { prettyModel } from "@/components/usage-format";
 import { PathText } from "@/components/file-path-chip";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import { Shimmer } from "@/components/ai-elements/shimmer";
@@ -1948,6 +1949,7 @@ export function Chat({
 											</div>
 									) : (
 									<Message from="assistant" className="max-w-full">
+									{m.model && <div data-testid="assistant-model-label" title={m.model} className="mb-1 font-ui text-[11px] leading-[1.4] text-muted-foreground">{prettyModel(m.model!, true)}</div>}
 									<MessageContent className="w-full">
 											{m.parts.map((part, pi) => {
 												if (part.pluginProblem) return <ProblemCard key={pi} part={{ ...part, state: part.state ?? "input-available", toolCallId: part.toolCallId ?? "" }} />;
@@ -2263,6 +2265,7 @@ export function Chat({
 							onFloat={sideThread.float}
 							onClose={closeSideThread}
 							onCurrentStep={goToCurrentSideStep}
+							onModelChange={sideThread.setModel}
 						/>
 					</SideThreadPanel>
 				)}
@@ -2284,6 +2287,7 @@ export function Chat({
 						onFloat={sideThread.float}
 						onClose={closeSideThread}
 						onCurrentStep={goToCurrentSideStep}
+						onModelChange={sideThread.setModel}
 					/>
 				)}
 
