@@ -9,7 +9,12 @@ export function plannerOrigins(env: Record<string, string | undefined> = process
 	return list.map((origin) => origin.trim()).filter(Boolean);
 }
 
-/** Echo only a configured origin; an unknown origin simply gets no CORS grant. */
+/** Any port on this machine (localhost, 127.0.0.1, [::1]) is the Planner running locally. */
+export function isLoopbackOrigin(origin: string): boolean {
+	return /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin);
+}
+
+/** Echo a configured or loopback origin; anything else gets no CORS grant. */
 export function plannerCorsHeaders(request: Request, methods: string): Record<string, string> {
 	const headers: Record<string, string> = {
 		Vary: "Origin",
@@ -18,7 +23,7 @@ export function plannerCorsHeaders(request: Request, methods: string): Record<st
 		"Access-Control-Max-Age": "86400",
 	};
 	const origin = request.headers.get("origin");
-	if (origin && plannerOrigins().includes(origin)) headers["Access-Control-Allow-Origin"] = origin;
+	if (origin && (plannerOrigins().includes(origin) || isLoopbackOrigin(origin))) headers["Access-Control-Allow-Origin"] = origin;
 	return headers;
 }
 
