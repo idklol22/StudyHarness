@@ -350,6 +350,22 @@ export interface ShowImageDetails {
 	height: number;
 }
 
+/** The show_figure record payload: a cropped page image with its reader link. */
+export interface ShowFigureDetails {
+	materialId: string;
+	fileName: string;
+	subjectId: string;
+	page: number;
+	caption?: string;
+	mimeType: "image/png";
+	/** SHA-256 identity in ChatRecord.imageSnapshots. */
+	snapshotId: string;
+	width: number;
+	height: number;
+	/** Set when no region was found and the whole page was cropped. */
+	wholePage?: boolean;
+}
+
 // ─── Artifact renderer registry (client extension point) ────────────────────
 
 /**

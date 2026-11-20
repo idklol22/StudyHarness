@@ -15,7 +15,8 @@ import { emptyCards, type CardSet } from "../core/study/cards.ts";
 import { studyInstructions, visibleMaterials, STUDY_TOOL_NAMES } from "../core/study/doctrine.ts";
 import { formatLookup } from "../core/study/material-memory.ts";
 import { topicOf, topicsOf, subjectOf, type ChatPlacement } from "../core/study/model.ts";
-import { studyStore } from "../store/study.ts";
+import { sha256Of, studyStore } from "../store/study.ts";
+import { chatStore } from "../store/chats.ts";
 import { study } from "./study-runtime.ts";
 import { readMaterialPages } from "./study-reading.ts";
 import { refreshContext } from "./study-context.ts";
@@ -71,6 +72,14 @@ export function studyContributions(
 			// The scope that owns the material learns what it now contains (non-blocking for the learner's turn).
 			void refreshContext(m.scope, `Read ${m.fileName}.\n${summaries.join("\n")}`, deps, chatId).catch((e) => console.error("[study] context refresh failed:", e));
 			return `Read ${count} page${count === 1 ? "" : "s"} of ${m.fileName} and remembered them.\n${summaries.join("\n")}`;
+		},
+		async pageTextRuns(sha256, page) { return study.pageTextRuns(sha256, page); },
+		async figure({ sha256, page, region }) {
+			const img = await study.pageFigure(sha256, page, region);
+			const data = img.bytes.toString("base64");
+			const snapshotId = sha256Of(img.bytes);
+			chatStore.saveImageSnapshot(chatId, snapshotId, { mimeType: "image/png", data, width: img.width, height: img.height });
+			return { data, mimeType: "image/png", width: img.width, height: img.height, snapshotId };
 		},
 		cards() {
 			const lib2 = study.library();

@@ -6,7 +6,7 @@
 import { contextScopes, materialsIn, materialsUnder, materialTopicName, relatedContexts, subjectOf, topicOf, type ChatPlacement, type Library } from "./model.ts";
 
 /** Tool names this module adds (reserved so plugins cannot shadow them). */
-export const STUDY_TOOL_NAMES = ["study_context", "study_material", "study_cards", "study_notes", "study_practice_next", "study_practice_rate", "save_chat_notes"] as const;
+export const STUDY_TOOL_NAMES = ["study_context", "study_material", "show_figure", "study_cards", "study_notes", "study_practice_next", "study_practice_rate", "save_chat_notes"] as const;
 
 const LAYERS = `Where to look, in this order — stop at the first layer that answers:
 1. The topic context and subject context shown above (already in front of you; never re-fetch them).

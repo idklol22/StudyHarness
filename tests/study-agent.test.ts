@@ -67,6 +67,8 @@ describe("study tools", () => {
 			placement: () => ({ subjectId: f.subjectId, topicId: f.topicId, startMode: "scratch" }),
 			async lookup(id, input) { calls.push(`lookup ${id} ${JSON.stringify(input)}`); return "memory says hi"; },
 			async read(id, pages) { calls.push(`read ${id} ${pages.join(",")}`); return "read ok"; },
+			async pageTextRuns() { return [{ text: "the recurrence", x: 0.2, y: 0.3, w: 0.4, h: 0.05 }]; },
+			async figure(input) { calls.push(`figure ${input.sha256} p${input.page} ${JSON.stringify(input.region)}`); return { data: "AAAA", mimeType: "image/png" as const, width: 10, height: 10, snapshotId: "a".repeat(64) }; },
 			cards: () => [{ key: f.topicId, group: "Dynamic programming", set: stores.get(f.topicId) ?? emptyCards() }],
 			saveCards: (key, set) => { stores.set(key, set); },
 			ownCardKey: () => ({ key: f.topicId, group: "Dynamic programming" }),
@@ -117,10 +119,36 @@ describe("study tools", () => {
 		assert.match(await run("study_practice_next", { mode: "all" }), /no cards yet/);
 	});
 
-	it("plain mode exposes only context/material/notes/note-export and no cards or practice tools", () => {
+	it("show_figure returns the text confirmation plus the crop image, with reader details", async () => {
+		const { f, tools, calls } = setup();
+		const result = await (tools.show_figure!.execute as (id: string, i: unknown) => Promise<{ content: unknown[]; details: unknown }>)("t1", {
+			materialId: f.topicMat.id, page: 3, quote: "the recurrence", caption: "  The recurrence  ",
+		});
+		assert.deepEqual(result.content, [
+			{ type: "text", text: "Shown: The recurrence (dp.pdf, p. 3)" },
+			{ type: "image", data: "AAAA", mimeType: "image/png" },
+		]);
+		assert.deepEqual(result.details, {
+			materialId: f.topicMat.id, fileName: "dp.pdf", subjectId: f.subjectId, page: 3, caption: "The recurrence",
+			mimeType: "image/png", snapshotId: "a".repeat(64), width: 10, height: 10,
+		});
+		assert.match(calls[0]!, /^figure a{64} p3 /);
+	});
+
+	it("show_figure rejects text materials and files outside the chat's placement", async () => {
+		const base = setup();
+		const added = addMaterial(base.f.lib, { sha256: "c".repeat(64), fileName: "notes.txt", pageCount: 2, bytes: 5, scope: { subjectId: base.f.subjectId }, kind: "text" });
+		const tools = studyTools({ ...base.ports, library: () => added.library });
+		const run = (input: unknown) => (tools.show_figure!.execute as (id: string, i: unknown) => Promise<unknown>)("t1", input);
+		await assert.rejects(run({ materialId: added.material.id, page: 1, caption: "A note" }), /text files have no pages to crop/);
+		await assert.rejects(run({ materialId: "missing", page: 1, caption: "Nope" }), /Unknown material/);
+		await assert.rejects(run({ materialId: base.f.topicMat.id, page: 99, caption: "Out of range" }), /has only 40 pages/);
+	});
+
+	it("plain mode exposes only context/material/figures/notes/note-export and no cards or practice tools", () => {
 		const { ports } = setup();
 		const tools = studyTools(ports, "plain");
-		assert.deepEqual(Object.keys(tools).sort(), ["save_chat_notes", "study_context", "study_material", "study_notes"]);
+		assert.deepEqual(Object.keys(tools).sort(), ["save_chat_notes", "show_figure", "study_context", "study_material", "study_notes"]);
 		for (const excluded of ["study_cards", "study_practice_next", "study_practice_rate", "probe", "quiz", "explain", "recall", "ask_user_question"]) {
 			assert.equal(tools[excluded], undefined, `${excluded} must not be in a plain study chat`);
 		}

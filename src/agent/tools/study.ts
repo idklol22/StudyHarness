@@ -2,6 +2,7 @@
  * Study tools (Phase D). Core tools the chat agent gets when its chat lives in a subject or topic:
  *   study_context        search the material memory (contents / summaries / stored page text), or fetch stored pages
  *   study_material       read page ranges with the vision reader (once; remembered), optionally list materials
+ *   show_figure          crop a figure/formula/table from a page into chat as an image card
  *   study_cards          add / edit / remove / list flashcards
  *   study_practice_next  the next flashcard to practise (due / progressive / all)
  *   study_practice_rate  record the learner's rating of the card just practised
@@ -9,12 +10,15 @@
  */
 import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { serverExecute } from "../tool-execute.ts";
+import { serverExecute, type ImageFileResult } from "../tool-execute.ts";
 import { addCards, editCard, groupSummaries, rateCard, removeCard, studyQueue, type Card, type CardSet, type StudyMode } from "../../core/study/cards.ts";
 import { visibleMaterials } from "../../core/study/doctrine.ts";
 import { diagramFromFlat } from "../../core/study/diagram.ts";
+import { figureRegion, type FigureRegion } from "../../core/study/figures.ts";
+import type { ShowFigureDetails } from "../../core/contracts.ts";
 import type { ChatPlacement, Library } from "../../core/study/model.ts";
 import { parseRange } from "../../core/study/material-memory.ts";
+import type { TextRun } from "../../core/study/text-boxes.ts";
 
 export interface StudyToolPorts {
 	library(): Library;
@@ -23,6 +27,10 @@ export interface StudyToolPorts {
 	lookup(materialId: string, input: { query?: string; pages?: number[] }): Promise<string>;
 	/** Vision-read pages not yet read; returns a short account of what was added. */
 	read(materialId: string, pages: number[]): Promise<string>;
+	/** Text positions on one page (page fractions), for locating a quoted figure. */
+	pageTextRuns(sha256: string, page: number): Promise<TextRun[]>;
+	/** Crop a page region at crop resolution and save it as this chat's image snapshot. */
+	figure(input: { sha256: string; page: number; region: FigureRegion }): Promise<{ data: string; mimeType: "image/png"; width: number; height: number; snapshotId: string }>;
 	/** Every card set in this chat's reach (the topic's, or the subject's and all its topics'), keyed by owner id. */
 	cards(): Array<{ key: string; group: string; set: CardSet }>;
 	saveCards(key: string, set: CardSet): void;
@@ -106,6 +114,16 @@ export function studyTools(ports: StudyToolPorts, mode: "teach" | "plain" = "tea
 		title: Type.String({ minLength: 1, description: "Short title for the saved notes (also the material file name)." }),
 		markdown: Type.String({ minLength: 1, description: "The complete notes in Markdown." }),
 	});
+	const FigureSchema = Type.Object({
+		materialId: Type.String({ minLength: 1, description: "The uploaded file's id or file name." }),
+		page: Type.Integer({ minimum: 1, description: "The 1-based page number in that file." }),
+		quote: Type.Optional(Type.String({ description: "A few words next to the figure, formula or table, to locate it on the page." })),
+		box: Type.Optional(Type.Object({
+			x: Type.Number({ minimum: 0, maximum: 1 }), y: Type.Number({ minimum: 0, maximum: 1 }),
+			w: Type.Number({ minimum: 0, maximum: 1 }), h: Type.Number({ minimum: 0, maximum: 1 }),
+		}, { description: "Exact region in fractions of the page (0–1), when you know where the figure is. Takes precedence over quote." })),
+		caption: Type.String({ minLength: 1, description: "One short line shown under the image." }),
+	});
 
 	const tools: Record<string, AgentTool<any>> = {
 		study_context: {
@@ -129,6 +147,34 @@ export function studyTools(ports: StudyToolPorts, mode: "teach" | "plain" = "tea
 				const pages = parseRange(input.pages, m.pageCount).slice(0, MAX_PAGES_PER_CALL);
 				if (!pages.length) throw new Error(`${m.fileName} has ${m.pageCount} pages.`);
 				return { text: await ports.read(m.id, pages) };
+			}),
+		},
+		show_figure: {
+			name: "show_figure",
+			label: "show_figure",
+			description: "Show a cropped region of a lecture PDF page in chat as an image card — a diagram, figure, formula or table from the learner's files, not a whole page of text. Read the page first with study_material. Prefer `box` when you know where the figure sits (fractions of the page, 0–1); otherwise give a short `quote` from beside it and its position is found in the PDF's own text layout. Never show a whole page just to show text; the whole page is used only when no region can be found. You receive the crop back as an image so you can teach from it.",
+			parameters: FigureSchema,
+			execute: serverExecute("show_figure", FigureSchema, async (input): Promise<ImageFileResult> => {
+				const m = material(input.materialId);
+				if (m.kind === "text") throw new Error("text files have no pages to crop");
+				if (input.page > m.pageCount) throw new Error(`${m.fileName} has only ${m.pageCount} pages.`);
+				const runs = await ports.pageTextRuns(m.sha256, input.page);
+				const region = figureRegion(runs, { quote: input.quote, box: input.box });
+				const crop = await ports.figure({ sha256: m.sha256, page: input.page, region });
+				const caption = input.caption.trim();
+				const details: ShowFigureDetails = {
+					materialId: m.id,
+					fileName: m.fileName,
+					subjectId: ports.placement().subjectId,
+					page: input.page,
+					caption,
+					mimeType: "image/png",
+					snapshotId: crop.snapshotId,
+					width: crop.width,
+					height: crop.height,
+					...(region.wholePage ? { wholePage: true } : {}),
+				};
+				return { text: `Shown: ${caption} (${m.fileName}, p. ${input.page})`, images: [{ data: crop.data, mimeType: crop.mimeType }], details };
 			}),
 		},
 		study_notes: {
@@ -221,11 +267,11 @@ export function studyTools(ports: StudyToolPorts, mode: "teach" | "plain" = "tea
 		},
 	};
 	if (mode === "plain") {
-		const plainNames = ["study_context", "study_material", "study_notes", "save_chat_notes"] as const;
+		const plainNames = ["study_context", "study_material", "show_figure", "study_notes", "save_chat_notes"] as const;
 		return Object.fromEntries(plainNames.map(name => [name, tools[name]!])) as Record<string, AgentTool<any>>;
 	}
-	// Teaching/practice chats keep their existing six tools; note export is
-	// only part of the plain study-chat registry.
+	// Teaching/practice chats keep their study tools; note export is only
+	// part of the plain study-chat registry.
 	const { save_chat_notes: _saveChatNotes, ...teaching } = tools;
 	return teaching;
 }

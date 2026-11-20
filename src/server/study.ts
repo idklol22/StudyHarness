@@ -22,6 +22,7 @@ import { isTextName, textOutline, textPages } from "../core/study/text-material.
 import { acceptSuggestion, addIdea, addSuggestion, assignMaterial, linkMaterial, dismissSuggestion, editIdea, ideasOf, mergeIdeas, removeIdea, setIdeas, tidyLibrary, type IncomingIdea, type SuggestionEdit } from "../core/study/ideas.ts";
 import type { SuggestedTopic } from "../core/study/model.ts";
 import type { TextRun } from "../core/study/text-boxes.ts";
+import type { FigureRegion } from "../core/study/figures.ts";
 import { guessField } from "../core/study/fields.ts";
 import { sha256Of, type PageImage, type StudyStore } from "../store/study.ts";
 
@@ -178,6 +179,28 @@ export function createStudyService(store: StudyStore, pdf: StudyPdf) {
 			const image: PageImage = { bytes: Buffer.from(page.image, "base64"), mimeType: page.mimeType, width: page.width, height: page.height };
 			store.savePage(hash, n, image);
 			return image;
+		},
+		/**
+		 * A figure crop: render just this page at crop resolution (the 110 dpi
+		 * cache is for whole-page display, not for a diagram), then cut the
+		 * fractional region out with canvas and encode PNG. Not cached as a
+		 * page image — the crop belongs to the chat's image snapshots.
+		 */
+		async pageFigure(hash: string, n: number, region: FigureRegion): Promise<PageImage> {
+			if (!Number.isInteger(n) || n < 1) throw new StudyInputError("Page must be a 1-based whole number.");
+			if (!(region.w > 0 && region.h > 0)) throw new StudyInputError("The figure region has no area.");
+			const [page] = await pdf.render(store.materialPath(hash), { pages: [n], dpi: 200, format: "png" });
+			if (!page) throw new StudyInputError(`Page ${n} does not exist in this file.`);
+			const { createCanvas, loadImage } = await import("@napi-rs/canvas");
+			const rendered = await loadImage(Buffer.from(page.image, "base64"));
+			const x = Math.min(rendered.width - 1, Math.max(0, Math.floor(region.x * rendered.width)));
+			const y = Math.min(rendered.height - 1, Math.max(0, Math.floor(region.y * rendered.height)));
+			const w = Math.max(1, Math.min(rendered.width - x, Math.ceil(region.w * rendered.width)));
+			const h = Math.max(1, Math.min(rendered.height - y, Math.ceil(region.h * rendered.height)));
+			const canvas = createCanvas(w, h);
+			const ctx = canvas.getContext("2d");
+			ctx.drawImage(rendered, x, y, w, h, 0, 0, w, h);
+			return { bytes: await canvas.encode("png"), mimeType: "image/png", width: w, height: h };
 		},
 		savePageImages(hash: string, pages: Array<{ page: number; image: string; mimeType: "image/jpeg" | "image/png"; width: number; height: number }>): void {
 			for (const p of pages) store.savePage(hash, p.page, { bytes: Buffer.from(p.image, "base64"), mimeType: p.mimeType, width: p.width, height: p.height });
