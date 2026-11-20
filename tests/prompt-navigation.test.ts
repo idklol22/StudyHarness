@@ -7,6 +7,8 @@ import {
 	promptAnchorId,
 	promptEntriesOf,
 	promptLabel,
+	promptTickTop,
+	promptTooltipTop,
 } from "../src/core/prompt-navigation.ts";
 import type { LhViewMessage, LhViewPart } from "../src/core/view.ts";
 
@@ -113,5 +115,57 @@ describe("anchor and label helpers", () => {
 		assert.equal(promptLabel(""), "Image");
 		assert.equal(promptLabel(" \n\t "), "Image");
 		assert.equal(promptLabel(), "Image");
+	});
+});
+
+describe("promptTickTop", () => {
+	it("centers the lone tick for a single prompt", () => {
+		assert.equal(promptTickTop(0, 1), 50);
+		assert.equal(promptTickTop(-3, 1), 50);
+		assert.equal(promptTickTop(7, 1), 50);
+	});
+
+	it("spaces ticks evenly with the first at 0 and the last at 100", () => {
+		assert.deepEqual([0, 1, 2, 3, 4].map((i) => promptTickTop(i, 5)), [0, 25, 50, 75, 100]);
+		assert.equal(promptTickTop(0, 4), 0);
+		assert.equal(promptTickTop(3, 4), 100);
+		const thirds = [0, 1, 2, 3].map((i) => promptTickTop(i, 4));
+		assert.ok(Math.abs(thirds[1]! - 100 / 3) < 1e-9);
+		assert.ok(Math.abs(thirds[2]! - 200 / 3) < 1e-9);
+	});
+
+	it("clamps out-of-range indexes to the first/last tick", () => {
+		assert.equal(promptTickTop(-5, 4), 0);
+		assert.equal(promptTickTop(-1, 3), 0);
+		assert.equal(promptTickTop(99, 4), 100);
+		assert.equal(promptTickTop(4, 3), 100);
+	});
+
+	it("returns 50 when count is not positive", () => {
+		assert.equal(promptTickTop(0, 0), 50);
+		assert.equal(promptTickTop(-2, 0), 50);
+		assert.equal(promptTickTop(3, -5), 50);
+	});
+});
+
+describe("promptTooltipTop", () => {
+	it("centers the tooltip when count is at most one", () => {
+		assert.equal(promptTooltipTop(0, 1), 50);
+		assert.equal(promptTooltipTop(4, 1), 50);
+		assert.equal(promptTooltipTop(0, 0), 50);
+		assert.equal(promptTooltipTop(2, -1), 50);
+	});
+
+	it("clamps the first and last tick to 8 and 92 but keeps middle ticks exact", () => {
+		assert.equal(promptTooltipTop(0, 3), 8);
+		assert.equal(promptTooltipTop(2, 3), 92);
+		assert.equal(promptTooltipTop(1, 3), 50);
+		assert.deepEqual([0, 1, 2, 3, 4].map((i) => promptTooltipTop(i, 5)), [8, 25, 50, 75, 92]);
+		assert.ok(Math.abs(promptTooltipTop(1, 4) - 100 / 3) < 1e-9);
+	});
+
+	it("clamps the index before clamping the percent", () => {
+		assert.equal(promptTooltipTop(-5, 4), 8);
+		assert.equal(promptTooltipTop(99, 4), 92);
 	});
 });

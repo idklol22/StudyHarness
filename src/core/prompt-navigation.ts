@@ -109,3 +109,20 @@ export function activePromptIndex(tops: readonly number[], viewportTop: number):
 	}
 	return active;
 }
+
+/** T21 rail geometry: vertical position of tick `index` among `count`
+ *  prompts, as a percent of the rail height. The index is clamped to
+ *  `[0, count - 1]`; a single (or empty) prompt set centers the lone tick. */
+export function promptTickTop(index: number, count: number): number {
+	if (count <= 1) return 50;
+	const clamped = Math.max(0, Math.min(index, count - 1));
+	return (clamped / (count - 1)) * 100;
+}
+
+/** T21 tooltip geometry: the tick position kept inside the transcript. Same
+ *  index clamping and single-prompt centering as `promptTickTop`, plus a final
+ *  clamp of the percent to `[8, 92]` so edge labels never leave the rail. */
+export function promptTooltipTop(index: number, count: number): number {
+	if (count <= 1) return 50;
+	return Math.max(8, Math.min(92, promptTickTop(index, count)));
+}

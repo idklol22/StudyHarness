@@ -16,13 +16,14 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	type KeyboardEvent,
 	type ReactNode,
 	type RefObject,
 } from "react";
 import { ArrowUpIcon } from "lucide-react";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import { cn } from "@/lib/utils";
-import { activePromptIndex, promptLabel, type PromptEntry } from "@/src/core";
+import { activePromptIndex, promptLabel, promptTickTop, promptTooltipTop, type PromptEntry } from "@/src/core";
 import { scrollSessionTarget, type SessionScrollContext } from "@/components/session-navigation";
 
 export interface PromptNavigationValue {
@@ -148,5 +149,95 @@ export function StickyPrompt() {
 			<span className="truncate font-ui text-xs text-foreground" title={text}>{text}</span>
 			<ArrowUpIcon className="size-3.5 text-muted-foreground" />
 		</button>
+	);
+}
+
+/** T21: a slim right-edge rail with one tick per prompt. Pure consumer of the
+ *  T20 context — no extraction, no scroller ref, no stopScroll — so it only
+ *  mirrors `activeIndex` and delegates every jump to the provider's `jumpTo`. */
+export function PromptRail() {
+	const { entries, activeIndex, jumpTo } = usePromptNavigation();
+	const tickRefs = useRef<Array<HTMLButtonElement | null>>([]);
+	const count = entries.length;
+	if (count === 0) return null;
+
+	/** Arrow/Home/End only move focus between ticks; Enter/Space jump. No wrap. */
+	const onTickKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+		let target = -1;
+		switch (event.key) {
+			case "Enter":
+			case " ":
+				event.preventDefault();
+				jumpTo(index);
+				return;
+			case "ArrowUp":
+				target = index - 1;
+				break;
+			case "ArrowDown":
+				target = index + 1;
+				break;
+			case "Home":
+				target = 0;
+				break;
+			case "End":
+				target = count - 1;
+				break;
+			default:
+				return;
+		}
+		event.preventDefault();
+		if (target < 0 || target >= count) return;
+		tickRefs.current[target]?.focus();
+	};
+
+	return (
+		<div
+			data-testid="prompt-rail"
+			aria-label="Prompt navigation"
+			role="group"
+			className="pointer-events-auto absolute inset-y-3 right-1 z-20 hidden w-4 min-[900px]:flex items-center"
+		>
+			{entries.map((entry, i) => {
+				const active = activeIndex === i;
+				return (
+					<div key={i} className="group/tick pointer-events-none absolute inset-0">
+						<button
+							ref={(node) => { tickRefs.current[i] = node; }}
+							type="button"
+							aria-label={`Prompt ${i + 1}: ${entry.text}`}
+							aria-current={active ? "true" : undefined}
+							title={entry.text}
+							style={{ top: `${promptTickTop(i, count)}%` }}
+							onClick={() => jumpTo(i)}
+							onKeyDown={(event) => onTickKeyDown(event, i)}
+							className={cn(
+								"pointer-events-auto absolute right-0 flex h-3 w-4 -translate-y-1/2 items-center justify-center",
+								"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							)}
+						>
+							<span
+								className={cn(
+									"block h-0.5 w-2",
+									active
+										? "h-0.5 w-3 bg-foreground"
+										: "bg-muted-foreground/50 group-hover/tick:bg-foreground group-focus-within/tick:bg-foreground"
+								)}
+							/>
+						</button>
+						<span
+							style={{ top: `${promptTooltipTop(i, count)}%` }}
+							className={cn(
+								"pointer-events-none absolute right-6 z-30 hidden w-64 max-w-[min(16rem,calc(100vw-2rem))]",
+								"border border-border bg-popover px-2 py-1 font-ui text-xs leading-snug text-popover-foreground",
+								"line-clamp-2 whitespace-normal -translate-y-1/2",
+								"group-hover/tick:block group-focus-within/tick:block"
+							)}
+						>
+							{entry.text}
+						</span>
+					</div>
+				);
+			})}
+		</div>
 	);
 }
