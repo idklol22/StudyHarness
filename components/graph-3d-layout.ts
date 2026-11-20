@@ -728,6 +728,47 @@ export function fitDistance(radius: number, fovDegrees: number, aspect: number, 
 	return (radius * margin) / Math.sin(Math.min(v, h));
 }
 
+// ── Pure framing maths for click-to-focus (tested in tests/graph-3d-frame.test.ts) ──────
+
+/** How much of the viewport HEIGHT the framed cluster's diameter should occupy, by node kind. */
+export const FRAME_FILL = { subject: 0.7, topic: 0.6, idea: 0.5 } as const;
+
+/** One sphere to include in a cluster's bounding sphere (`radius` defaults to a point). */
+export interface FramingNode { x: number; y: number; z: number; radius?: number }
+export interface ClusterBounds { cx: number; cy: number; cz: number; radius: number }
+
+/**
+ * Bounding sphere of a set of node spheres: centre is their mean position, radius reaches the
+ * furthest node's surface. Pure and independent of three.js / the DOM.
+ */
+export function clusterBounds(nodes: Iterable<FramingNode>): ClusterBounds {
+	const list = [...nodes];
+	if (!list.length) return { cx: 0, cy: 0, cz: 0, radius: 0 };
+	let cx = 0, cy = 0, cz = 0;
+	for (const n of list) { cx += n.x; cy += n.y; cz += n.z; }
+	cx /= list.length; cy /= list.length; cz /= list.length;
+	let radius = 0;
+	for (const n of list) radius = Math.max(radius, Math.hypot(n.x - cx, n.y - cy, n.z - cz) + Math.max(0, n.radius ?? 0));
+	return { cx, cy, cz, radius };
+}
+
+/**
+ * Camera distance at which a sphere of `radius` fills `fill` of the viewport height (diameter /
+ * height). Solved from the sphere's silhouette, not the small-angle approximation:
+ * `d = R * hypot(1, 1 / (fill * tan(fovY / 2)))`.
+ */
+export function frameDistance(radius: number, fovY: number, fill: number): number {
+	if (!(radius > 0) || !(fovY > 0) || !(fill > 0)) return 0;
+	const k = fill * Math.tan((fovY * Math.PI) / 360);
+	return radius * Math.hypot(1, 1 / k);
+}
+
+/** How many world units `pixels` span at `distance` under a vertical field of view of `fovY`. */
+export function screenPixelsToWorld(pixels: number, distance: number, fovY: number, viewportHeight: number): number {
+	if (!(viewportHeight > 0) || !(distance > 0) || !(fovY > 0)) return 0;
+	return (pixels * 2 * distance * Math.tan((fovY * Math.PI) / 360)) / viewportHeight;
+}
+
 /**
  * Pure: the set of layout indices that light up when a node is hovered or selected.
  * In Study the whole path back to the centre is included (idea → topic → subject → centre);

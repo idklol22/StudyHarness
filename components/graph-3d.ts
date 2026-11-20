@@ -25,7 +25,9 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { CanvasData, GraphRenderSettings, RendererCallbacks } from "./graph-canvas.ts";
 import { clusterHue } from "./cluster-geometry.ts";
-import { DEFAULT_TUNING, Layout3D, NODE_HUB, NODE_JUNCTION, NODE_ROOT, hash01, hubId, fitDistance, focusGroup, focusSet, pickNearest3D, placeLabels, type GraphTuning, type LabelCandidate } from "./graph-3d-layout.ts";
+import { DEFAULT_TUNING, FRAME_FILL, Layout3D, NODE_HUB, NODE_JUNCTION, NODE_ROOT, clusterBounds, fitDistance, focusGroup, focusSet, frameDistance, hash01, hubId, pickNearest3D, placeLabels, screenPixelsToWorld, type GraphTuning, type LabelCandidate } from "./graph-3d-layout.ts";
+
+export { FRAME_FILL, clusterBounds, frameDistance, screenPixelsToWorld } from "./graph-3d-layout.ts";
 
 /** The centre node's name. */
 const ROOT_LABEL = "Knowledge";
@@ -49,6 +51,10 @@ const MAX_NODE_LABELS = 70;
 const IDLE_RESUME_MS = 3_500;
 const RADIUS_PER_SIZE = 2.1; // world units of sphere radius per unit of the nodeSize setting
 const HOVER_FADE_MS = 160;
+/** Click-to-focus / Escape glides: quick enough to follow a click, slow enough to read. */
+const FOCUS_MS = 600;
+/** The left info card in the Study view (Tailwind `w-[380px]`). */
+const INFO_CARD_WIDTH_PX = 380;
 
 const finite3 = (v: unknown): v is [number, number, number] => Array.isArray(v) && v.length === 3 && v.every((n) => typeof n === "number" && Number.isFinite(n));
 
@@ -112,7 +118,9 @@ export class Graph3DRenderer {
 	/** A soft halo around the centre node. */
 	private halo: THREE.Mesh;
 	private idleSince = performance.now();
-	private tween: { start: number; dur: number; fromPos: THREE.Vector3; toPos: THREE.Vector3; fromTarget: THREE.Vector3; toTarget: THREE.Vector3 } | null = null;
+	private tween: { start: number; dur: number; ease: "out" | "inOut"; fromPos: THREE.Vector3; toPos: THREE.Vector3; fromTarget: THREE.Vector3; toTarget: THREE.Vector3 } | null = null;
+	/** The camera at the start of the current selection, restored by Escape. */
+	private selectionCamera: { position: THREE.Vector3; target: THREE.Vector3 } | null = null;
 	private hasInitialCamera = false;
 	private refitOnSettle = false;
 	/** Re-frame once the layout settles even after the learner moved the camera (centre toggled). */
@@ -297,6 +305,8 @@ export class Graph3DRenderer {
 	/** Recenter: glide back to Knowledge and frame the whole graph. */
 	fit(): void {
 		if (!this.layout.count) return;
+		// An explicit "fit everything" supersedes a selection restore.
+		this.selectionCamera = null;
 		this.interacted = true; this.tweenToFit(); this.kick();
 	}
 
@@ -653,10 +663,18 @@ export class Graph3DRenderer {
 		const f = this.fitTarget(); this.fitDist = f.dist;
 		this.camera.position.copy(f.pos); this.controls.target.copy(f.target); this.controls.maxDistance = f.dist * 5; this.controls.update();
 	}
+	/** One tween builder for fit / focus / restore. The frame loop emits the camera when it ends. */
+	private startTween(pos: THREE.Vector3, target: THREE.Vector3, dur = 650, ease: "out" | "inOut" = "out"): void {
+		if (this.reducedMotion) {
+			this.camera.position.copy(pos); this.controls.target.copy(target);
+			this.controls.update(); this.emitCamera(); return;
+		}
+		this.tween = { start: performance.now(), dur, ease, fromPos: this.camera.position.clone(), toPos: pos.clone(), fromTarget: this.controls.target.clone(), toTarget: target.clone() };
+		this.kick();
+	}
 	private tweenToFit(): void {
 		const f = this.fitTarget(); this.fitDist = f.dist; this.controls.maxDistance = f.dist * 5;
-		if (this.reducedMotion) { this.camera.position.copy(f.pos); this.controls.target.copy(f.target); this.controls.update(); this.emitCamera(); return; }
-		this.tween = { start: performance.now(), dur: 650, fromPos: this.camera.position.clone(), toPos: f.pos, fromTarget: this.controls.target.clone(), toTarget: f.target };
+		this.startTween(f.pos, f.target);
 	}
 	/** Glide the orbit centre onto one node (keeping the viewing direction), a little closer in. */
 	private centreOn(i: number): void {
@@ -666,35 +684,57 @@ export class Graph3DRenderer {
 		if (offset.lengthSq() < 1e-6) offset.set(0.35, 0.25, 1);
 		const pos = target.clone().add(offset.normalize().multiplyScalar(dist));
 		this.interacted = true;
-		if (this.reducedMotion) { this.camera.position.copy(pos); this.controls.target.copy(target); this.controls.update(); this.emitCamera(); return; }
-		this.tween = { start: performance.now(), dur: 650, fromPos: this.camera.position.clone(), toPos: pos, fromTarget: this.controls.target.clone(), toTarget: target };
+		this.startTween(pos, target);
+	}
+	/** Half the Study info card's width, capped for narrow viewports. */
+	private infoCardShiftPx(viewportWidth: number): number {
+		return Math.min(INFO_CARD_WIDTH_PX, Math.max(0, viewportWidth - 24)) / 2;
 	}
 	/**
-	 * Round 5: clicking a node frames its NEIGHBOURHOOD, not the node alone — subject → whole
-	 * cluster, topic → topic + ideas, idea → idea + immediate neighbours. A padded fit distance
-	 * keeps the connecting edges in view (the old 0.62× fit distance clipped them).
+	 * Click-to-focus: frame the selected neighbourhood's bounding sphere at a fill fraction chosen
+	 * by kind — subject 70%, topic 60%, idea 50% of the viewport height. The old whole-graph floor
+	 * is gone, so a click actually moves in; a distance floor keeps the camera outside the spheres.
+	 * Only the dolly distance and the orbit target change, never the viewing direction.
 	 */
-	private focusOnNode(i: number): void {
+	private focusOnNode(i: number, card: boolean): void {
 		const L = this.layout;
 		const group = focusGroup({ layout: L, children: this.children, adjacency: this.adjacency, topicIds: this.topicIds, focus: i, study: this.study });
-		const pts = group.length ? group : [i];
-		let cx = 0, cy = 0, cz = 0;
-		for (const k of pts) { cx += L.pos[k * 3]!; cy += L.pos[k * 3 + 1]!; cz += L.pos[k * 3 + 2]!; }
-		cx /= pts.length; cy /= pts.length; cz /= pts.length;
-		let radius = this.radiusOf(i) * 1.6;
-		for (const k of pts) radius = Math.max(radius, Math.hypot(L.pos[k * 3]! - cx, L.pos[k * 3 + 1]! - cy, L.pos[k * 3 + 2]! - cz));
-		const rect = this.canvas.getBoundingClientRect();
-		const padded = fitDistance(radius, FOV, Math.max(rect.width / Math.max(rect.height, 1), 0.3), 1.12);
-		// Owner (2026-11-19): zooming still felt too aggressive. Never come closer than 72% of the
-		// whole-graph framing distance, so the clicked node's edges and neighbours stay visible.
-		const dist = Math.min(this.fitDist, Math.max(this.controls.minDistance, this.fitDist * 0.72, padded));
-		const target = new THREE.Vector3(cx, cy, cz);
+		const shown = (group.length ? group : [i]).filter((k) => this.nodeVisible[k] !== false);
+		const pts = shown.length ? shown : [i];
+		const b = clusterBounds(pts.map((k) => ({
+			x: L.pos[k * 3]!, y: L.pos[k * 3 + 1]!, z: L.pos[k * 3 + 2]!, radius: this.radiusOf(k),
+		})));
+		const kind = L.kind[i];
+		const fill = kind === NODE_HUB || kind === NODE_ROOT ? FRAME_FILL.subject
+			: this.topicIds.has(L.ids[i]!) ? FRAME_FILL.topic : FRAME_FILL.idea;
+		const maxRadius = Math.max(0, ...pts.map((k) => this.radiusOf(k)));
+		// Stay outside the cluster (and its largest node) even for a tiny, isolated focus group.
+		const minDist = Math.max(this.controls.minDistance, b.radius + 2, maxRadius * 2 + 2);
+		const dist = Math.max(frameDistance(b.radius, FOV, fill), minDist);
+		if (dist > this.controls.maxDistance) this.controls.maxDistance = dist * 1.1;
+		const target = new THREE.Vector3(b.cx, b.cy, b.cz);
 		const offset = this.camera.position.clone().sub(this.controls.target);
 		if (offset.lengthSq() < 1e-6) offset.set(0.35, 0.25, 1);
-		const pos = target.clone().add(offset.normalize().multiplyScalar(dist));
+		offset.normalize();
+		if (card) {
+			const rect = this.canvas.getBoundingClientRect();
+			// The card sits on the LEFT: move the orbit target left in world units so the cluster
+			// appears shifted right by half the card width on screen, clear of the card.
+			const world = screenPixelsToWorld(this.infoCardShiftPx(rect.width), dist, FOV, rect.height);
+			const right = new THREE.Vector3().crossVectors(this.camera.up, offset).normalize();
+			target.addScaledVector(right, -world);
+		}
+		const pos = target.clone().addScaledVector(offset, dist);
 		this.interacted = true;
-		if (this.reducedMotion) { this.camera.position.copy(pos); this.controls.target.copy(target); this.controls.update(); this.emitCamera(); return; }
-		this.tween = { start: performance.now(), dur: 650, fromPos: this.camera.position.clone(), toPos: pos, fromTarget: this.controls.target.clone(), toTarget: target };
+		this.startTween(pos, target, FOCUS_MS, "inOut");
+	}
+	/** Escape: glide back to the camera captured when this selection began. */
+	private restoreSelectionCamera(): void {
+		const prev = this.selectionCamera;
+		if (!prev) return;
+		this.selectionCamera = null;
+		this.interacted = true;
+		this.startTween(prev.position, prev.target, FOCUS_MS, "inOut");
 	}
 	private emitCamera(): void {
 		const p = this.camera.position, t = this.controls.target;
@@ -737,16 +777,19 @@ export class Graph3DRenderer {
 		const { x, y } = this.local(e);
 		if (Math.hypot(x - d.x, y - d.y) > 5 || performance.now() - d.t > 600) return; // a drag, not a click
 		const i = this.pick(x, y);
-		// Clicking empty space clears the selection but leaves the camera where it is (Recenter goes home).
+		// Clicking empty space clears the selection but leaves the camera where it is (Escape restores it).
 		if (i < 0) { this.callbacks.onStageClick(); this.applySelected(null); return; }
+		// Remember where the camera was when this selection episode began (one step back for Escape).
+		if (!this.selectedId) this.selectionCamera = { position: this.camera.position.clone(), target: this.controls.target.clone() };
 		this.applySelected(this.layout.ids[i]!);
-		this.focusOnNode(i); // Round 5: zoom into the clicked node's neighbourhood (adaptive by kind)
+		const card = this.layout.kind[i] !== NODE_ROOT; // subject/topic/idea always gets an info card
+		this.focusOnNode(i, card);
 		// The centre and topic hubs are structure, not ideas: they focus their branch but open no card.
 		if (this.layout.kind[i] === NODE_HUB && this.callbacks.onHub) { this.callbacks.onHub(this.layout.group[i]!); return; }
 		if (this.layout.kind[i] === NODE_HUB || this.layout.kind[i] === NODE_ROOT) { this.callbacks.onStageClick(); return; }
-		// The card anchors where the idea is gliding to: the middle of the view.
+		// The card anchors where the idea is gliding to: right of centre, clear of the card itself.
 		const k = this.instanceOf[i]!, s = this.screen[k], rect = this.canvas.getBoundingClientRect();
-		this.callbacks.onSelect(this.selectedId!, { x: rect.width / 2, y: rect.height / 2 + (s?.r ?? 8) });
+		this.callbacks.onSelect(this.selectedId!, { x: rect.width / 2 + (card ? this.infoCardShiftPx(rect.width) : 0), y: rect.height / 2 + (s?.r ?? 8) });
 	}
 	private onContextMenu(e: MouseEvent): void {
 		e.preventDefault();
@@ -766,7 +809,14 @@ export class Graph3DRenderer {
 			case "+": case "=": sph.radius = Math.max(this.controls.minDistance, sph.radius * 0.85); break;
 			case "-": case "_": sph.radius = Math.min(this.controls.maxDistance, sph.radius * 1.18); break;
 			case "f": case "F": case "Home": this.fit(); e.preventDefault(); return;
-			case "Escape": if (this.selectedId) { this.callbacks.onStageClick(); this.applySelected(null); } return;
+			case "Escape": {
+				if (!this.selectedId && !this.selectionCamera) return;
+				e.preventDefault();
+				this.callbacks.onStageClick();
+				this.applySelected(null);
+				this.restoreSelectionCamera();
+				return;
+			}
 			default: handled = false;
 		}
 		if (!handled) return;
@@ -791,7 +841,8 @@ export class Graph3DRenderer {
 		if (!layoutMoving && this.refitOnSettle) { this.refitOnSettle = false; if (!this.interacted && this.layout.count) { this.tweenToFit(); again = true; } }
 
 		if (this.tween) {
-			const t = Math.min(1, (now - this.tween.start) / this.tween.dur), e = 1 - Math.pow(1 - t, 3);
+			const t = Math.min(1, (now - this.tween.start) / this.tween.dur);
+			const e = this.tween.ease === "inOut" ? t * t * (3 - 2 * t) : 1 - Math.pow(1 - t, 3);
 			this.camera.position.lerpVectors(this.tween.fromPos, this.tween.toPos, e); this.controls.target.lerpVectors(this.tween.fromTarget, this.tween.toTarget, e);
 			this.controls.update(); this.screenDirty = this.labelsDirty = true; again = true;
 			if (t >= 1) { this.tween = null; this.emitCamera(); }
