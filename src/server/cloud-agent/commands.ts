@@ -62,7 +62,7 @@ export function createDefaultHandlers(): CommandHandlers {
 			const { materialId } = await upsertPlannerNote(note, { study, map: plannerNoteMap });
 			// Absorb (memory + deadlines) and hand the dated items back to the Planner; give up waiting after a minute.
 			const { absorbWithApp, waitForAbsorb } = await import("../planner-absorb.ts");
-			const state = await waitForAbsorb(absorbWithApp(note), ABSORB_WAIT_MS);
+			const state = await waitForAbsorb(absorbWithApp(note, materialId), ABSORB_WAIT_MS);
 			return { materialId, items: state?.status === "done" ? state.items : [], ...(state ? {} : { absorb: "pending" }) };
 		},
 		async capture(payload, hub) {

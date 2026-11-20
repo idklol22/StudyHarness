@@ -7,7 +7,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, it } from "node:test";
-import { alreadyHasItem, dueOf, newItems, normalizeAbsorbed, regexAbsorb, replaceNoteBlock, similarTitles } from "../src/core/study/planner-absorb.ts";
+import { upsertPlannerNote, type PlannerNoteMap } from "../src/server/planner-notes.ts";
+import { isPlannerNote, plannerBadge } from "../components/study/files-table.tsx";
+import { alreadyHasItem, matchTopic, dueOf, newItems, normalizeAbsorbed, regexAbsorb, replaceNoteBlock, similarTitles } from "../src/core/study/planner-absorb.ts";
 import { absorbPlannerNote, type AbsorbState, type AbsorbStateStore } from "../src/server/planner-absorb.ts";
 import type { PlannerNote } from "../src/server/planner-notes.ts";
 import { createStudyService, type StudyPdf } from "../src/server/study.ts";
@@ -156,5 +158,42 @@ describe("absorbPlannerNote", () => {
 		const { study, state } = setup();
 		const out = await absorbPlannerNote(note("sub_missing"), { study, extract: async () => ({ knowledge: "", items: [] }), state });
 		assert.equal(out.status, "failed");
+	});
+});
+
+describe("matchTopic", () => {
+	const topics = [{ id: "t1", name: "Semaphores and Mutexes" }, { id: "t2", name: "Scheduling" }];
+	it("matches a clear topic and refuses unclear or ambiguous ones", () => {
+		assert.equal(matchTopic("semaphores & mutexes", topics), "t1");
+		assert.equal(matchTopic("scheduling", topics), "t2");
+		assert.equal(matchTopic("Virtual memory", topics), undefined);
+		assert.equal(matchTopic(undefined, topics), undefined);
+		assert.equal(matchTopic("Scheduling", [{ id: "a", name: "Scheduling" }, { id: "b", name: "Scheduling" }]), undefined);
+	});
+});
+
+describe("Planner notes in the library", () => {
+	it("are marked as Planner notes with a finished badge, keep their topic across a re-send, and are filed by the absorption", async () => {
+		const { study, subject, state } = setup();
+		const topic = study.createTopic(subject.id, "Scheduling");
+		let data: Record<string, string> = {};
+		const map: PlannerNoteMap = { read: () => ({ ...data }), write: (next) => { data = { ...next }; } };
+		const n: PlannerNote = { externalId: "task-9", subjectId: subject.id, title: "CFS", date: "2026-11-20", markdown: "cfs picks the lowest vruntime", finished: false };
+		const { materialId } = await upsertPlannerNote(n, { study, map });
+		const m = () => study.library().materials.find((x) => x.id === materialId)!;
+		assert.equal(isPlannerNote(m()), true);
+		assert.equal(plannerBadge(m()), "Unfinished");
+		assert.equal(m().meta?.date, "2026-11-20");
+
+		const out = await absorbPlannerNote(n, { study, state, extract: async () => ({ knowledge: "- CFS: lowest vruntime", topic: "scheduling", items: [] }) }, materialId);
+		assert.equal(out.status, "done");
+		assert.equal(m().scope.topicId, topic.id);
+		assert.match(study.library().topics[0]!.context, /CFS: lowest vruntime/);
+		assert.equal(study.library().subjects[0]!.context, "");
+
+		const again = await upsertPlannerNote(n, { study, map });
+		assert.equal(again.materialId, materialId, "an unchanged re-send keeps the material in its topic");
+		const finished = await upsertPlannerNote({ ...n, finished: true }, { study, map });
+		assert.equal(plannerBadge(study.library().materials.find((x) => x.id === finished.materialId)!), "Finished");
 	});
 });

@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { PATHS } from "../../config.ts";
-import { dueOf, newItems, normalizeAbsorbed, regexAbsorb, replaceNoteBlock, weekdayOf, type Absorbed, type AbsorbItem } from "../core/study/planner-absorb.ts";
+import { dueOf, matchTopic, newItems, normalizeAbsorbed, regexAbsorb, replaceNoteBlock, weekdayOf, type Absorbed, type AbsorbItem } from "../core/study/planner-absorb.ts";
 import { writeFileAtomicSync } from "../store/atomic-write.ts";
 import { sha256Of } from "../store/study.ts";
 import type { PlannerNote } from "./planner-notes.ts";
@@ -26,9 +26,9 @@ export interface AbsorbStateStore {
 	write(all: Record<string, AbsorbState>): void;
 }
 export interface AbsorbDeps {
-	study: Pick<StudyService, "library" | "setContext" | "addDeadline">;
+	study: Pick<StudyService, "library" | "setContext" | "addDeadline" | "moveMaterial">;
 	/** The model call: returns the raw extraction (an object or JSON text). Throws on model failure. */
-	extract: (note: PlannerNote, markdown: string) => Promise<unknown>;
+	extract: (note: PlannerNote, markdown: string, topics: string[]) => Promise<unknown>;
 	state: AbsorbStateStore;
 }
 
@@ -43,20 +43,34 @@ export const absorbHash = (note: Pick<PlannerNote, "title" | "date" | "markdown"
 
 const inflight = new Map<string, { hash: string; promise: Promise<AbsorbState> }>();
 
-async function run(note: PlannerNote, hash: string, deps: AbsorbDeps): Promise<AbsorbState> {
+async function run(note: PlannerNote, hash: string, deps: AbsorbDeps, materialId?: string): Promise<AbsorbState> {
 	const text = absorbText(note.markdown);
+	const subjectTopics = deps.study.library().topics.filter((t) => t.subjectId === note.subjectId);
 	let absorbed: Absorbed;
-	try { absorbed = normalizeAbsorbed(await deps.extract(note, text)); }
+	try { absorbed = normalizeAbsorbed(await deps.extract(note, text, subjectTopics.map((t) => t.name))); }
 	catch (error) {
 		console.error("[planner] note extraction by the model failed, using the fallback:", error instanceof Error ? error.message : error);
 		absorbed = regexAbsorb(text, note.date);
 	}
-	const target = { subjectId: note.subjectId, ...(note.topicId ? { topicId: note.topicId } : {}) };
-	const lib = deps.study.library();
-	const owner = note.topicId ? lib.topics.find((t) => t.id === note.topicId) : lib.subjects.find((s) => s.id === note.subjectId);
+	// A subject-level note goes to the topic the model clearly matched; otherwise it stays subject-wide.
+	const matched = note.topicId ? undefined : matchTopic(absorbed.topic, subjectTopics);
+	const topicId = note.topicId ?? matched;
+	const target = { subjectId: note.subjectId, ...(topicId ? { topicId } : {}) };
+	if (matched && materialId) {
+		try { await deps.study.moveMaterial(materialId, target); } catch (error) { console.error("[planner] could not file the note in its topic:", error); }
+	}
+	const place = (id?: string) => { const lib = deps.study.library(); return id ? lib.topics.find((t) => t.id === id) : lib.subjects.find((s) => s.id === note.subjectId); };
+	const owner = place(topicId);
 	if (!owner) throw new Error("The subject or topic no longer exists.");
 	const next = replaceNoteBlock(owner.context ?? "", note, absorbed.knowledge);
 	if (next !== (owner.context ?? "")) await deps.study.setContext(target, next);
+	// A block left by an earlier pass elsewhere in the subject is dropped, so the note is remembered once.
+	for (const other of [undefined, ...subjectTopics.map((t) => t.id)]) {
+		if (other === topicId) continue;
+		const o = place(other);
+		const cleaned = o ? replaceNoteBlock(o.context ?? "", note, "") : undefined;
+		if (o && cleaned !== undefined && cleaned !== (o.context ?? "")) await deps.study.setContext({ subjectId: note.subjectId, ...(other ? { topicId: other } : {}) }, cleaned);
+	}
 
 	const existing = (deps.study.library().deadlines ?? []).filter((d) => d.subjectId === note.subjectId);
 	const deadlines: AbsorbedDeadline[] = [];
@@ -68,7 +82,7 @@ async function run(note: PlannerNote, hash: string, deps: AbsorbDeps): Promise<A
 }
 
 /** Start (or reuse) the absorption of a saved note. Never rejects; resolves to the final state. */
-export function absorbPlannerNote(note: PlannerNote, deps: AbsorbDeps): Promise<AbsorbState> {
+export function absorbPlannerNote(note: PlannerNote, deps: AbsorbDeps, materialId?: string): Promise<AbsorbState> {
 	const hash = absorbHash(note);
 	const known = deps.state.read()[note.externalId];
 	if (known && known.hash === hash && known.status === "done") return Promise.resolve(known);
@@ -82,7 +96,7 @@ export function absorbPlannerNote(note: PlannerNote, deps: AbsorbDeps): Promise<
 	// A newer edit waits for the older pass of the same note so the two never interleave.
 	const after = running?.promise.catch(() => undefined) ?? Promise.resolve();
 	const promise: Promise<AbsorbState> = after
-		.then(() => run(note, hash, deps))
+		.then(() => run(note, hash, deps, materialId))
 		.catch((error): AbsorbState => ({ status: "failed", hash, items: [], deadlines: [], error: error instanceof Error ? error.message : String(error) }))
 		.then((state) => {
 			if (inflight.get(note.externalId)?.promise !== promise) return state; // superseded; the newer pass owns the stored state
@@ -116,17 +130,17 @@ export const absorbStateStore: AbsorbStateStore = {
 };
 
 /** The real model call: the "extractor" role, resolved like the inbox and the context keeper do. */
-async function defaultExtract(note: PlannerNote, markdown: string): Promise<unknown> {
+async function defaultExtract(note: PlannerNote, markdown: string, topics: string[]): Promise<unknown> {
 	const [{ resolveEngine }, { absorbNote }] = await Promise.all([import("./chat-handler.ts"), import("../agent/subagents/planner-note-worker.ts")]);
 	const engine = resolveEngine("extractor");
 	if (!engine) throw new Error("No model is configured for note extraction.");
-	return await absorbNote({ title: note.title, date: note.date, weekday: weekdayOf(note.date), markdown }, { engine });
+	return await absorbNote({ title: note.title, date: note.date, weekday: weekdayOf(note.date), markdown, topics }, { engine });
 }
 
 /** Absorb with the real study service and model. Lazy so importing this module never boots Study. */
-export async function absorbWithApp(note: PlannerNote): Promise<AbsorbState> {
+export async function absorbWithApp(note: PlannerNote, materialId?: string): Promise<AbsorbState> {
 	const { study } = await import("./study-runtime.ts");
-	return await absorbPlannerNote(note, { study, extract: defaultExtract, state: absorbStateStore });
+	return await absorbPlannerNote(note, { study, extract: defaultExtract, state: absorbStateStore }, materialId);
 }
 
 /** The stored result for GET /api/planner/notes/result. */

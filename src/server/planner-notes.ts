@@ -89,7 +89,11 @@ export interface PlannerNoteDeps {
 	map: PlannerNoteMap;
 }
 
-const sameScope = (a: { subjectId: string; topicId?: string }, b: { subjectId: string; topicId?: string }) => a.subjectId === b.subjectId && (a.topicId ?? null) === (b.topicId ?? null);
+/** A note without a topic of its own may have been filed into a topic of its subject (by absorption or by the learner): that stays. */
+const sameScope = (a: { subjectId: string; topicId?: string }, b: { subjectId: string; topicId?: string }) => a.subjectId === b.subjectId && (!b.topicId || a.topicId === b.topicId);
+
+/** The details a Planner note carries in the library: the "From Planner" group, its date and its finished badge. */
+export const plannerNoteMeta = (note: PlannerNote) => ({ source: "planner" as const, finished: note.finished, date: note.date, title: note.title, kind: "other" as const });
 
 /**
  * Upsert by externalId. An unchanged note (same content, name and scope) keeps its material id;
@@ -107,7 +111,12 @@ export async function upsertPlannerNote(note: PlannerNote, deps: PlannerNoteDeps
 	const map = deps.map.read();
 	const oldId = Object.hasOwn(map, note.externalId) ? map[note.externalId] : undefined;
 	const old = oldId ? lib.materials.find((m) => m.id === oldId) : undefined;
-	if (old && old.sha256 === hash && old.fileName === fileName && sameScope(old.scope, scope)) return { materialId: old.id };
+	const stamp = (id: string) => {
+		const m = deps.study.library().materials.find((x) => x.id === id);
+		if (m?.meta?.source === "planner" && m.meta.finished === note.finished) return;
+		deps.study.setMaterialMeta(id, plannerNoteMeta(note));
+	};
+	if (old && old.sha256 === hash && old.fileName === fileName && sameScope(old.scope, scope)) { stamp(old.id); return { materialId: old.id }; }
 
 	// Study dedupes by (hash, scope): never delete a material another task's mapping still owns.
 	const shared = !!oldId && Object.entries(map).some(([id, materialId]) => id !== note.externalId && materialId === oldId);
@@ -123,6 +132,7 @@ export async function upsertPlannerNote(note: PlannerNote, deps: PlannerNoteDeps
 		({ material } = await deps.study.addMaterial({ bytes, fileName, scope }));
 	} else removeOld();
 	deps.map.write({ ...map, [note.externalId]: material.id });
+	stamp(material.id);
 	return { materialId: material.id };
 }
 

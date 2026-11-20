@@ -18,6 +18,8 @@ export interface AbsorbItem {
 export interface Absorbed {
 	knowledge: string;
 	items: AbsorbItem[];
+	/** Name of an existing topic the note clearly belongs to. */
+	topic?: string;
 }
 
 const KINDS: readonly DeadlineKind[] = ["assignment", "exam", "quiz", "other"];
@@ -50,7 +52,22 @@ export function normalizeAbsorbed(value: unknown): Absorbed {
 		const syllabus = typeof e.syllabus === "string" && e.syllabus.trim() ? e.syllabus.trim().slice(0, 300) : undefined;
 		items.push({ title: title.slice(0, 120), kind, date, ...(time ? { time } : {}), ...(syllabus ? { syllabus } : {}) });
 	}
-	return { knowledge, items };
+	const topic = typeof obj.topic === "string" && obj.topic.trim() ? obj.topic.trim() : undefined;
+	return { knowledge, items, ...(topic ? { topic } : {}) };
+}
+
+/** The existing topic a model-named topic refers to (same words, order and case aside); undefined when unclear. */
+export function matchTopic(name: string | undefined, topics: ReadonlyArray<{ id: string; name: string }>): string | undefined {
+	if (!name) return undefined;
+	const wanted = titleTokens(name);
+	if (!wanted.length) return undefined;
+	const scored = topics
+		.map((t) => ({ id: t.id, score: titleOverlap(name, t.name), same: titleTokens(t.name).length === wanted.length }))
+		.filter((t) => t.score >= 0.6)
+		.sort((a, b) => b.score - a.score || Number(b.same) - Number(a.same));
+	if (!scored.length) return undefined;
+	if (scored[1] && scored[1].score === scored[0]!.score && scored[1].same === scored[0]!.same) return undefined; // ambiguous
+	return scored[0]!.id;
 }
 
 // ── dates ───────────────────────────────────────────────────────────────────────────────────────────────────────

@@ -118,6 +118,10 @@ export function readMaterialMeta(raw: unknown): MaterialMeta {
 		if (clean.length > NAME_MAX) throw new Error(`Title is at most ${NAME_MAX} characters.`);
 		meta.title = clean;
 	}
+	if (r.source === "planner") {
+		meta.source = "planner";
+		if (typeof r.finished === "boolean") meta.finished = r.finished;
+	}
 	return meta;
 }
 

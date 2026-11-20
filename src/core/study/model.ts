@@ -82,7 +82,7 @@ export interface Material {
 	/** "text" = a markdown/plain-text file split into virtual pages (no page images); absent = PDF. */
 	kind?: "text";
 	/** Lecture metadata, guessed on upload and editable by the learner; absent on older files. */
-	meta?: { lecture?: number; date?: string /* YYYY-MM-DD */; kind?: "slides" | "handwritten" | "assignment" | "other"; title?: string };
+	meta?: { lecture?: number; date?: string /* YYYY-MM-DD */; kind?: "slides" | "handwritten" | "assignment" | "other"; title?: string; /** Set on notes handed over by the Planner (read-only here). */ source?: "planner"; /** Planner notes: was the task finished when the note was sent? */ finished?: boolean };
 	/** The part of the file this scope uses (a file shared by two topics covers different pages in each). */
 	pages?: { from: number; to: number };
 }

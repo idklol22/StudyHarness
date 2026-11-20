@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { ArrowLeftIcon, MinusIcon, PanelLeftIcon, PlusIcon, SearchIcon } from "lucide-react";
+import { HostMarkdown } from "@/components/host-markdown";
 import { TopBar } from "@/components/top-bar";
 import type { Library } from "@/src/core";
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask, TextLayer } from "pdfjs-dist";
@@ -137,7 +138,7 @@ function TextPage({ materialId, page, cache, onText }: { materialId: string; pag
 			.catch(() => { if (!cancelled) setText("Could not load this page."); });
 		return () => { cancelled = true; };
 	}, [cache, materialId, onText, page]);
-	return <div className="whitespace-pre-wrap font-sans text-sm leading-relaxed" data-testid="reader-text-page">{text ?? "Loading…"}</div>;
+	return <div className="font-sans text-sm leading-relaxed" data-testid="reader-text-page">{text === null ? "Loading…" : <HostMarkdown text={text} />}</div>;
 }
 
 /** The route page: the embeddable reader full-height under the app's top bar. */
@@ -413,6 +414,7 @@ export function PdfReaderView({ materialId, page: startPage, compact = false, ba
 		<>
 				{!compact && <Link href={back} aria-label="Back to subject" className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><ArrowLeftIcon className="size-3.5" />Back</Link>}
 				{compact ? <span className="min-w-0 flex-1" /> : <h1 className="min-w-0 flex-1 truncate font-title text-xl tracking-tight" title={material?.fileName}>{material?.fileName ?? "Reader"}</h1>}
+				{material?.meta?.source === "planner" && <span data-testid="reader-planner-note" className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">From Planner · {material.meta.finished === false ? "Unfinished" : "Finished"} · Edit in Planner</span>}
 				{!shownError && (
 					<div className="flex shrink-0 items-center gap-2 text-xs">
 						<label className="flex items-center gap-1 tabular-nums">

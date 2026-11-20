@@ -28,6 +28,11 @@ export interface FileRow {
 	addedAt: string
 }
 
+/** A note handed over by the Planner (read-only here; the Planner is its source). */
+export const isPlannerNote = (m: Pick<Material, "meta">): boolean => m.meta?.source === "planner";
+/** The badge text of a Planner note. */
+export const plannerBadge = (m: Pick<Material, "meta">): string => (m.meta?.finished === false ? "Unfinished" : "Finished");
+
 export type FileSort = "name" | "topic" | "pages" | "coverage" | "added" | "lecture";
 
 export const FILE_SORTS: ReadonlyArray<{ id: FileSort; label: string }> = [
@@ -213,8 +218,8 @@ export function FilesTable({
 		return [
 			meta.lecture === undefined ? "" : `Lecture ${meta.lecture}`,
 			meta.date ? cardDate(meta.date) : "",
-			meta.kind ? KIND_LABELS[meta.kind] : "",
-			`${m.pageCount} pp`,
+			isPlannerNote(m) ? plannerBadge(m) : meta.kind ? KIND_LABELS[meta.kind] : "",
+			isPlannerNote(m) ? "" : `${m.pageCount} pp`,
 		].filter(Boolean).join(" · ");
 	};
 
@@ -231,9 +236,12 @@ export function FilesTable({
 			const topicId = files[0]?.scope.topicId;
 			return [{ key: "topic", name: topicId ? topicOf(library, topicId)?.name ?? "Topic files" : "Topic files", files: [...files] }];
 		}
+		const own = files.filter((m) => !isPlannerNote(m));
+		const planner = files.filter(isPlannerNote);
 		return [
-			...topicsOf(library, subjectId).map((t) => ({ key: t.id, name: t.name, files: files.filter((m) => m.scope.topicId === t.id) })),
-			{ key: "subject-wide", name: "Subject-wide", files: files.filter((m) => !m.scope.topicId) },
+			...(planner.length ? [{ key: "from-planner", name: "From Planner", files: planner }] : []),
+			...topicsOf(library, subjectId).map((t) => ({ key: t.id, name: t.name, files: own.filter((m) => m.scope.topicId === t.id) })),
+			{ key: "subject-wide", name: "Subject-wide", files: own.filter((m) => !m.scope.topicId) },
 		];
 	}, [files, library, subjectId, topicPage]);
 
@@ -248,7 +256,9 @@ export function FilesTable({
 		return (
 			<>
 				<Link href={readerHref(m)} data-testid="file-action-view" onClick={() => setMenuFor(null)} className="rounded px-2 py-1.5 text-left hover:bg-accent">View pages</Link>
-				<button type="button" data-testid="file-action-edit-meta" onClick={() => { setMenuFor(null); setEditFor(m.id); }} className="flex items-center gap-1.5 rounded px-2 py-1.5 text-left hover:bg-accent"><PencilIcon className="size-3" />Edit details</button>
+				{isPlannerNote(m)
+					? <span data-testid="file-action-edit-in-planner" className="px-2 py-1.5 text-left text-muted-foreground">Edit in Planner</span>
+					: <button type="button" data-testid="file-action-edit-meta" onClick={() => { setMenuFor(null); setEditFor(m.id); }} className="flex items-center gap-1.5 rounded px-2 py-1.5 text-left hover:bg-accent"><PencilIcon className="size-3" />Edit details</button>}
 				{!m.scope.topicId && <button type="button" data-testid="file-action-put-in-topic" onClick={() => { setMenuFor(null); setPlacing({ id: m.id, mode: "move" }); }} className="flex items-center gap-1.5 rounded px-2 py-1.5 text-left hover:bg-accent"><FolderInputIcon className="size-3" />Put in topic</button>}
 				<button type="button" data-testid="file-action-also-in-topic" onClick={() => { setMenuFor(null); setPlacing({ id: m.id, mode: "link" }); }} className="flex items-center gap-1.5 rounded px-2 py-1.5 text-left hover:bg-accent"><CopyPlusIcon className="size-3" />Also in topic</button>
 				{!m.scope.topicId && !pending && <button type="button" data-testid="file-action-find-topics" onClick={() => actAndClose(m.id, { action: "understand-material", id: m.id }, `Understanding ${m.fileName} — watch the activity panel; suggested topics will appear here.`)} className="flex items-center gap-1.5 rounded px-2 py-1.5 text-left hover:bg-accent"><SparklesIcon className="size-3" />Find topics</button>}

@@ -25,7 +25,7 @@ export async function POST(request: Request) {
 		const { materialId } = await upsertPlannerNote(note, { study, map: plannerNoteMap });
 		emit("sources-changed", {}); // the same event the materials route announces; pages refetch the library
 		// Absorb in the background: knowledge into the subject's memory, dated items into deadlines. Never blocks the reply.
-		void absorbWithApp(note).catch((error) => console.error("[planner] note absorption failed:", error));
+		void absorbWithApp(note, materialId).catch((error) => console.error("[planner] note absorption failed:", error));
 		return Response.json({ materialId, absorb: "queued" }, { headers });
 	} catch (error) {
 		if (error instanceof PlannerNoteInputError || error instanceof StudyInputError) return Response.json({ error: error.message }, { status: 400, headers });
