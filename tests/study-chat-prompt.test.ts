@@ -26,4 +26,16 @@ describe("study chat prompt: questions outside course theory", () => {
 			assert.ok(prompt.includes(invariant), `missing unchanged instruction: ${invariant}`);
 		}
 	});
+
+	it("only produces MCQs and flashcards on explicit request", () => {
+		assert.match(prompt, /Do not volunteer multiple-choice questions or flashcards/);
+		assert.match(prompt, /always give the full set requested in your reply/);
+		assert.match(prompt, /Never offer to make them instead of making them/);
+	});
+
+	it("keeps plain mode free of the doctrine flashcard header", () => {
+		assert.doesNotMatch(prompt, /Flashcards:/);
+		assert.ok(prompt.includes("study_context"));
+		assert.ok(prompt.includes("save_chat_notes"));
+	});
 });
