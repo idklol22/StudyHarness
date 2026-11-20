@@ -140,7 +140,16 @@ function TextPage({ materialId, page, cache, onText }: { materialId: string; pag
 	return <div className="whitespace-pre-wrap font-sans text-sm leading-relaxed" data-testid="reader-text-page">{text ?? "Loading…"}</div>;
 }
 
+/** The route page: the embeddable reader full-height under the app's top bar. */
 export function PdfReader({ subjectId, materialId, startPage }: { subjectId: string; materialId: string; startPage?: number }) {
+	return <PdfReaderView materialId={materialId} page={startPage} backHref={`/subjects/${encodeURIComponent(subjectId)}#files`} />;
+}
+
+/**
+ * The reader core, embeddable. `compact` (the chat side panel): a thinner toolbar, thumbnails collapsed, keys
+ * scoped to the view instead of the window. `jumpKey` re-scrolls to `page` when the host re-opens the same file.
+ */
+export function PdfReaderView({ materialId, page: startPage, compact = false, backHref, jumpKey }: { materialId: string; page?: number; compact?: boolean; backHref?: string; jumpKey?: number }) {
 	const [library, setLibrary] = useState<Library | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [lib, setLib] = useState<PdfLib | null>(null);
@@ -148,7 +157,7 @@ export function PdfReader({ subjectId, materialId, startPage }: { subjectId: str
 	const [pdfTotal, setPdfTotal] = useState(0);
 	const [sizes, setSizes] = useState<Size[]>([]);
 	const [scale, setScale] = useState(1);
-	const [railOpen, setRailOpen] = useState(true);
+	const [railOpen, setRailOpen] = useState(!compact);
 	const [rendered, setRendered] = useState<Set<number>>(() => new Set([startPage && startPage > 0 ? Math.floor(startPage) : rememberedPage(materialId)]));
 	const [current, setCurrent] = useState(() => startPage && startPage > 0 ? Math.floor(startPage) : rememberedPage(materialId));
 	const [pageInput, setPageInput] = useState(String(current));
@@ -158,6 +167,7 @@ export function PdfReader({ subjectId, materialId, startPage }: { subjectId: str
 	const [searched, setSearched] = useState(false);
 	const [searching, setSearching] = useState(false);
 
+	const rootEl = useRef<HTMLDivElement>(null);
 	const scrollBox = useRef<HTMLDivElement>(null);
 	const [railEl, setRailEl] = useState<HTMLElement | null>(null);
 	const searchBox = useRef<HTMLInputElement>(null);
@@ -271,6 +281,15 @@ export function PdfReader({ subjectId, materialId, startPage }: { subjectId: str
 		box.scrollTo({ top: Math.max(0, top - 12), behavior });
 	}, [total]);
 
+	// A host re-opening this file at another page (panel citations) scrolls the live reader.
+	const lastJump = useRef({ jumpKey, startPage });
+	useEffect(() => {
+		const prev = lastJump.current;
+		lastJump.current = { jumpKey, startPage };
+		if (prev.jumpKey === jumpKey && prev.startPage === startPage) return;
+		if (ready && startPage && startPage > 0) goToPage(startPage);
+	}, [goToPage, jumpKey, ready, startPage]);
+
 	// Jump to ?page (or the remembered page) once, before scroll tracking starts.
 	useEffect(() => {
 		if (!ready || !total) return;
@@ -364,9 +383,10 @@ export function PdfReader({ subjectId, materialId, startPage }: { subjectId: str
 			if (event.key === "ArrowRight" || event.key === "PageDown") { event.preventDefault(); goToPage(currentRef.current + 1); }
 			else if (event.key === "ArrowLeft" || event.key === "PageUp") { event.preventDefault(); goToPage(currentRef.current - 1); }
 		};
-		window.addEventListener("keydown", onKey);
-		return () => window.removeEventListener("keydown", onKey);
-	}, [goToPage]);
+		const host: HTMLElement | Window | null = compact ? rootEl.current : window;
+		host?.addEventListener("keydown", onKey as EventListener);
+		return () => host?.removeEventListener("keydown", onKey as EventListener);
+	}, [compact, goToPage]);
 
 	const commitPage = () => {
 		const n = Number(pageInput);
@@ -385,15 +405,14 @@ export function PdfReader({ subjectId, materialId, startPage }: { subjectId: str
 		if (!box || !size) return;
 		setScale(clampScale(Math.min((box.clientWidth - 64) / size.width, (box.clientHeight - 64) / size.height)));
 	};
-	const back = `/subjects/${encodeURIComponent(subjectId)}#files`;
+	const back = backHref ?? "/";
 	const shownError = error ?? (library && !material ? "That file no longer exists." : null);
 	const thumbWidth = 130;
 
-	return (
-		<div className="flex h-dvh min-w-0 flex-col bg-background" data-testid="pdf-reader">
-			<TopBar>
-				<Link href={back} aria-label="Back to subject" className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><ArrowLeftIcon className="size-3.5" />Back</Link>
-				<h1 className="min-w-0 flex-1 truncate font-title text-xl tracking-tight" title={material?.fileName}>{material?.fileName ?? "Reader"}</h1>
+	const toolbar = (
+		<>
+				{!compact && <Link href={back} aria-label="Back to subject" className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><ArrowLeftIcon className="size-3.5" />Back</Link>}
+				{compact ? <span className="min-w-0 flex-1" /> : <h1 className="min-w-0 flex-1 truncate font-title text-xl tracking-tight" title={material?.fileName}>{material?.fileName ?? "Reader"}</h1>}
 				{!shownError && (
 					<div className="flex shrink-0 items-center gap-2 text-xs">
 						<label className="flex items-center gap-1 tabular-nums">
@@ -416,7 +435,7 @@ export function PdfReader({ subjectId, materialId, startPage }: { subjectId: str
 								<button type="button" aria-label="Zoom out" data-testid="reader-zoom-out" onClick={() => setScale((s) => clampScale(s / 1.2))} className="rounded border border-border p-1 text-muted-foreground hover:bg-accent hover:text-foreground"><MinusIcon className="size-3.5" /></button>
 								<button type="button" aria-label="Zoom in" data-testid="reader-zoom-in" onClick={() => setScale((s) => clampScale(s * 1.2))} className="rounded border border-border p-1 text-muted-foreground hover:bg-accent hover:text-foreground"><PlusIcon className="size-3.5" /></button>
 								<button type="button" data-testid="reader-fit-width" onClick={fitWidth} className="rounded border border-border px-2 py-1 text-muted-foreground hover:bg-accent hover:text-foreground">Fit width</button>
-								<button type="button" data-testid="reader-fit-page" onClick={fitPage} className="rounded border border-border px-2 py-1 text-muted-foreground hover:bg-accent hover:text-foreground">Fit page</button>
+								{!compact && <button type="button" data-testid="reader-fit-page" onClick={fitPage} className="rounded border border-border px-2 py-1 text-muted-foreground hover:bg-accent hover:text-foreground">Fit page</button>}
 							</>
 						)}
 						<label className="flex items-center gap-1 rounded border border-border px-2">
@@ -429,14 +448,19 @@ export function PdfReader({ subjectId, materialId, startPage }: { subjectId: str
 								onChange={(e) => { setSearchQuery(e.target.value); setSearched(false); setSearchMatches([]); lastQuery.current = ""; }}
 								onKeyDown={(e) => { if (e.key === "Enter") void runSearch(); }}
 								placeholder="Search"
-								className="h-8 w-28 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+								className={`${compact ? "h-6 w-20" : "h-8 w-28"} bg-transparent text-xs outline-none placeholder:text-muted-foreground`}
 							/>
 						</label>
 						{searched && <span className="tabular-nums text-muted-foreground" data-testid="reader-search-results">{searching ? "Searching…" : `${searchMatches.length ? searchIndex + 1 : 0} of ${searchMatches.length} pages`}</span>}
 						<button type="button" aria-label={railOpen ? "Hide thumbnails" : "Show thumbnails"} data-testid="reader-toggle-thumbnails" onClick={() => setRailOpen((open) => !open)} className="rounded border border-border p-1 text-muted-foreground hover:bg-accent hover:text-foreground"><PanelLeftIcon className="size-3.5" /></button>
 					</div>
 				)}
-			</TopBar>
+		</>
+	);
+
+	return (
+		<div ref={rootEl} tabIndex={compact ? -1 : undefined} className={`flex min-w-0 flex-col bg-background outline-none ${compact ? "h-full min-h-0" : "h-dvh"}`} data-testid="pdf-reader">
+			{compact ? <div className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-b border-border px-2 py-1">{toolbar}</div> : <TopBar>{toolbar}</TopBar>}
 
 			{shownError ? (
 				<div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 text-sm">
@@ -474,7 +498,7 @@ export function PdfReader({ subjectId, materialId, startPage }: { subjectId: str
 						</aside>
 					)}
 					<div ref={scrollBox} onScroll={onScroll} data-testid="reader-pages" className="min-w-0 flex-1 overflow-auto">
-						<div className="flex min-h-full flex-col items-center gap-4 px-8 py-6">
+						<div className={`flex min-h-full flex-col items-center gap-4 ${compact ? "px-3 py-3" : "px-8 py-6"}`}>
 							{Array.from({ length: total }, (_, i) => i + 1).map((n) => {
 								const size = sizes[n - 1];
 								const shown = rendered.has(n);

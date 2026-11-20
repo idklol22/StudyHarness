@@ -88,6 +88,8 @@ import { CitationActionsContext, type CitationActions } from "@/components/citat
 import { CitationCommentPopover } from "@/components/citation-comment-popover";
 import { revealCitationSource } from "@/components/citation-source";
 import { createSideQuestionActions, SideThreadBody, SideThreadPanel, SideThreadPopover } from "@/components/side-thread";
+import { FilesButton, SavedNoteLink, SidePanel, SidePanelProvider } from "@/components/panel/side-panel";
+import { CitedText } from "@/components/panel/cited-text";
 import { useSideThread, type SideThreadOpenArgs } from "@/components/use-side-thread";
 import { useRouter } from "next/navigation";
 import { PracticeDock } from "@/components/practice-dock";
@@ -1622,6 +1624,7 @@ export function Chat({
 	usePluginShortcutPage(`/chat/${encodeURIComponent(chatId)}`, captureActionContext);
 
 	return (
+		<SidePanelProvider chatId={chatId} subjectId={placement?.subjectId}>
 		<ChatActionsContext.Provider
 			value={{
 				chatId,
@@ -1728,6 +1731,7 @@ export function Chat({
 					{/* The plan chip (owner, plan-placement round): session-level
 					    structure beside the phase chip — access to the full-DAG popup
 					    at every width; the marginalia is the wide-screen glance view. */}
+					<FilesButton />
 					{planTree && (
 						<Hint label="Open the full plan" side="bottom">
 <button
@@ -1965,7 +1969,7 @@ export function Chat({
 														const anchor = sourceId && sourceTextParts.get(sourceId) === part.id ? messageAnchorId(sourceId) : undefined;
 														return (
 															<div key={part.id || pi} id={anchor} data-source-message-id={sourceId ?? undefined} className="lh-source-passage">
-																<MessageResponse>{part.text}</MessageResponse>
+																<CitedText text={part.text ?? ""} />
 															</div>
 														);
 													}
@@ -2019,13 +2023,12 @@ export function Chat({
 												const subjectId = saved.subjectId ?? placement?.subjectId;
 												const scope = [saved.subjectName, saved.topicName].filter(Boolean).join(" › ");
 												return (
-													<a key={pi} data-testid="saved-chat-notes-card"
-														href={`/subjects/${subjectId}/read/${saved.id}`}
+													<SavedNoteLink key={pi} materialId={saved.id} subjectId={subjectId} title={saved.title ?? "Notes"}
 														className="my-2 flex w-fit items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm transition-colors hover:bg-accent"
 													>
 														<SavedIcon className="size-4 text-muted-foreground" aria-hidden="true" />
 														<span>Saved to {scope}: {saved.title}</span>
-													</a>
+													</SavedNoteLink>
 												);
 											}
 									default: {
@@ -2294,6 +2297,7 @@ export function Chat({
 				<AbortTurnDialog mode={abortAsk} onClose={closeAbortAsk} onConfirm={confirmAbort} busy={busy} />
 				</div>
 			</div>
+			<SidePanel />
 		</div>
 		</CitationActionsContext.Provider>
 		</JobsContext.Provider>
@@ -2314,6 +2318,7 @@ export function Chat({
 			}}
 		/>
 		</ChatActionsContext.Provider>
+		</SidePanelProvider>
 	);
 }
 

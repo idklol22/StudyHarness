@@ -27,6 +27,8 @@
  * EXPAND icon (opens the session overlay) when a chat page is mounted.
  */
 
+import { CitationPill } from "@/components/panel/side-panel";
+import { parseCitationToken } from "@/components/panel/citations";
 import { cloneElement, createContext, isValidElement, useContext, useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { CheckIcon, CopyIcon, MaximizeIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -248,6 +250,8 @@ export function MarkdownCode(props: ComponentProps<"code"> & ExtraProps) {
 
 	// Inline code: no data-block (the pre handler stamps block fences only).
 	if (!("data-block" in props)) {
+		const cite = typeof children === "string" ? parseCitationToken(children) : null;
+		if (cite) return <CitationPill materialId={cite.materialId} page={cite.page} label={cite.label} />;
 		return (
 			<code className={cn("rounded px-1.5 py-0.5 font-mono text-sm text-(--lh-ink-code)", className)} data-streamdown="inline-code" {...rest}>
 				{children}

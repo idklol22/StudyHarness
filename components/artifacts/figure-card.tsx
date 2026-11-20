@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ToolCallCard } from "@/components/artifacts/tool-call-card";
 import type { ArtifactPartProps, ImageSnapshot, ShowFigureDetails } from "@/src/core";
+import { useSidePanel } from "@/components/panel/side-panel";
 import { useImageSnapshot } from "./use-image-snapshot";
 
 /**
@@ -37,6 +38,7 @@ export function FigureCard({ part }: ArtifactPartProps) {
 function StoredFigureCard({ details }: { details: ShowFigureDetails }) {
 	const { image, failed } = useImageSnapshot(details.snapshotId);
 	const [lightbox, setLightbox] = useState(false);
+	const panel = useSidePanel();
 	useEffect(() => {
 		if (!lightbox) return;
 		const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setLightbox(false); };
@@ -49,7 +51,9 @@ function StoredFigureCard({ details }: { details: ShowFigureDetails }) {
 	const reader = `/subjects/${encodeURIComponent(details.subjectId)}/read/${encodeURIComponent(details.materialId)}?page=${details.page}`;
 	return (
 		<figure className="mx-auto my-4 w-fit max-w-full" data-testid="figure-card">
-			<button type="button" aria-label="Open figure larger" className="block max-w-full cursor-zoom-in overflow-hidden rounded-md border" onClick={() => setLightbox(true)}>
+			<button type="button" aria-label="Open figure larger" className="block max-w-full cursor-zoom-in overflow-hidden rounded-md border" onClick={() => panel
+				? panel.open({ kind: "figure", id: details.snapshotId, title: details.caption || `${details.fileName} p. ${details.page}`, caption: details.caption, subjectId: details.subjectId, materialId: details.materialId, page: details.page })
+				: setLightbox(true)}>
 				{/* An in-memory image from the record; no Next image optimization. */}
 				{/* eslint-disable-next-line @next/next/no-img-element */}
 				<img src={src} alt={alt} width={image.width} height={image.height} className="block max-h-[420px] max-w-full object-contain" draggable={false} />
