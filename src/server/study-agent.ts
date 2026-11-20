@@ -44,13 +44,8 @@ export function studyContributions(
 ): { instructions: string[]; tools: AgentTool<any>[] } | undefined {
 	const lib = study.library();
 	if (!subjectOf(lib, placement.subjectId)) return undefined;
-	const readState = (id: string) => {
-		const m = lib.materials.find((x) => x.id === id);
-		if (!m) return "";
-		const read = studyStore.readMemory(m.sha256).read.length;
-		return read ? `read ${read} of ${m.pageCount} pages` : "not read yet";
-	};
-	const instructions = studyInstructions({ library: lib, placement, kind, mode, readState });
+	// No per-file read counts in the prompt: they change every turn and would bust the prompt cache.
+	const instructions = studyInstructions({ library: lib, placement, kind, mode });
 
 	const ownKey = () => {
 		// Several topics read as a union but have no single notebook/card set to own the write: use the subject.
@@ -128,8 +123,8 @@ export function studyContributions(
 }
 
 const lastKept = new Map<string, { at: number; turns: number }>();
-const KEEP_EVERY_MS = 3 * 60_000;
-const KEEP_EVERY_TURNS = 4;
+const KEEP_EVERY_MS = 10 * 60_000;
+const KEEP_EVERY_TURNS = 8;
 
 /** After a turn: refresh the chat's topic/subject context with the latest exchange, at most every few minutes. Never throws. */
 export function keepContextAfterTurn(chatId: string, placement: ChatPlacement | undefined, exchange: string, deps: StudyDeps, now = Date.now()): void {

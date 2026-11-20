@@ -122,14 +122,44 @@ export function resolveConversationSpec(
 	};
 }
 
-/** Side questions (#16): the chat's own conversation chain, under the
- *  optional agent.models.sideQuestion override (field by field). */
-export function resolveSideQuestionSpec(chat: ChatSettings | undefined, record: UserSettings | null): EffectiveModelSpec | null {
+/** The OpenRouter small-task route (token diet, 2026-11-20): the picked
+ *  OpenRouter model, only when the toggle is ON, a model is picked and the
+ *  owner has an OpenRouter key. Pure — the caller reports key presence. */
+export function smallTaskOpenRouter(record: UserSettings | null, openRouterKeyPresent: boolean): EffectiveModelSpec | undefined {
+	const or = record?.agent?.smallTasks?.openRouter;
+	if (!or?.enabled || !or.model || !openRouterKeyPresent) return undefined;
+	return { provider: or.model.provider, id: or.model.id, thinkingLevel: "off" };
+}
+
+/** Side questions (#16) = the FOLLOW-UP window. Order: the explicit
+ *  agent.models.sideQuestion override; else, unless the owner chose
+ *  "strong", the small-task route (OpenRouter pick, else the CHEAP slot);
+ *  else the chat's own conversation chain. */
+export function resolveSideQuestionSpec(chat: ChatSettings | undefined, record: UserSettings | null, openRouterKeyPresent = false): EffectiveModelSpec | null {
 	const conversation = resolveConversationSpec(chat, resolveSlot(record?.models?.strong));
 	const override = record?.agent?.models?.sideQuestion;
-	const model = override?.model ?? (conversation ? { provider: conversation.provider, id: conversation.id } : undefined);
+	if (override?.model) return { provider: override.model.provider, id: override.model.id, thinkingLevel: override.thinkingLevel ?? conversation?.thinkingLevel };
+	if ((record?.agent?.smallTasks?.followUpModel ?? "cheap") === "cheap") {
+		const routed = smallTaskOpenRouter(record, openRouterKeyPresent);
+		if (routed) return routed;
+		const cheap = resolveSlot(record?.models?.cheap);
+		if (cheap) return { provider: cheap.provider, id: cheap.id, thinkingLevel: override?.thinkingLevel ?? cheap.thinkingLevel };
+	}
+	const model = conversation ? { provider: conversation.provider, id: conversation.id } : undefined;
 	if (!model) return null;
 	return { provider: model.provider, id: model.id, thinkingLevel: override?.thinkingLevel ?? conversation?.thinkingLevel };
+}
+
+/** Roles whose slot is CHEAP route to the OpenRouter small-task model when
+ *  it is on (no per-role override wins over it). */
+export function resolveRoleSpecRouted(role: ModelRole, record: UserSettings | null, openRouterKeyPresent: boolean): EffectiveModelSpec | undefined {
+	const bg = BACKGROUND_MODEL_ROLES as readonly string[];
+	const override = bg.includes(role) ? record?.agent?.models?.[role as BackgroundModelRole] : undefined;
+	if (!override?.model && ROLE_SLOT[role] === "cheap") {
+		const routed = smallTaskOpenRouter(record, openRouterKeyPresent);
+		if (routed) return routed;
+	}
+	return resolveModelSpec(role, override, record?.models);
 }
 
 /** Full-chain resolution for ANY role (BYOK, owner 2026-09-22):

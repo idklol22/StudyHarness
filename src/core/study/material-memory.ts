@@ -64,6 +64,27 @@ export function recordPages(memory: MaterialMemory, pages: Array<{ n: number; te
 	return { ...memory, pages: next };
 }
 
+/** A page whose own text layer is shorter than this is image/slide-only: only then is the vision model worth its tokens. */
+export const SPARSE_PAGE_CHARS = 200;
+
+/** Split wanted pages: `textual` have a real text layer (no model needed), `sparse` need a look. Pages whose text
+ *  is not stored yet land in `unknown` (extract them first). Pages already model-read are skipped entirely. */
+export function splitByTextLayer(memory: MaterialMemory, wanted: readonly number[], min = SPARSE_PAGE_CHARS): { textual: number[]; sparse: number[]; unknown: number[] } {
+	const out = { textual: [] as number[], sparse: [] as number[], unknown: [] as number[] };
+	for (const n of unread(memory, wanted)) {
+		const text = memory.pages[n];
+		if (text === undefined) out.unknown.push(n);
+		else if (text.replace(/\s+/g, " ").trim().length >= min) out.textual.push(n);
+		else out.sparse.push(n);
+	}
+	return out;
+}
+
+/** Mark pages as read from their text layer alone (no model call, no summary). */
+export function markTextRead(memory: MaterialMemory, pages: readonly number[]): MaterialMemory {
+	return { ...memory, read: [...new Set([...memory.read, ...pages])].sort((a, b) => a - b) };
+}
+
 /** Which of the wanted pages have not been READ (model-read) yet. */
 export const unread = (memory: MaterialMemory, wanted: readonly number[]): number[] => {
 	const done = new Set(memory.read);

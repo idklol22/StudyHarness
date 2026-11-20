@@ -155,7 +155,7 @@ async function processCapture(id: string): Promise<void> {
 		let text = "";
 		try { text = fs.readFileSync(path.join(folder, "text.txt"), "utf8"); } catch { /* no pasted text */ }
 		work.say("Extracting course content from the captures…");
-		const markdown = await extractInbox(images, text, { engine: resolveEngine("pdfReader") });
+		const markdown = await extractInbox(images, text, { engine: resolveEngine(images.length ? "pdfReader" : "extractor") });
 		work.say("Adding the extracted notes and deadlines…");
 		await appendToNotes(scope, markdown, capture.createdAt);
 		addDeadlines(scope, markdown);

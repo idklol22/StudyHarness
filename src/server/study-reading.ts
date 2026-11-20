@@ -6,7 +6,7 @@ import type { Usage } from "@earendil-works/pi-ai";
 import type { ModelRole } from "../../config.ts";
 import type { PiEngine } from "../agent/models.ts";
 import { readPages, type WorkerEnv } from "../agent/subagents/study-workers.ts";
-import { recordBatch, unread } from "../core/study/material-memory.ts";
+import { markTextRead, pageRanges, recordBatch, splitByTextLayer } from "../core/study/material-memory.ts";
 import type { Material } from "../core/study/model.ts";
 import { studyStore } from "../store/study.ts";
 import { study } from "./study-runtime.ts";
@@ -19,16 +19,35 @@ export interface ReadDeps {
 }
 
 const READ_BATCH = 6;
+const TEXT_EXCERPT = 300;
 
-/** Read the not-yet-read pages among `pages` (batches of 6). Returns how many were read and a line per batch. */
+/**
+ * Read the not-yet-read pages among `pages`. TEXT FIRST (token diet, 2026-11-20): a page with a real text layer is
+ * served from the PDF's own text (free); only image/slide-only pages (< SPARSE_PAGE_CHARS of text) go to the vision
+ * model, in batches of 6, and only when this is asked for (study_material / notes), never on upload.
+ */
 export async function readMaterialPages(m: Material, pages: readonly number[], deps: ReadDeps, chatId?: string): Promise<{ count: number; summaries: string[] }> {
 	if (m.kind === "text") return { count: 0, summaries: [] }; // text is remembered whole when it is added
 	let memory = studyStore.readMemory(m.sha256);
-	const todo = unread(memory, pages);
+	let split = splitByTextLayer(memory, pages);
+	if (split.unknown.length) {
+		await study.extractText(m.sha256, split.unknown);
+		memory = studyStore.readMemory(m.sha256);
+		split = splitByTextLayer(memory, pages);
+	}
 	const summaries: string[] = [];
-	if (!todo.length) return { count: 0, summaries };
+	const count = split.textual.length + split.sparse.length;
+	if (!count) return { count: 0, summaries };
+	if (split.textual.length) {
+		for (const n of split.textual) summaries.push(`page ${n}: ${memory.pages[n]!.replace(/\s+/g, " ").trim().slice(0, TEXT_EXCERPT)}`);
+		studyStore.writeMemory(m.sha256, markTextRead(studyStore.readMemory(m.sha256), split.textual));
+		summaries.push(`(pages ${pageRanges(split.textual)} come from the file's text layer; the full stored text is in study_context with those pages.)`);
+	}
+	const todo = split.sparse;
+	if (!todo.length) return { count, summaries };
+	memory = studyStore.readMemory(m.sha256);
 	const env: WorkerEnv = { engine: deps.engineFor("pdfReader"), signal: deps.signal, chatId, onUsage: (usage) => deps.onUsage?.(usage) };
-	const work = beginStudyWork(`Reading ${m.fileName}`, `Reading ${todo.length} page${todo.length === 1 ? "" : "s"} of ${m.pageCount} with the page reader`);
+	const work = beginStudyWork(`Reading ${m.fileName}`, `Looking at ${todo.length} image-only page${todo.length === 1 ? "" : "s"} of ${m.pageCount} with the page reader`);
 	try {
 		for (let i = 0; i < todo.length; i += READ_BATCH) {
 			const batch = todo.slice(i, i + READ_BATCH);
@@ -42,6 +61,6 @@ export async function readMaterialPages(m: Material, pages: readonly number[], d
 			work.say(`Understood pages ${range}: ${read.summary}${read.concepts.length ? ` — concepts: ${read.concepts.slice(0, 6).join(", ")}` : ""}`);
 		}
 		work.say(`Finished reading ${todo.length} page${todo.length === 1 ? "" : "s"} of ${m.fileName}; remembered so they are never reread.`);
-		return { count: todo.length, summaries };
+		return { count, summaries };
 	} finally { work.done(); }
 }

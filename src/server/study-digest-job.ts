@@ -2,7 +2,7 @@
  * A file is understood the moment it arrives (owner 2026-11-19: "as soon as I upload a file, it starts to infer it").
  * For every new material, in the background and visible in the activity dock:
  *   1. full text of every page (no model: the PDF's own text) into the file's memory;
- *   2. a vision skim of the first pages — 20% of the file, at most 8;
+ *   2. no vision on upload (only a text-less scan gets a 3-page look); sparse pages are read lazily when a chat needs them;
  *   3. a compact outline of the whole document from that text;
  *   4. topics and ideas: a subject-wide file gets 1–2 broad SUGGESTED topics (accepted by the learner on the subject
  *      page); a file added to a topic adds its ideas to that topic straight away;
@@ -14,7 +14,7 @@ import { FIELDS, isField } from "../core/study/fields.ts";
 import { ideasOf } from "../core/study/ideas.ts";
 import { parseRange } from "../core/study/material-memory.ts";
 import { subjectOf, topicOf, topicsOf, type Material, type SuggestedTopic } from "../core/study/model.ts";
-import { documentOutline, skimPageCount } from "../core/study/outline.ts";
+import { documentOutline } from "../core/study/outline.ts";
 import { studyStore } from "../store/study.ts";
 import { beginStudyWork } from "./study-activity.ts";
 import { refreshContext, type StudyDeps } from "./study-context.ts";
@@ -22,13 +22,15 @@ import { readMaterialPages } from "./study-reading.ts";
 import { study } from "./study-runtime.ts";
 
 const TEXT_BATCH = 40;
+/** The cheap model reads a compact outline of the text layer (~3k tokens), never the whole file. */
+export const DIGEST_OUTLINE_CHARS = 12000;
 const running = new Set<string>();
 
 /** The whole-document outline from the file's memory (page texts, else the skim's summaries). */
 function outlineOf(m: Material): string {
 	const memory = studyStore.readMemory(m.sha256);
 	const withText = Object.values(memory.pages).filter((t) => t.trim()).length;
-	if (withText >= Math.min(3, m.pageCount)) return documentOutline({ pages: memory.pages, pageCount: m.pageCount, toc: memory.toc });
+	if (withText >= Math.min(3, m.pageCount)) return documentOutline({ pages: memory.pages, pageCount: m.pageCount, toc: memory.toc }, DIGEST_OUTLINE_CHARS);
 	// A scanned file has no text layer: the skim is all there is.
 	return memory.chunks.map((c) => `pages ${c.from}–${c.to}: ${c.summary} [${c.concepts.join(", ")}]`).join("\n") || `${m.fileName}: no readable text.`;
 }
@@ -51,11 +53,14 @@ export function digestMaterial(materialId: string, deps: StudyDeps, chatId?: str
 					withText += await study.extractText(first.sha256, parseRange(`${from}-${to}`, first.pageCount));
 				}
 				work.say(withText ? `Text extracted from ${withText} of ${first.pageCount} pages.` : "No text layer (a scanned file): relying on the page reader.");
-				// 2. A vision skim of the opening pages (contents, intro, figures).
-				const skim = skimPageCount(first.pageCount);
-				work.say(`Looking at the first ${skim} page${skim === 1 ? "" : "s"} with the page reader (contents, diagrams)…`);
-				const { summaries } = await readMaterialPages(first, parseRange(`1-${skim}`, first.pageCount), deps, chatId);
-				if (summaries.length) work.say(`Skimmed: ${summaries.join(" ").slice(0, 300)}`);
+				// 2. Token diet (2026-11-20): NO vision on upload. Pages with a text layer feed the cheap-model outline; only a
+				//    file with no usable text at all (a scan) gets a tiny vision look at its first pages so there is something to read.
+				if (withText < Math.min(3, first.pageCount)) {
+					const look = Math.min(3, first.pageCount);
+					work.say(`No text layer: looking at the first ${look} page${look === 1 ? "" : "s"} with the page reader…`);
+					const { summaries } = await readMaterialPages(first, parseRange(`1-${look}`, first.pageCount), deps, chatId);
+					if (summaries.length) work.say(`Skimmed: ${summaries.join(" ").slice(0, 300)}`);
+				}
 			}
 			// 3–4. Outline → topics and ideas.
 			const m = study.library().materials.find((x) => x.id === materialId);

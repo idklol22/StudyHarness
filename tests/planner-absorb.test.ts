@@ -25,6 +25,9 @@ xv6 is cool
 We have lab assignment @tomorrow at 5pm syllabus semaphores and mutexs concurrency
 We have end sem on 29th syllabus is everything`;
 
+// Real study content (> 200 chars outside the dated items) is what makes the gate call the model.
+const FACTS = "The scheduler keeps a runqueue ordered by virtual runtime and always runs the task with the smallest vruntime. ".repeat(3);
+
 describe("regexAbsorb", () => {
 	it("extracts the owner's example relative to the note date", () => {
 		const out = regexAbsorb(OWNER_NOTE, "2026-11-20");
@@ -113,7 +116,8 @@ function setup() {
 }
 
 describe("absorbPlannerNote", () => {
-	const note = (subjectId: string, markdown = OWNER_NOTE): PlannerNote => ({ externalId: "task-1", subjectId, title: "OSN class", date: "2026-11-20", markdown, finished: true });
+	const note = (subjectId: string, markdown = `${OWNER_NOTE}
+${FACTS}`): PlannerNote => ({ externalId: "task-1", subjectId, title: "OSN class", date: "2026-11-20", markdown, finished: true });
 
 	it("falls back to the regex extractor when the model fails, writes memory and deadlines once, and skips an unchanged re-send", async () => {
 		const { study, subject, state } = setup();
@@ -178,14 +182,14 @@ describe("Planner notes in the library", () => {
 		const topic = study.createTopic(subject.id, "Scheduling");
 		let data: Record<string, string> = {};
 		const map: PlannerNoteMap = { read: () => ({ ...data }), write: (next) => { data = { ...next }; } };
-		const n: PlannerNote = { externalId: "task-9", subjectId: subject.id, title: "CFS", date: "2026-11-20", markdown: "cfs picks the lowest vruntime", finished: false };
+		const n: PlannerNote = { externalId: "task-9", subjectId: subject.id, title: "CFS", date: "2026-11-20", markdown: `cfs picks the lowest vruntime. ${FACTS}`, finished: false };
 		const { materialId } = await upsertPlannerNote(n, { study, map });
 		const m = () => study.library().materials.find((x) => x.id === materialId)!;
 		assert.equal(isPlannerNote(m()), true);
 		assert.equal(plannerBadge(m()), "Unfinished");
 		assert.equal(m().meta?.date, "2026-11-20");
 
-		const out = await absorbPlannerNote(n, { study, state, extract: async () => ({ knowledge: "- CFS: lowest vruntime", topic: "scheduling", items: [] }) }, materialId);
+		const out = await absorbPlannerNote(n, { study, state, now: () => new Date("2026-11-22T10:00:00"), extract: async () => ({ knowledge: "- CFS: lowest vruntime", topic: "scheduling", items: [] }) }, materialId);
 		assert.equal(out.status, "done");
 		assert.equal(m().scope.topicId, topic.id);
 		assert.match(study.library().topics[0]!.context, /CFS: lowest vruntime/);

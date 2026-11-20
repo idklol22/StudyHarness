@@ -8,6 +8,13 @@ import { contextScopes, materialsIn, materialsUnder, materialTopicName, relatedC
 /** Tool names this module adds (reserved so plugins cannot shadow them). */
 export const STUDY_TOOL_NAMES = ["study_context", "study_material", "show_figure", "study_cards", "study_notes", "study_practice_next", "study_practice_rate", "save_chat_notes"] as const;
 
+/** Caps of the variable study block (token diet, 2026-11-20). */
+export const STUDY_BLOCK_CHARS = 6000;
+export const RELATED_CHARS = 1500;
+export const MATERIALS_MAX = 40;
+const MATERIALS_CHARS = 2400;
+const clip = (text: string, max: number): string => (text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1)).trimEnd()}…`);
+
 const LAYERS = `Where to look, in this order — stop at the first layer that answers:
 1. The topic context and subject context shown above (already in front of you; never re-fetch them).
 2. study_context with a query: searches the material memory (contents, page-range summaries, stored page text).
@@ -65,16 +72,45 @@ export function studyInstructions({ library, placement, kind, mode = "teach", re
 	if (!subject) return "";
 	const topicNames = selectedTopicIds(library, placement).map((id) => topicOf(library, id)!.name);
 	const where = topicNames.length === 1 ? `, topic "${topicNames[0]}"` : topicNames.length ? `, topics ${topicNames.map((name) => `"${name}"`).join(", ")}` : " (subject-wide)";
-	const out: string[] = [`# Study context\nThis chat belongs to the subject "${subject.name}"${where}.`];
-	for (const layer of contextScopes(library, placement)) {
-		out.push(layer.context.trim() ? `## ${layer.level === "topic" ? "Topic" : "Subject"} context — ${layer.name}\n${layer.context.trim()}` : `## ${layer.level === "topic" ? "Topic" : "Subject"} context — ${layer.name}\n(Nothing recorded yet.)`);
+	const header = `# Study context\nThis chat belongs to the subject "${subject.name}"${where}.`;
+	const out: string[] = [header];
+	// Token diet (2026-11-20): the variable part of the block (contexts + related + materials) is capped at
+	// STUDY_BLOCK_CHARS so a long-lived subject cannot swell every turn.
+	const materials = visibleMaterials(library, placement);
+	const matLine = (m: (typeof materials)[number]) => `- ${m.fileName} — ${m.pageCount} ${m.kind === "text" ? "text pages" : "pages"}${materialTopicName(library, m) ? `, in topic "${materialTopicName(library, m)}"` : ""}${readState ? `, ${readState(m.id)}` : ""} [id ${m.id}]`;
+	let matText: string;
+	if (materials.length) {
+		const kept: string[] = [];
+		let used = 0;
+		for (const m of materials.slice(0, MATERIALS_MAX)) {
+			const line = matLine(m);
+			if (used + line.length > MATERIALS_CHARS && kept.length) break;
+			kept.push(line); used += line.length + 1;
+		}
+		const more = materials.length - kept.length;
+		matText = "## Materials\n" + kept.join("\n") + (more > 0 ? `\n+${more} more (find them with study_context)` : "");
+	} else matText = `## Materials\nNone uploaded yet. ${mode === "plain" ? "Answer" : "Teach"} from what you know and what the learner says; they can add slides or notes any time.`;
+	const layers = contextScopes(library, placement);
+	let room = Math.max(0, STUDY_BLOCK_CHARS - header.length - matText.length);
+	const layerShare = layers.length ? Math.floor((room * 0.65) / layers.length) : 0;
+	for (const layer of layers) {
+		const title = `## ${layer.level === "topic" ? "Topic" : "Subject"} context — ${layer.name}`;
+		const body = layer.context.trim() ? clip(layer.context.trim(), layerShare) : "(Nothing recorded yet.)";
+		out.push(`${title}\n${body}`);
+		room -= title.length + body.length;
 	}
 	const related = relatedContexts(library, placement);
-	if (related.length) out.push(`## ${topicNames.length ? "Related topics in this subject (background only; the chat's selected topics come first)" : "What each topic holds"}\n` + related.map((r) => `### ${r.name}\n${r.context}`).join("\n\n"));
-	const materials = visibleMaterials(library, placement);
-	out.push(materials.length
-		? "## Materials\n" + materials.map((m) => `- ${m.fileName} — ${m.pageCount} ${m.kind === "text" ? "text pages" : "pages"}${materialTopicName(library, m) ? `, in topic "${materialTopicName(library, m)}"` : ""}${readState ? `, ${readState(m.id)}` : ""} [id ${m.id}]`).join("\n")
-		: `## Materials\nNone uploaded yet. ${mode === "plain" ? "Answer" : "Teach"} from what you know and what the learner says; they can add slides or notes any time.`);
+	if (related.length) {
+		const parts: string[] = [];
+		for (const r of related) {
+			const part = `### ${r.name}\n${clip(r.context, RELATED_CHARS)}`;
+			if (room - part.length < 0 && parts.length) break;
+			parts.push(part); room -= part.length;
+		}
+		const more = related.length - parts.length;
+		out.push(`## ${topicNames.length ? "Related topics in this subject (background only; the chat's selected topics come first)" : "What each topic holds"}\n` + parts.join("\n\n") + (more > 0 ? `\n\n+${more} more topics (study_context can search them)` : ""));
+	}
+	out.push(matText);
 	// Plain study chats are ordinary Claude-style conversations: the library
 	// listing above is useful context, but none of the teaching/assessment
 	// doctrine applies (startMode is ignored for these chats).

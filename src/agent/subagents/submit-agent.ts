@@ -16,6 +16,17 @@ import type { PiEngine } from "../models.ts";
 import { runSubagent } from "./pi-run.ts";
 import { healToolRecord } from "../tools/heal.ts";
 import { healEncodedArguments } from "../../core/argument-heal.ts";
+import { withUsageTask } from "../usage.ts";
+
+/** The usage-ledger label of a submit agent, by its tool (else its role). */
+const TOOL_TASK: Record<string, string> = {
+	submit_pages: "page-reading", submit_captures: "inbox", submit_context: "context", submit_picks: "notes", submit_blocks: "notes",
+	submit_title: "title", submit_topics: "topics", submit_ideas: "ideas", submit_field: "field", submit_note: "planner-absorb",
+};
+const ROLE_TASK: Partial<Record<ModelRole, string>> = { extractor: "extraction", auditor: "audit", pdfReader: "page-reading" };
+export function submitTaskLabel(toolName: string, role: ModelRole): string {
+	return TOOL_TASK[toolName] ?? ROLE_TASK[role] ?? role;
+}
 
 // ── the weak-model string-heal (owner, 2026-09-28; moved here from
 // extraction.ts with the digest-aware redesign, 2026-09-30 — the heal
@@ -45,7 +56,11 @@ export function healStringifiedArrays(raw: unknown): unknown {
 	return out;
 }
 
-export async function runSubmitAgent<T>(opts: {
+export function runSubmitAgent<T>(opts: SubmitAgentOptions<T>): Promise<T> {
+	return withUsageTask(submitTaskLabel(opts.toolName, opts.role), () => runSubmitAgentInner(opts), { chatId: opts.chatId });
+}
+
+interface SubmitAgentOptions<T> {
 	role: ModelRole;
 	toolName: string;
 	toolDescription: string;
@@ -78,7 +93,9 @@ export async function runSubmitAgent<T>(opts: {
 	 *  a problem string yields an isError result (invalidInputResult) →
 	 *  the model retries within maxTurns. null = accept. */
 	validate?: (value: T) => string | null;
-}): Promise<T> {
+}
+
+async function runSubmitAgentInner<T>(opts: SubmitAgentOptions<T>): Promise<T> {
 	let submitted: T | undefined;
 	const result = await runSubagent(
 		[

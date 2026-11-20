@@ -743,7 +743,41 @@ export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
 			}
 		}
 	}
-	return out;
+	return truncateStaleToolResults(out);
+}
+
+/** Tool results longer than this (chars of text), or carrying images, are shrunk once a newer learner turn exists. */
+export const STALE_TOOL_RESULT_CHARS = 1200;
+const REREAD_TOOLS: Record<string, string> = {
+	study_material: "[page text omitted; re-read with study_material]",
+	study_context: "[page text omitted; look it up again with study_context]",
+	read: "[file contents omitted; re-read with read]",
+	pdf_read: "[page text omitted; re-read with pdf_read]",
+};
+
+/**
+ * Token diet (2026-11-20): big tool results (page texts, images) from PREVIOUS learner turns were used once and
+ * are replaced by a short note in the history sent to the model. Results after the latest user message stay
+ * whole (the loop is still using them), and the rewrite is deterministic so later requests keep a stable
+ * prefix for prompt caching. Never throws; the stored record is untouched.
+ */
+export function truncateStaleToolResults(messages: Message[]): Message[] {
+	try {
+		let lastUser = -1;
+		for (let i = messages.length - 1; i >= 0; i--) if (messages[i]!.role === "user") { lastUser = i; break; }
+		if (lastUser <= 0) return messages;
+		return messages.map((m, i) => {
+			if (i >= lastUser || m.role !== "toolResult") return m;
+			const blocks = m.content as Array<{ type: string; text?: string }>;
+			const chars = blocks.reduce((n, b) => n + (b.type === "text" ? (b.text?.length ?? 0) : 0), 0);
+			const hasImage = blocks.some((b) => b.type === "image");
+			if (chars <= STALE_TOOL_RESULT_CHARS && !hasImage) return m;
+			const note = REREAD_TOOLS[m.toolName] ?? `[earlier ${m.toolName} output omitted (${chars} characters${hasImage ? " and an image" : ""}); call the tool again if it is needed]`;
+			return { ...m, content: [{ type: "text", text: note }] } as Message;
+		});
+	} catch {
+		return messages;
+	}
 }
 
 // ─── native scans (the UIMessage-era pending/phase seams, natively) ──────────

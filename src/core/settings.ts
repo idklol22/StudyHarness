@@ -347,6 +347,14 @@ export interface DictationSettings {
 	language?: DictationLanguage;
 }
 
+/** Small/background task routing (token diet, 2026-11-20). */
+export interface SmallTasksSettings {
+	/** Which slot answers follow-up (side-thread) questions. Absent = "cheap". */
+	followUpModel?: "cheap" | "strong";
+	/** Route the cheap slot to an OpenRouter model for background tasks + follow-ups. */
+	openRouter?: { enabled?: boolean; model?: { provider: "openrouter"; id: string } };
+}
+
 /** Agent settings — everything about the non-conversation machinery. */
 export interface AgentSettings {
 	/** Maximum simultaneous background-worker model requests (default 8).
@@ -378,6 +386,8 @@ export interface AgentSettings {
 	 *  route); the switch is explicit so users keep a file on disk but run
 	 *  the source default to compare (owner decision 2026-09-19). */
 	prompts?: Record<string, boolean>;
+	/** Token diet (2026-11-20): follow-up window + background helpers. */
+	smallTasks?: SmallTasksSettings;
 	/** Optional learner-source boundary, OFF when absent. ON with no folders
 	 *  refuses all learner-source reads. Paths are absolute or ~/ anchored;
 	 *  the current policy is read per new tool call/job start. Existing
@@ -478,7 +488,7 @@ export interface GraphSettings {
  * (owner ruling: on big models the setting rules; on small ones the
  * window rules before the provider overflows).
  *
- * FACTORY DEFAULT 150_000 (owner ruling).
+ * FACTORY DEFAULT 90_000 (token diet, 2026-11-20; was 150k).
  *
  * FLOOR 32_000 (implementer's call, the chunk-budget discipline): below
  * the kept tail (20k) + a summary the chat would re-compact every turn —
@@ -559,7 +569,7 @@ export const FACTORY_SETTINGS: FactorySettings = {
 		mdRendering: { headingWeight: 600, boldColor: null, italicColor: null },
 	},
 	graph: { enabled: true, rendering: true, extractionChunkTokens: 4096 },
-	compaction: { thresholdTokens: 150_000, includeReasoning: false },
+	compaction: { thresholdTokens: 90_000, includeReasoning: false },
 };
 
 /** The chunk budget's validated floor (GraphSettings.extractionChunkTokens
@@ -729,6 +739,25 @@ function sanitizeBooleanMap(raw: unknown): Record<string, boolean> | undefined {
 	return Object.keys(out).length ? out : undefined;
 }
 
+/** Lenient read side of agent.smallTasks; also the strict write parser's shape (see settings-body). */
+export function sanitizeSmallTasks(raw: unknown): SmallTasksSettings | undefined {
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+	const r = raw as Record<string, unknown>;
+	const out: SmallTasksSettings = {};
+	if (r.followUpModel === "cheap" || r.followUpModel === "strong") out.followUpModel = r.followUpModel;
+	const or = r.openRouter;
+	if (or !== null && typeof or === "object" && !Array.isArray(or)) {
+		const o = or as Record<string, unknown>;
+		const model = o.model as Record<string, unknown> | undefined;
+		const id = model && typeof model.id === "string" ? model.id.trim() : "";
+		out.openRouter = {
+			...(typeof o.enabled === "boolean" ? { enabled: o.enabled } : {}),
+			...(model && model.provider === "openrouter" && id ? { model: { provider: "openrouter" as const, id } } : {}),
+		};
+	}
+	return Object.keys(out).length ? out : undefined;
+}
+
 function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
 	const out: AgentSettings = {};
 	// Invalid disk values drop: absence resolves to 8, never a silent clamp.
@@ -764,6 +793,8 @@ function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
 		if (enabled === undefined) out.graphTools = {};
 		else if (typeof enabled === "boolean") out.graphTools = { enabled };
 	}
+	const smallTasks = sanitizeSmallTasks(raw.smallTasks);
+	if (smallTasks) out.smallTasks = smallTasks;
 	// Never drop a malformed access policy into the unrestricted default.
 	// The strict store reader separately reports its configuration error;
 	// this safe view also preserves the boundary during unrelated UI writes.

@@ -7,7 +7,9 @@ import {
 	type AgentBuildOptions,
 	type TeachingAgent,
 } from "../agent/teacher-agent.ts";
-import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
+import { capOutput, leanThinking, piEngineForSpec, type PiEngine } from "../agent/models.ts";
+import "./usage.ts";
+import { withUsageTask } from "../agent/usage.ts";
 import { connectionBackgroundAllowed as subscriptionBackgroundAllowed, connectionScopeCurrent, isSubscriptionProvider } from "../agent/subscription-connections.ts";
 import { nativeSubscriptionError } from "../agent/subscription-stream.ts";
 import { chatGPTStreamError } from "../agent/chatgpt-stream.ts";
@@ -52,6 +54,7 @@ import {
 	graphToolsEnabled,
 	resolveConversationSpec,
 	resolveRoleSpec,
+	resolveRoleSpecRouted,
 } from "../core/settings-resolution.ts";
 import { modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope, ROLE_SLOT, type ModelSlotName, type ProviderKeyMissing } from "../core/settings.ts";
 import { beginTurn, endTurn, isTurnRunning } from "./turn-liveness.ts";
@@ -171,9 +174,19 @@ setTurnRunner(async (chatId, input) => {
  *  flows through to the per-need refusal gates (runner/extraction), read
  *  FRESH so a settings PUT between dispatch and spawn lands. */
 export function resolveEngine(role: ModelRole): PiEngine | undefined {
-	const spec = resolveRoleSpec(role, stores.settingsStore.readSettings());
-	return spec ? piEngineForSpec(spec, true, undefined, retentionForSlot(ROLE_SLOT[role])) : undefined;
+	const record = stores.settingsStore.readSettings();
+	const spec = resolveRoleSpecRouted(role, record, providerKeyPresent("openrouter"));
+	if (!spec) return undefined;
+	// Token diet: background helpers think little and answer briefly.
+	const lean = LEAN_ROLES.has(role);
+	const engine = piEngineForSpec(lean ? { ...spec, thinkingLevel: leanThinking(spec.thinkingLevel) } : spec, true, undefined, retentionForSlot(ROLE_SLOT[role]), ROLE_TASK[role] ?? "background");
+	return lean ? capOutput(engine, LEAN_MAX_TOKENS) : engine;
 }
+
+/** Roles that are pure background helpers (extraction, audits, page reading). */
+const LEAN_ROLES: ReadonlySet<ModelRole> = new Set<ModelRole>(["extractor", "auditor", "pdfReader"]);
+const LEAN_MAX_TOKENS = 8192;
+const ROLE_TASK: Partial<Record<ModelRole, string>> = { extractor: "extraction", auditor: "audit", pdfReader: "page-reading", researcher: "research", demoBuilder: "demo", visualMaker: "visual" };
 
 /** Slot policy is independent of model overrides. Read fresh per operation,
  * including parked conversations, background loops and compaction. */
@@ -218,7 +231,17 @@ export async function handleChatRequest(
  * agent turn as a background object. Also the wake pipeline's entry
  * (TurnInput's steer kind appends the marker under the same claim).
  */
-export async function handleChatInput(
+export function handleChatInput(
+	chatId: string,
+	input: TurnInput,
+	buildAgent?: (opts: AgentBuildOptions & { teaching: boolean }) => TeachingAgent,
+	sideContext: Pick<SideChatService, "snapshot"> = sideChats,
+): Promise<Response> {
+	// Usage ledger: everything this turn spawns is attributed to the chat (specific helpers relabel themselves).
+	return withUsageTask("chat", () => handleChatInputInner(chatId, input, buildAgent, sideContext), { chatId, ambient: true });
+}
+
+async function handleChatInputInner(
 	chatId: string,
 	input: TurnInput,
 	buildAgent?: (opts: AgentBuildOptions & { teaching: boolean }) => TeachingAgent,
@@ -347,8 +370,8 @@ export async function handleChatInput(
 	let conversationEngine: PiEngine;
 	let compactionEngine: PiEngine;
 	try {
-		conversationEngine = piEngineForSpec(conversation, () => callPurpose.background, lifecycle, retentionForSlot("strong"));
-		compactionEngine = piEngineForSpec(conversation, true, undefined, retentionForSlot("strong"));
+		conversationEngine = piEngineForSpec(conversation, () => callPurpose.background, lifecycle, retentionForSlot("strong"), "chat");
+		compactionEngine = piEngineForSpec(conversation, true, undefined, retentionForSlot("strong"), "compaction");
 	}
 	catch { return Response.json({ error: conversation.provider === "chatgpt" ? chatGPTStreamError("model catalog") : isSubscriptionProvider(conversation.provider) ? nativeSubscriptionError(conversation.provider, "model catalog") : "The selected model is unavailable." }, { status: 503 }); }
 	const capturedPolicy = submissionImagePolicyKey(conversationEngine);
@@ -483,7 +506,7 @@ export async function handleChatInput(
 			if (checkModel) {
 				const spec = resolveConversationSpec(record.settings, effectiveSettings().models.strong);
 				if (!spec || JSON.stringify(spec) !== capturedConversation) return false;
-				const checked = piEngineForSpec(spec, () => callPurpose.background, lifecycle, retentionForSlot("strong"));
+				const checked = piEngineForSpec(spec, () => callPurpose.background, lifecycle, retentionForSlot("strong"), "chat");
 				if (submissionImagePolicyKey(checked) !== capturedPolicy || checked.level !== conversationEngine.level) return false;
 			}
 			assertPluginQuestionInputAllowed(record.messages, input);
@@ -993,7 +1016,7 @@ export async function handleChatInput(
 						const spec = resolveConversationSpec(stores.chatStore.getChat(chatId)?.settings, fresh.models.strong);
 						if (!spec || !connectionBackgroundAllowed(spec.provider)) return null;
 						let kickEngine: PiEngine;
-						try { kickEngine = piEngineForSpec(spec, true, undefined, retentionForSlot("strong")); } catch { return null; }
+						try { kickEngine = piEngineForSpec(spec, true, undefined, retentionForSlot("strong"), "compaction"); } catch { return null; }
 						const kickModelId = `${kickEngine.model.provider}:${kickEngine.model.id}`;
 						const freshRecord = stores.chatStore.getChat(chatId);
 						if (!freshRecord) return null;

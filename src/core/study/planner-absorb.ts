@@ -174,6 +174,41 @@ export function regexAbsorb(markdown: string, noteDate: string): Absorbed {
 	return { knowledge: rest.join("\n").replace(/\n{3,}/g, "\n\n").trim(), items };
 }
 
+// ── gating (token diet, 2026-11-20) ────────────────────────────────────────────────────────────────────────────
+
+/** Study content beyond this many characters (outside the dated items) is worth a model call. */
+export const ABSORB_MODEL_MIN_CHARS = 200;
+const FUZZY_DATE = /\b(?:\d{1,2}[\/.]\d{1,2}|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*\d{1,2}|\d{1,2}\s*(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*|next\s+(?:week|month)|this\s+(?:week|weekend)|weekend)\b/i;
+
+/** Lines that name an assessment and a date-ish phrase the regex extractor could not turn into an item. */
+export function unparsedDateLines(markdown: string, noteDate: string): string[] {
+	const out: string[] = [];
+	let fenced = false;
+	for (const line of markdown.split(/\r?\n/)) {
+		const trimmed = line.trim();
+		if (/^```/.test(trimmed)) { fenced = !fenced; continue; }
+		if (fenced || !trimmed || /^[|#>]/.test(trimmed)) continue;
+		if (!KEYWORD.test(trimmed) || lineDate(trimmed, noteDate)) continue;
+		if (FUZZY_DATE.test(trimmed)) out.push(trimmed);
+	}
+	return out;
+}
+
+/** The regex pass first: the model is only called for real study content or dates the regex could not parse. */
+export function absorbGate(markdown: string, noteDate: string): { useModel: boolean; regex: Absorbed } {
+	const regex = regexAbsorb(markdown, noteDate);
+	return { regex, useModel: regex.knowledge.length > ABSORB_MODEL_MIN_CHARS || unparsedDateLines(markdown, noteDate).length > 0 };
+}
+
+/** The local calendar day (YYYY-MM-DD) of `now`. */
+export const localDay = (now: Date = new Date()): string => `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+/** A note's day is over once the local date is past it. */
+export const dayEnded = (noteDate: string, now: Date = new Date()): boolean => localDay(now) > noteDate;
+
+/** The model may run only for a finished task or after the note's day ended; edits in between stay on the free regex pass. */
+export const absorbModelDue = (note: { finished: boolean; date: string }, now: Date = new Date()): boolean => note.finished || dayEnded(note.date, now);
+
 // ── dedupe ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const STOP = new Set(["the", "a", "an", "of", "for", "and", "to", "on", "in", "we", "have", "is"]);

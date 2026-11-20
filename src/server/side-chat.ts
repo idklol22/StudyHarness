@@ -15,6 +15,7 @@ import { COMPACTION_RESERVE_TOKENS } from "../core/compaction.ts";
 import { resolveSideQuestionSpec } from "../core/settings-resolution.ts";
 import { modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope } from "../core/settings.ts";
 import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
+import "./usage.ts";
 import { isSubscriptionProvider } from "../agent/subscription-connections.ts";
 import { usageWasAdmitted } from "../agent/subscription-request-cycle.ts";
 import { composeSideChatInstructions, streamSideAnswer } from "../agent/side-chat.ts";
@@ -265,14 +266,14 @@ export function createSideChatService(deps: SideChatDeps): SideChatService {
 }
 
 async function productionEngineFor(record: ChatRecord): Promise<SideEngine | Response> {
-	const spec = resolveSideQuestionSpec(record.settings, stores.settingsStore.readSettings());
+	const spec = resolveSideQuestionSpec(record.settings, stores.settingsStore.readSettings(), providerKeyPresent("openrouter"));
 	if (!spec) return Response.json(modelsNotConfigured(["strong"]), { status: 503 });
 	if (isSubscriptionProvider(spec.provider)) await refreshConnectionCatalog(spec.provider);
 	if (!providerKeyPresent(spec.provider)) return Response.json(providerKeyMissingEnvelope(spec.provider, ["strong"]), { status: 503 });
 	try {
 		let denied = false;
 		const engine = piEngineForSpec(spec, false, { captured() {}, beforeDispatch() {}, noDispatch() { denied = true; } },
-			() => stores.settingsStore.readSettings()?.models?.strong?.cacheRetention);
+			() => stores.settingsStore.readSettings()?.models?.strong?.cacheRetention, "follow-up");
 		return { ...engine, sideUsageAdmitted: () => !denied };
 	} catch { return Response.json({ error: "The selected model is unavailable." }, { status: 503 }); }
 }

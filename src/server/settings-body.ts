@@ -28,7 +28,7 @@ import type {
 	ModelSlot,
 	RoleModelOverride,
 } from "../core/settings.ts";
-import { BACKGROUND_MODEL_ROLES, CACHE_RETENTIONS, COMPACTION_THRESHOLD_FLOOR, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS } from "../core/settings.ts";
+import { sanitizeSmallTasks, BACKGROUND_MODEL_ROLES, CACHE_RETENTIONS, COMPACTION_THRESHOLD_FLOOR, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { isSearchEngineId, SEARCH_ENGINES } from "../core/search.ts";
 import { isDictationLanguage } from "../core/dictation.ts";
@@ -217,6 +217,24 @@ export function parseAgentSettingsBody(body: unknown): SettingsBodyResult<AgentS
 			return { ok: false, error: "graphTools.enabled must be a boolean" };
 		}
 		settings.graphTools = graphTools.enabled === undefined ? {} : { enabled: graphTools.enabled };
+	}
+	if (raw.smallTasks !== undefined) {
+		const st = asRecord(raw.smallTasks);
+		if (!st) return { ok: false, error: "smallTasks must be an object" };
+		if (st.followUpModel !== undefined && st.followUpModel !== "cheap" && st.followUpModel !== "strong") {
+			return { ok: false, error: 'smallTasks.followUpModel must be "cheap" or "strong"' };
+		}
+		const or = st.openRouter === undefined ? undefined : asRecord(st.openRouter);
+		if (st.openRouter !== undefined) {
+			if (!or) return { ok: false, error: "smallTasks.openRouter must be an object" };
+			if (or.enabled !== undefined && typeof or.enabled !== "boolean") return { ok: false, error: "smallTasks.openRouter.enabled must be a boolean" };
+			const m = or.model === undefined ? undefined : asRecord(or.model);
+			if (or.model !== undefined && (!m || m.provider !== "openrouter" || typeof m.id !== "string" || !m.id.trim())) {
+				return { ok: false, error: 'smallTasks.openRouter.model must be {provider:"openrouter", id}' };
+			}
+		}
+		const clean = sanitizeSmallTasks(raw.smallTasks);
+		if (clean) settings.smallTasks = clean;
 	}
 	if (raw.fileAccess !== undefined) {
 		const parsed = parseFileAccessSettings(raw.fileAccess);

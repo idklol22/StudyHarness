@@ -22,6 +22,7 @@ import { createClaudeCodeProvider } from "./claude-code/provider.ts";
 import { streamClaudeCode } from "./claude-code/stream.ts";
 import { nativeSubscriptionId, nativeSubscriptionModel } from "./subscription-bridge.ts";
 import { nativeSubscriptionStream } from "./subscription-stream.ts";
+import { recordModelUsage } from "./usage.ts";
 
 /** App identity is immutable and shared by Models and every native Agent.
  * Agent's default Pi attribution otherwise overrides the Models identity. */
@@ -129,7 +130,7 @@ function defaultThinkingLevel(model: Model<Api>): ThinkingLevel {
  *  key is resolved by pi-ai itself from the environment per request (the
  *  keys seam reflects file-saved keys into env), so the engine never
  *  hardcodes OpenRouter's. */
-export function piEngineForSpec(spec: ResolvedModelSpec, background: boolean | (() => boolean) = true, lifecycle?: ChatGPTDispatchLifecycle, cacheRetention?: () => CacheRetention | undefined): PiEngine {
+export function piEngineForSpec(spec: ResolvedModelSpec, background: boolean | (() => boolean) = true, lifecycle?: ChatGPTDispatchLifecycle, cacheRetention?: () => CacheRetention | undefined, fallbackTask?: string): PiEngine {
 	const models: Models = piModels();
 	const nativeId = nativeSubscriptionId(spec.provider);
 	const registeredModel = spec.provider === "chatgpt" ? chatGPTModel(spec.id) : nativeId ? nativeSubscriptionModel(spec.provider, spec.id) : models.getModel(spec.provider, spec.id);
@@ -156,7 +157,10 @@ export function piEngineForSpec(spec: ResolvedModelSpec, background: boolean | (
 		// The agent loop forwards state.thinkingLevel as `reasoning` (undefined
 		// = off on pi-ai's scale). Built-ins keep the factory clamp; custom
 		// requests re-resolve thinking against their current metadata below.
-		streamFn: (requestModel, context, options) => {
+		streamFn: (requestModel, context, options) => tapUsage(rawStream(requestModel, context, options), spec, background, fallbackTask),
+	};
+	function rawStream(...[requestModel, context, options]: Parameters<StreamFunction>): ReturnType<StreamFunction> {
+		{
 			// Read the slot preference for every operation, not just engine creation.
 			// Unset adds NOTHING: native defaults/env and explicit caller options survive.
 			const retention = cacheRetention?.();
@@ -181,8 +185,20 @@ export function piEngineForSpec(spec: ResolvedModelSpec, background: boolean | (
 			const purpose = typeof background === "function" ? background : () => background;
 			const stream = spec.provider === "chatgpt" ? chatGPTStream(purpose, lifecycle) : nativeId ? nativeSubscriptionStream(models.getProvider(nativeId)!, purpose, lifecycle) : models.streamSimple.bind(models);
 			return stream(requestModel, context, requestOptions);
-		},
-	};
+		}
+	}
+}
+
+/** THE usage choke point: every engine stream (chat, workers, side chats,
+ *  plugins) is tapped here and its final usage lands in the ledger. */
+function tapUsage(stream: ReturnType<StreamFunction>, spec: ResolvedModelSpec, background: boolean | (() => boolean), fallbackTask?: string): ReturnType<StreamFunction> {
+	const isBackground = typeof background === "function" ? background() : background;
+	if (typeof stream.result !== "function") return stream;
+	void stream.result().then(
+		(message) => recordModelUsage(message, { provider: spec.provider, model: spec.id, background: isBackground, fallbackTask }),
+		() => undefined,
+	);
+	return stream;
 }
 
 /** The LEGACY role entry point — BYOK made it an honest THROWER (owner,
@@ -195,4 +211,14 @@ export function piEngineFor(role: ModelRole): PiEngine {
 	throw new Error(
 		`no configured model for role "${role}" — set your model slots (settings → models)`,
 	);
+}
+
+/** Background helpers think at most "low" (unset becomes "low"; off stays off). */
+export function leanThinking(level: ThinkingLevel | undefined): ThinkingLevel {
+	return level === "off" || level === "minimal" ? level : "low";
+}
+
+/** The same engine with a default output-token cap (explicit caller options win). */
+export function capOutput(engine: PiEngine, maxTokens: number): PiEngine {
+	return { ...engine, streamFn: (model, context, options) => engine.streamFn(model, context, { ...options, maxTokens: options?.maxTokens ?? maxTokens }) };
 }
