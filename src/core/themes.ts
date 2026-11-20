@@ -184,13 +184,13 @@ export const BUILTIN_THEMES: readonly Theme[] = [
 		mode: "dark",
 		builtin: true,
 		tune: {
-			surface2: "#151515", raised: "#181818", borderStrong: "#6e6e6e", textFaint: "#767676", accentContrast: "#0a0a0a",
+			surface2: "#131313", raised: "#181818", borderStrong: "#6e6e6e", textFaint: "#767676", accentContrast: "#050505",
 			focus: "#d4d4d4", focusWidth: 1.5, selection: "rgba(212, 212, 212, 0.28)", scrimAlpha: 0.8,
-			shadow: "0 18px 50px rgba(0, 0, 0, 0.55)", scene: "none", glass: false, scenePeak: "#0a0a0a",
+			shadow: "0 18px 50px rgba(0, 0, 0, 0.55)", scene: "none", glass: false, scenePeak: "#050505",
 		},
 		colors: {
 			// Minimal black & white (owner 2026-11-19): near-black page, white and shades of white, little colour.
-			background: "#0a0a0a", surface: "#121212", border: "#232323", text: "#f2f2f2", textMuted: "#8f8f8f",
+			background: "#050505", surface: "#0d0d0d", border: "#1f1f1f", text: "#f2f2f2", textMuted: "#8f8f8f",
 			accent: "#d4d4d4", bold: "#f2f2f2", italic: "#f2f2f2", code: "#f2f2f2",
 			error: "#e5484d", success: "#46a758", warning: "#e5a03b",
 		},
@@ -323,6 +323,16 @@ export function deriveTune(c: ThemeColors, mode: ThemeMode): ThemeTune {
 /** The tuning in force: the theme's own, else derived. */
 export function tuneOf(theme: { mode: ThemeMode; colors: ThemeColors; tune?: ThemeTune }): ThemeTune {
 	return theme.tune ?? deriveTune(theme.colors, theme.mode);
+}
+
+/** The tuning actually applied: with "Glass & animated backgrounds" off (the default) every theme is solid
+ *  (no glass tiles) and sceneless; the theme's own tune still says what it would do when switched on. */
+export function effectiveTune(
+	theme: { mode: ThemeMode; colors: ThemeColors; tune?: ThemeTune },
+	effects: boolean | undefined,
+): ThemeTune {
+	const t = tuneOf(theme);
+	return effects === true ? t : { ...t, scene: "none", glass: false };
 }
 
 /** THE adapter: 12 theme colors (+ the tuning) → the CSS variables set on

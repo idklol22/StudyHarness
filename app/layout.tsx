@@ -10,7 +10,7 @@ import { AppearanceProvider } from "@/components/settings/appearance";
 import UpdateBanner from "@/components/update-banner";
 import { PluginsProvider } from "@/components/plugins";
 import { ThemeScene } from "@/components/theme-scene";
-import { tuneOf } from "@/src/core";
+import { effectiveTune } from "@/src/core";
 import { readThemeBoot } from "@/src/server";
 
 // IBM Plex Sans for the whole interface, prose and titles; Plex Mono only for code (owner 2026-11-19).
@@ -31,7 +31,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 	// prerendered route (settings) would bake the BUILD machine's record.
 	await connection();
 	const { appearance, theme, vars } = readThemeBoot();
-	const tune = tuneOf(theme);
+	const tune = effectiveTune(theme, appearance?.glassEffects);
 	return (
 		<html
 			lang="en"

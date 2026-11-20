@@ -417,6 +417,8 @@ export interface AppearanceSettings {
 	proseFontSize?: number;
 	/** Permit normal font ligatures in code (including inline code and code editors). Default false; prose is unaffected. */
 	codeLigatures?: boolean;
+	/** "Glass & animated backgrounds": lets themes use glass tiles and animated scenes. Default false: every theme is solid and sceneless. */
+	glassEffects?: boolean;
 	/** Animate the background scene of scene themes (midnight dust, nimbus clouds, uzumaki swirl). Default true; reduced motion and a hidden tab stop it regardless. */
 	backgroundAnimation?: boolean;
 	/** Session names in CMU Serif (default true — today's look). */
@@ -527,6 +529,7 @@ export interface FactorySettings {
 		proseFontSize: number;
 		codeLigatures: boolean;
 		backgroundAnimation: boolean;
+		glassEffects: boolean;
 		sessionNameSerif: boolean;
 		mdRendering: {
 			headingWeight: number;
@@ -548,9 +551,10 @@ export const FACTORY_SETTINGS: FactorySettings = {
 		background: null, // null = the active theme's background
 		colors: {}, // no overrides: every color is the theme's
 		fontFamily: null, // Source Sans 3
-		proseFontSize: 16,
+		proseFontSize: 14,
 		codeLigatures: false,
 		backgroundAnimation: true,
+		glassEffects: false,
 		sessionNameSerif: true,
 		mdRendering: { headingWeight: 600, boldColor: null, italicColor: null },
 	},
@@ -807,6 +811,8 @@ function sanitizeAppearance(raw: Record<string, unknown>): AppearanceSettings {
 	if (codeLigatures !== undefined) out.codeLigatures = codeLigatures;
 	const backgroundAnimation = boolOrDrop(raw.backgroundAnimation);
 	if (backgroundAnimation !== undefined) out.backgroundAnimation = backgroundAnimation;
+	const glassEffects = boolOrDrop(raw.glassEffects);
+	if (glassEffects !== undefined) out.glassEffects = glassEffects;
 	const sessionNameSerif = boolOrDrop(raw.sessionNameSerif);
 	if (sessionNameSerif !== undefined) out.sessionNameSerif = sessionNameSerif;
 	if (raw.mdRendering !== undefined) out.mdRendering = sanitizeMdRendering(raw.mdRendering);

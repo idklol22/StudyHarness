@@ -7,7 +7,7 @@
  * first, so this never bakes into a prerender).
  */
 
-import { effectiveColors, isBuiltinThemeId, resolveTheme, themeVars, tuneOf, type AppearanceSettings, type Theme } from "../core";
+import { effectiveColors, isBuiltinThemeId, resolveTheme, themeVars, effectiveTune, type AppearanceSettings, type Theme } from "../core";
 import { themeStore } from "../store/themes.ts";
 import { readSettings } from "../store/settings.ts";
 
@@ -25,5 +25,5 @@ export function readThemeBoot(): ThemeBoot {
 	const id = appearance?.theme;
 	const custom = id && !isBuiltinThemeId(id) ? themeStore.readTheme(id) : null;
 	const theme = resolveTheme(id, custom ? [custom] : []);
-	return { appearance, theme, vars: themeVars(effectiveColors(theme, appearance), theme.mode, tuneOf(theme)) };
+	return { appearance, theme, vars: themeVars(effectiveColors(theme, appearance), theme.mode, effectiveTune(theme, appearance?.glassEffects)) };
 }

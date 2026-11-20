@@ -333,7 +333,7 @@ export function FilesTable({
 									onClick={() => setCollapsed((prev) => ({ ...prev, [group.key]: !isCollapsed }))}
 									aria-expanded={!isCollapsed}
 									data-testid="library-group-toggle"
-									className="flex w-full min-w-0 items-center gap-1.5 rounded-lg px-3 py-2 text-left text-xs font-medium hover:bg-accent/40"
+									className="flex w-full min-w-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-left text-xs font-medium hover:bg-accent/40"
 								>
 									{isCollapsed ? <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground" /> : <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />}
 									<span className="min-w-0 truncate">{group.name}</span>
@@ -385,10 +385,10 @@ export function FilesTable({
 					<table className="w-full text-left text-xs" data-testid="files-table-grid">
 						<thead className="bg-muted/40 text-[11px] uppercase tracking-wider text-muted-foreground">
 							<tr>
-								<th className="px-3 py-2 font-medium">Name</th>
-								<th className="hidden px-3 py-2 font-medium sm:table-cell">Topic</th>
+								<th className="px-3 py-1.5 font-medium">Name</th>
+								<th className="hidden px-3 py-1.5 font-medium sm:table-cell">Topic</th>
 								<th className="hidden px-3 py-2 text-right font-medium md:table-cell">Pages</th>
-								<th className="hidden px-3 py-2 font-medium lg:table-cell">Covered by notes</th>
+								<th className="hidden px-3 py-1.5 font-medium lg:table-cell">Covered by notes</th>
 								<th className="hidden px-3 py-2 text-right font-medium md:table-cell">Added</th>
 								<th className="w-10 px-2 py-2"><span className="sr-only">Actions</span></th>
 							</tr>

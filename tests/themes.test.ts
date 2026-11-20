@@ -163,3 +163,17 @@ describe("exportThemeFile", () => {
 		assert.ok(sanitizeThemeFile(out), "an export is always importable");
 	});
 });
+
+describe("Glass & animated backgrounds switch (effectiveTune)", () => {
+	it("off (the default) forces every theme solid and sceneless; on keeps the theme's own tune", async () => {
+		const { BUILTIN_THEMES, effectiveTune, tuneOf } = await import("../src/core/index.ts");
+		for (const t of BUILTIN_THEMES) {
+			for (const off of [undefined, false] as const) {
+				const e = effectiveTune(t, off);
+				assert.equal(e.scene, "none", `${t.id}: scene`);
+				assert.equal(e.glass, false, `${t.id}: glass`);
+			}
+			assert.deepEqual(effectiveTune(t, true), tuneOf(t), `${t.id}: on`);
+		}
+	});
+});

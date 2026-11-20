@@ -413,7 +413,7 @@ export function PdfReaderView({ materialId, page: startPage, compact = false, ba
 	const toolbar = (
 		<>
 				{!compact && <Link href={back} aria-label="Back to subject" className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><ArrowLeftIcon className="size-3.5" />Back</Link>}
-				{compact ? <span className="min-w-0 flex-1" /> : <h1 className="min-w-0 flex-1 truncate font-title text-xl tracking-tight" title={material?.fileName}>{material?.fileName ?? "Reader"}</h1>}
+				{compact ? <span className="min-w-0 flex-1" /> : <h1 className="min-w-0 flex-1 truncate font-title text-base tracking-tight" title={material?.fileName}>{material?.fileName ?? "Reader"}</h1>}
 				{material?.meta?.source === "planner" && <span data-testid="reader-planner-note" className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">From Planner · {material.meta.finished === false ? "Unfinished" : "Finished"} · Edit in Planner</span>}
 				{!shownError && (
 					<div className="flex shrink-0 items-center gap-2 text-xs">
@@ -500,14 +500,14 @@ export function PdfReaderView({ materialId, page: startPage, compact = false, ba
 						</aside>
 					)}
 					<div ref={scrollBox} onScroll={onScroll} data-testid="reader-pages" className="relative min-w-0 flex-1 overflow-auto">
-						<div className={`flex min-h-full flex-col items-center gap-4 ${compact ? "px-3 py-3" : "px-8 py-6"}`}>
+						<div className={`flex min-h-full flex-col items-center gap-4 ${compact ? "px-2 py-2" : "px-4 py-4"}`}>
 							{Array.from({ length: total }, (_, i) => i + 1).map((n) => {
 								const size = sizes[n - 1];
 								const shown = rendered.has(n);
 								return (
 									<div key={n} data-page={n} className="relative flex w-full justify-center" aria-label={`Page ${n}`}>
 										{isText ? (
-											<div className="w-full max-w-3xl border border-border bg-card px-8 py-8 shadow-sm">
+											<div className="w-full max-w-3xl border border-border bg-card px-5 py-5 shadow-sm">
 												{shown ? <TextPage materialId={materialId} page={n} cache={textCache.current} onText={rememberText} /> : <div className="h-24" />}
 											</div>
 										) : (

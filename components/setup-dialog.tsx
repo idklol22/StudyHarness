@@ -437,7 +437,7 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 			className="settings-dialog-pop flex max-h-[85vh] w-[640px] max-w-[90vw] flex-col overflow-hidden rounded-md border border-border bg-card shadow-xl"
 			onClick={(e) => e.stopPropagation()} />}>
 				<header className="flex h-15 shrink-0 items-center gap-3 border-b border-border px-5">
-					<h2 className="font-title text-2xl tracking-tight">Set up your models</h2>
+					<h2 className="font-title text-lg tracking-tight">Set up your models</h2>
 					<Hint label="Close" binding="escape" side="left">
 <button
 						type="button"

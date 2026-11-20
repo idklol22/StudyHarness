@@ -38,24 +38,24 @@
 :root,
 .dark {
 	color-scheme: dark;
-	--radius: 8px;
-	--background: #0a0a0a;
+	--radius: 6px;
+	--background: #050505;
 	--foreground: #f2f2f2;
-	--card: #121212;
+	--card: #0d0d0d;
 	--card-foreground: #f2f2f2;
-	--popover: #121212;
+	--popover: #0d0d0d;
 	--popover-foreground: #f2f2f2;
 	--primary: #f2f2f2;
-	--primary-foreground: #0a0a0a;
-	--secondary: #121212;
+	--primary-foreground: #050505;
+	--secondary: #0d0d0d;
 	--secondary-foreground: #f2f2f2;
-	--muted: #121212;
+	--muted: #0d0d0d;
 	--muted-foreground: #8f8f8f;
-	--accent: #202020;
+	--accent: #1b1b1b;
 	--accent-foreground: #f2f2f2;
 	--destructive: #e5484d;
-	--border: #232323;
-	--input: #232323;
+	--border: #1f1f1f;
+	--input: #1f1f1f;
 	--ring: #d4d4d4;
 	/* The theme accent (rings, toggles, the selected theme card). The
 	   shadcn --accent above is the HOVER surface, not this. */
@@ -73,24 +73,24 @@
 	--lh-warning: #e5a03b;
 	/* Semantic role tokens (all-themes wave) — Mono's literals; every theme
 	   defines all of them (src/core/themes.ts themeVars). */
-	--lh-surface-2: #151515;
+	--lh-surface-2: #131313;
 	--lh-raised: #181818;
 	--lh-border-strong: #6e6e6e;
 	--lh-text-faint: #767676;
-	--lh-accent-contrast: #0a0a0a;
+	--lh-accent-contrast: #050505;
 	--lh-focus: #d4d4d4;
 	--lh-focus-width: 1.5px;
 	--lh-selection: rgba(212, 212, 212, 0.28);
-	--lh-scrim: rgba(10, 10, 10, 0.8);
+	--lh-scrim: rgba(5, 5, 5, 0.8);
 	--lh-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
-	--lh-subject-l: 59%;
-	/* THE READING SIZE = the ladder's 16px rung (--text-lg). Can't be
+	--lh-subject-l: 58%;
+	/* THE READING SIZE = the ladder's 14px rung (--text-lg). Can't be
 	   var()-linked: @theme inline inlines literals into utilities without
 	   emitting runtime vars — so this is the one documented duplication:
 	   change one, change both. (owner, typography round 4: snapped from
 	   the reskin's hand-tuned 16.5 to the ladder's 16.) */
-	--lh-prose-size: 16px;
-	--lh-prose-leading: 1.5;
+	--lh-prose-size: 14px;
+	--lh-prose-leading: 1.55;
 	/* Markdown heading weight (appearance settings; 900 = the Black cut). */
 	--lh-heading-weight: 600;
 }
@@ -132,26 +132,26 @@
 	   their utilities must read the runtime variables, not bake in the
 	   defaults and bypass the Appearance reading-font/serif overrides. */
 	/* Round 5 (owner 2026-11-19): 12px meta, 13/14px body, 20–24px page titles. */
-	--text-xs: 12px;
+	--text-xs: 11px;
 	--text-xs--line-height: 1.4;
-	--text-sm: 13px;
+	--text-sm: 12px;
 	--text-sm--line-height: 1.4;
-	--text-base: 14px;
+	--text-base: 13px;
 	--text-base--line-height: 1.45;
-	--text-lg: 16px;
-	--text-lg--line-height: 1.45;
-	--text-xl: 20px;
+	--text-lg: 14px;
+	--text-lg--line-height: 1.5;
+	--text-xl: 17px;
 	--text-xl--line-height: 1.4;
-	--text-2xl: 24px;
+	--text-2xl: 20px;
 	--text-2xl--line-height: 1.3;
-	--text-3xl: 28px;
+	--text-3xl: 22px;
 	--text-3xl--line-height: 1.25;
 	/* One radius (Round 5): a single quiet 8px corner everywhere. */
-	--radius-sm: 6px;
-	--radius-md: 8px;
-	--radius-lg: 8px;
-	--radius-xl: 8px;
-	--radius: 8px;
+	--radius-sm: 4px;
+	--radius-md: 6px;
+	--radius-lg: 6px;
+	--radius-xl: 6px;
+	--radius: 6px;
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
 	--color-card: var(--card);
@@ -178,6 +178,13 @@
 
 * {
 	border-color: var(--color-border);
+}
+
+/* DENSITY (owner 2026-11-20: "reduce the size of everything"): Tailwind spacing and
+   control sizes are rem-based, so one root size scales paddings, gaps, buttons, inputs,
+   pills, sidebar rows and bars together. Type sizes below are px and set separately. */
+html {
+	font-size: 14px;
 }
 
 body {
@@ -762,7 +769,8 @@ html:not([data-scene="none"]) {
 	background: var(--background);
 }
 
-/* Vivid dark themes with glass get an accent glow behind the tiles. */
+/* Vivid dark themes with glass get an accent glow behind the tiles (only with
+   Settings > Appearance > Glass & animated backgrounds on; data-glass is "0" otherwise). */
 html[data-glass="1"][data-scene="none"] body {
 	background:
 		radial-gradient(1100px 650px at 88% -12%, color-mix(in srgb, var(--lh-accent) 13%, transparent), transparent 62%),

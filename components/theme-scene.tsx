@@ -14,7 +14,7 @@
  */
 import { useEffect, useRef } from "react";
 import { useAppearance } from "@/components/settings/appearance";
-import { hexToRgb, tuneOf, type ThemeScene } from "@/src/core";
+import { effectiveTune, hexToRgb, type ThemeScene } from "@/src/core";
 
 type Rgb = readonly [number, number, number];
 type Painter = { frame: (t: number) => void; resize: (w: number, h: number) => void };
@@ -153,8 +153,9 @@ function lowPowerNow(): boolean {
 
 export function ThemeScene() {
 	const { activeTheme, colors, appearance } = useAppearance();
-	const scene = tuneOf(activeTheme).scene;
-	const peak = tuneOf(activeTheme).scenePeak;
+	const tune = effectiveTune(activeTheme, appearance.glassEffects);
+	const scene = tune.scene;
+	const peak = tune.scenePeak;
 	const animate = appearance.backgroundAnimation;
 	const bgHex = colors.background;
 	const canvasRef = useRef<HTMLCanvasElement>(null);

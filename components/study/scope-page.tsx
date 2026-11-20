@@ -172,10 +172,10 @@ export function ScopePage({ subjectId, topicId }: { subjectId: string; topicId?:
 					<div className="min-w-0 flex-1">
 						{renaming ? (
 							<form onSubmit={(e) => { e.preventDefault(); void run({ action: topic ? "rename-topic" : "rename-subject", id: topic?.id ?? subject.id, name: nameDraft }, () => setRenaming(false)); }}>
-								<input autoFocus value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} onBlur={() => setRenaming(false)} onKeyDown={(e) => { if (e.key === "Escape") setRenaming(false); }} aria-label="Name" maxLength={120} className="w-full bg-transparent font-title text-3xl tracking-tight outline-none" />
+								<input autoFocus value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} onBlur={() => setRenaming(false)} onKeyDown={(e) => { if (e.key === "Escape") setRenaming(false); }} aria-label="Name" maxLength={120} className="w-full bg-transparent font-title text-xl tracking-tight outline-none" />
 							</form>
 						) : (
-							<h1 className="truncate font-title text-3xl tracking-tight"><button type="button" onClick={() => { setNameDraft(title); setRenaming(true); }} title="Rename" className="max-w-full truncate rounded-md px-1.5 -mx-1.5 text-left hover:bg-accent">{title}</button></h1>
+							<h1 className="truncate font-title text-xl tracking-tight"><button type="button" onClick={() => { setNameDraft(title); setRenaming(true); }} title="Rename" className="max-w-full truncate rounded-md px-1.5 -mx-1.5 text-left hover:bg-accent">{title}</button></h1>
 						)}
 					</div>
 					{!topic && <SubjectColor subjectId={subjectId} color={subject.color} name={subject.name} onChanged={() => { void load(); }} />}

@@ -410,6 +410,13 @@ export function AppearanceSection({
 					onChange={(on) => onSectionChange({ ...appearance, codeLigatures: on })}
 				/>
 			</SettingsRow>
+			<SettingsRow label="Glass & animated backgrounds" hint="Off: every theme is solid, no scenes" testid="row-glass-effects">
+				<Toggle
+					checked={resolved.glassEffects}
+					label="glass and animated backgrounds"
+					onChange={(on) => onSectionChange({ ...appearance, glassEffects: on })}
+				/>
+			</SettingsRow>
 			<SettingsRow label="Background animation" hint="Scene themes only" testid="row-background-animation">
 				<Toggle
 					checked={resolved.backgroundAnimation}

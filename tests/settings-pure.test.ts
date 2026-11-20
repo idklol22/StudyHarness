@@ -35,7 +35,8 @@ describe("resolveAppearance — delta over factory", () => {
 		assert.equal(a.background, null);
 		assert.deepEqual(a.colors, {});
 		assert.equal(a.fontFamily, null);
-		assert.equal(a.proseFontSize, 16);
+		assert.equal(a.proseFontSize, 14);
+		assert.equal(a.glassEffects, false);
 		assert.equal(a.sessionNameSerif, true);
 		assert.deepEqual(a.mdRendering, { headingWeight: 600, boldColor: null, italicColor: null });
 	});
@@ -52,10 +53,10 @@ describe("resolveAppearance — delta over factory", () => {
 describe("appearanceVars — the mapping the provider applies", () => {
 	it("factory appearance on Default: the Default palette plus the type tokens", () => {
 		const vars = appearanceVars(resolveAppearance(undefined), DEFAULT_THEME);
-		assert.equal(vars["--background"], "#0a0a0a");
-		assert.equal(vars["--accent"], "#202020", "the hover surface keeps its hand-picked value");
+		assert.equal(vars["--background"], "#050505");
+		assert.equal(vars["--accent"], "#1b1b1b", "the hover surface keeps its hand-picked value");
 		assert.equal(vars["--lh-ink-strong"], "#f2f2f2", "emphasis = text on Default");
-		assert.equal(vars["--lh-prose-size"], "16px");
+		assert.equal(vars["--lh-prose-size"], "14px");
 		assert.equal(vars["--lh-heading-weight"], "600");
 		assert.equal(vars["--font-prose"], undefined, "no font override at factory");
 		assert.equal(vars["--font-title"], undefined, "CMU stays");
@@ -116,7 +117,7 @@ describe("staleVarNames — the removal half of application (owner repro: resets
 		assert.ok(stale.includes("--font-prose"));
 		assert.ok(stale.includes("--font-title"), "serif toggle back ON must clear the title override");
 		assert.ok(!stale.includes("--background"), "a theme always sets every color");
-		assert.equal(factory["--background"], "#0a0a0a", "an emptied background is the theme's again");
+		assert.equal(factory["--background"], "#050505", "an emptied background is the theme's again");
 		assert.ok(!stale.includes("--lh-prose-size"), "always-applied tokens never go stale");
 	});
 
