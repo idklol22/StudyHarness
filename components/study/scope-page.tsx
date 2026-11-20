@@ -24,8 +24,10 @@ import { SubjectMap } from "./subject-map";
 import { useServerEvent } from "@/components/server-events";
 import { NotesPanel } from "./notes-view";
 import { CardsPanel } from "./cards-panel";
+import { SubjectOverview } from "./subject-overview";
 
 const SUBJECT_TABS = [
+	{ id: "overview", label: "Overview" },
 	{ id: "topics", label: "Topics" },
 	{ id: "files", label: "Files" },
 	{ id: "notes", label: "Notes" },
@@ -34,6 +36,7 @@ const SUBJECT_TABS = [
 	{ id: "knowledge", label: "Knowledge" },
 ] as const;
 const TOPIC_TABS = [
+	{ id: "overview", label: "Overview" },
 	{ id: "files", label: "Files" },
 	{ id: "ideas", label: "Ideas" },
 	{ id: "notes", label: "Notes" },
@@ -43,7 +46,7 @@ const TOPIC_TABS = [
 ] as const;
 const ALL_TABS: readonly string[] = [...SUBJECT_TABS.map((t) => t.id), ...TOPIC_TABS.map((t) => t.id)];
 
-interface NotebookCover { id: string; title: string; scopeName: string; href: string; topicId?: string; covers?: Array<{ materialId: string; from: number; to: number }> }
+interface NotebookCover { id: string; title: string; createdAt: string; scopeName: string; href: string; topicId?: string; covers?: Array<{ materialId: string; from: number; to: number }> }
 
 const fmtDate = (value: string) => {
 	const d = new Date(value);
@@ -69,7 +72,7 @@ export function ScopePage({ subjectId, topicId }: { subjectId: string; topicId?:
 	const [nameDraft, setNameDraft] = useState("");
 	const [dragging, setDragging] = useState(false);
 	const [menuOpen, setMenuOpen] = useState(false);
-	const [activeTab, setActiveTab] = useState(() => tabFromHash(typeof window === "undefined" ? "" : window.location.hash, ALL_TABS, topicId ? "files" : "topics"));
+	const [activeTab, setActiveTab] = useState(() => tabFromHash(typeof window === "undefined" ? "" : window.location.hash, ALL_TABS, "overview"));
 	// A header action can ask a tab to open something (the notes composer / the file picker) once it is visible.
 	const [notesTrigger, setNotesTrigger] = useState(false);
 	const [filesTrigger, setFilesTrigger] = useState(false);
@@ -120,7 +123,7 @@ export function ScopePage({ subjectId, topicId }: { subjectId: string; topicId?:
 		: [...(group?.chats ?? []).map((chat) => ({ chat, topicName: "" })), ...(group?.topics ?? []).flatMap((t) => t.chats.map((chat) => ({ chat, topicName: t.topic.name })))];
 	const context = (topic ?? subject).context;
 	const tabs = topic ? TOPIC_TABS : SUBJECT_TABS;
-	const active = tabs.some((t) => t.id === activeTab) ? activeTab : topic ? "files" : "topics";
+	const active = tabs.some((t) => t.id === activeTab) ? activeTab : "overview";
 
 	const upload = async (list: FileList | File[]) => {
 		const pdfs = Array.from(list).filter((f) => /\.(pdf|md|markdown|txt)$/i.test(f.name) || f.type === "application/pdf");
@@ -210,6 +213,17 @@ export function ScopePage({ subjectId, topicId }: { subjectId: string; topicId?:
 					<ScopeTabs tabs={tabs} active={active} onChange={setActiveTab} />
 
 					<div className="mt-2" data-testid="scope-content">
+						{active === "overview" && (
+							<SubjectOverview
+								subjectId={subjectId}
+								{...(topicId ? { topicId } : {})}
+								library={library}
+								chats={chats}
+								notebooks={notebooks}
+								onLibrary={setLibrary}
+							/>
+						)}
+
 						{active === "topics" && !topic && (
 							<section className={section} data-testid="topics-section">
 								<h2 className={h}>Topics</h2>

@@ -87,6 +87,19 @@ export interface Material {
 	pages?: { from: number; to: number };
 }
 
+/** A dated to-do owned by the Harness for now (a Planner app will sync them later). */
+export interface Deadline {
+	id: string;
+	subjectId: string;
+	/** Absent = subject-wide. */
+	topicId?: string;
+	title: string;
+	/** ISO date or datetime. */
+	due: string;
+	kind: "assignment" | "exam" | "quiz" | "other";
+	done?: boolean;
+}
+
 export interface Library {
 	version: 1;
 	subjects: Subject[];
@@ -94,6 +107,8 @@ export interface Library {
 	materials: Material[];
 	/** Topic suggestions waiting for the learner. */
 	suggestions?: Suggestion[];
+	/** Deadlines of subjects (and, optionally, their topics). */
+	deadlines?: Deadline[];
 }
 
 export const emptyLibrary = (): Library => ({ version: 1, subjects: [], topics: [], materials: [] });
@@ -200,23 +215,27 @@ function reclaim(before: Library, after: Library): Removal {
 	return { library: after, orphaned: [...referencedHashes(before)].filter((h) => !kept.has(h)) };
 }
 
-/** Delete a subject with its topics and materials; reports now-unreferenced stored copies. */
+/** Delete a subject with its topics, materials and deadlines; reports now-unreferenced stored copies. */
 export function deleteSubject(lib: Library, id: string): Removal {
 	if (!subjectOf(lib, id)) fail("That subject no longer exists.");
+	const topicIds = new Set(lib.topics.filter((t) => t.subjectId === id).map((t) => t.id));
 	return reclaim(lib, {
 		...lib,
 		subjects: lib.subjects.filter((s) => s.id !== id),
 		topics: lib.topics.filter((t) => t.subjectId !== id),
 		materials: lib.materials.filter((m) => m.scope.subjectId !== id),
+		...(lib.deadlines ? { deadlines: lib.deadlines.filter((d) => d.subjectId !== id && !(d.topicId && topicIds.has(d.topicId))) } : {}),
 	});
 }
 
+/** Delete a topic with its materials and topic deadlines; subject-wide deadlines stay. */
 export function deleteTopic(lib: Library, id: string): Removal {
 	if (!topicOf(lib, id)) fail("That topic no longer exists.");
 	return reclaim(lib, {
 		...lib,
 		topics: lib.topics.filter((t) => t.id !== id),
 		materials: lib.materials.filter((m) => m.scope.topicId !== id),
+		...(lib.deadlines ? { deadlines: lib.deadlines.filter((d) => d.topicId !== id) } : {}),
 	});
 }
 

@@ -12,6 +12,8 @@
  *   {action:"link-material", id, topicId? | newTopicName?}     (also put the file in another topic, keeping it where it is)
  *   {action:"add-idea"|"edit-idea"|"remove-idea", subjectId, topicId?, id?, name?, summary?}
  *   {action:"set-color", id, color: number | null}  (a subject's colour as a hue; null = automatic)
+ *   {action:"add-deadline", subjectId, topicId?, title, due, kind?} · {action:"edit-deadline", id, title?, due?, kind?}
+ *   {action:"remove-deadline", id} · {action:"toggle-deadline", id}   (Overview deadlines)
  *   {action:"understand-material", id}          (re-run the background understanding of a file: text, skim, topics/ideas)
  */
 import { StudyInputError, classifySubject, readOrganizationAction, resolveEngine, seedAcceptedTopics, digestMaterial, study } from "@/src/server";
@@ -74,6 +76,23 @@ export async function POST(request: Request) {
 			}
 			case "dismiss-suggestion": study.dismissSuggestion(text(raw.id, "id")); break;
 			case "set-color": study.setColor(text(raw.id, "id"), raw.color === null ? null : Number(raw.color)); break;
+			case "add-deadline": {
+				const deadline = study.addDeadline({
+					subjectId: text(raw.subjectId, "subjectId"),
+					...(typeof raw.topicId === "string" && raw.topicId ? { topicId: raw.topicId } : {}),
+					title: raw.title,
+					due: raw.due,
+					...(raw.kind !== undefined ? { kind: raw.kind } : {}),
+				});
+				return Response.json({ deadline, library: study.library() });
+			}
+			case "edit-deadline": study.editDeadline(text(raw.id, "id"), {
+				...(raw.title !== undefined ? { title: raw.title } : {}),
+				...(raw.due !== undefined ? { due: raw.due } : {}),
+				...(raw.kind !== undefined ? { kind: raw.kind } : {}),
+			}); break;
+			case "remove-deadline": study.removeDeadline(text(raw.id, "id")); break;
+			case "toggle-deadline": study.toggleDeadline(text(raw.id, "id")); break;
 			case "assign-material": case "link-material": {
 				const r = (raw.action === "link-material" ? study.linkMaterial : study.assignMaterial)(text(raw.id, "id"), { ...(typeof raw.topicId === "string" && raw.topicId ? { topicId: raw.topicId } : {}), ...(typeof raw.newTopicName === "string" ? { newTopicName: raw.newTopicName } : {}) });
 				// Ideas the learner typed while choosing the topic are kept as theirs; the rest are found in the background.

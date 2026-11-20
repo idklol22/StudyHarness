@@ -16,6 +16,7 @@ import {
 	renameTopic, setContext, setMaterialMeta, type Library, type Material, type StudyScope, type Removal,
 } from "../core/study/model.ts";
 import { readMaterialMeta } from "../core/study/lecture-meta.ts";
+import { addDeadline, editDeadline, removeDeadline, toggleDeadline, type NewDeadline } from "../core/study/deadlines.ts";
 import { lookup, recordBatch, recordPages, type MaterialMemory } from "../core/study/material-memory.ts";
 import { isTextName, textOutline, textPages } from "../core/study/text-material.ts";
 import { acceptSuggestion, addIdea, addSuggestion, assignMaterial, linkMaterial, dismissSuggestion, editIdea, ideasOf, mergeIdeas, removeIdea, setIdeas, tidyLibrary, type IncomingIdea, type SuggestionEdit } from "../core/study/ideas.ts";
@@ -89,6 +90,11 @@ export function createStudyService(store: StudyStore, pdf: StudyPdf) {
 		createSubject: (name: unknown) => guard(() => change((lib) => { const r = createSubject(lib, name); const field = r.created ? guessField(r.subject.name) : undefined; return { library: field ? setField(r.library, r.subject.id, field) : r.library, result: r.subject }; })),
 		setColor: (subjectId: string, color: number | null) => guard(() => change((lib) => ({ library: setColor(lib, subjectId, color), result: undefined }))),
 		setField: (subjectId: string, field: string) => guard(() => change((lib) => ({ library: setField(lib, subjectId, field), result: undefined }))),
+		/** Deadlines (Task 4): validated in the pure core; every edit writes the whole library back. */
+		addDeadline: (input: NewDeadline) => guard(() => change((lib) => { const r = addDeadline(lib, input); return { library: r.library, result: r.deadline }; })),
+		editDeadline: (id: string, patch: { title?: unknown; due?: unknown; kind?: unknown }) => guard(() => change((lib) => ({ library: editDeadline(lib, id, patch), result: undefined }))),
+		removeDeadline: (id: string) => guard(() => change((lib) => ({ library: removeDeadline(lib, id), result: undefined }))),
+		toggleDeadline: (id: string) => guard(() => change((lib) => ({ library: toggleDeadline(lib, id), result: undefined }))),
 		createTopic: (subjectId: string, name: unknown) => guard(() => change((lib) => { const r = createTopic(lib, subjectId, name); return { library: r.library, result: r.topic }; })),
 		renameSubject: (id: string, name: unknown) => guard(() => change((lib) => ({ library: renameSubject(lib, id, name), result: undefined }))),
 		renameTopic: (id: string, name: unknown) => guard(() => change((lib) => ({ library: renameTopic(lib, id, name), result: undefined }))),
