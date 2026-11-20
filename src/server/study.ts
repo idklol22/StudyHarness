@@ -13,8 +13,9 @@
 import path from "node:path";
 import {
 	addMaterial, createSubject, createTopic, setColor, setField, deleteSubject, deleteTopic, moveMaterial, removeMaterial, renameSubject,
-	renameTopic, setContext, type Library, type Material, type StudyScope, type Removal,
+	renameTopic, setContext, setMaterialMeta, type Library, type Material, type StudyScope, type Removal,
 } from "../core/study/model.ts";
+import { readMaterialMeta } from "../core/study/lecture-meta.ts";
 import { lookup, recordBatch, recordPages, type MaterialMemory } from "../core/study/material-memory.ts";
 import { isTextName, textOutline, textPages } from "../core/study/text-material.ts";
 import { acceptSuggestion, addIdea, addSuggestion, assignMaterial, linkMaterial, dismissSuggestion, editIdea, ideasOf, mergeIdeas, removeIdea, setIdeas, tidyLibrary, type IncomingIdea, type SuggestionEdit } from "../core/study/ideas.ts";
@@ -138,6 +139,8 @@ export function createStudyService(store: StudyStore, pdf: StudyPdf) {
 		dismissSuggestion: (id: string) => guard(() => change((lib) => ({ library: dismissSuggestion(lib, id), result: undefined }))),
 		removeMaterial: (id: string) => guard(() => change((lib) => withRemoval(removeMaterial(lib, id)))),
 		moveMaterial: (id: string, scope: StudyScope) => guard(() => change((lib) => ({ library: moveMaterial(lib, id, scope), result: undefined }))),
+		/** Save a material's editable lecture details (validated in the pure core). */
+		setMaterialMeta: (id: string, meta: unknown) => guard(() => change((lib) => ({ library: setMaterialMeta(lib, id, readMaterialMeta(meta)), result: undefined }))),
 
 		material(id: string): Material {
 			return store.readLibrary().materials.find((m) => m.id === id) ?? (() => { throw new StudyInputError("That file no longer exists."); })();

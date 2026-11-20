@@ -6,6 +6,7 @@
  *   {action:"rename-subject", id, name} · {action:"rename-topic", id, name}
  *   {action:"delete-subject", id} · {action:"delete-topic", id}     (cascade; unreferenced stored PDFs are removed)
  *   {action:"remove-material", id} · {action:"move-material", id, subjectId, topicId?}
+ *   {action:"set-meta", id, meta:{lecture?, date?, kind?, title?}}  (edit a file's lecture details)
  *   {action:"accept-suggestion", id, renames?: {index: name}} · {action:"dismiss-suggestion", id}   (suggested topics for a file)
  *   {action:"assign-material", id, topicId? | newTopicName?}   (move the file into a topic the learner picks; ideas are then found for it)
  *   {action:"link-material", id, topicId? | newTopicName?}     (also put the file in another topic, keeping it where it is)
@@ -61,6 +62,7 @@ export async function POST(request: Request) {
 			case "delete-subject": study.deleteSubject(text(raw.id, "id")); break;
 			case "delete-topic": study.deleteTopic(text(raw.id, "id")); break;
 			case "remove-material": study.removeMaterial(text(raw.id, "id")); break;
+			case "set-meta": study.setMaterialMeta(text(raw.id, "id"), raw.meta); break;
 			case "move-material":
 				study.moveMaterial(text(raw.id, "id"), { subjectId: text(raw.subjectId, "subjectId"), ...(typeof raw.topicId === "string" ? { topicId: raw.topicId } : {}) });
 				break;

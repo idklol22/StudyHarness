@@ -3,6 +3,7 @@
  * "topicId"). Each file is hashed; a file already stored is referenced, never copied again. Slides in other
  * formats must be exported to PDF first. Returns {materials:[{material, created, alreadyStored}], errors:[...]}.
  */
+import { guessLectureMeta } from "@/src/core";
 import { MAX_MATERIAL_BYTES, StudyInputError, digestMaterial, resolveEngine, study } from "@/src/server";
 import { FormBodyLimitError, readBoundedFormData } from "@/lib/bounded-form-data.ts";
 
@@ -30,8 +31,19 @@ export async function POST(request: Request) {
 		try {
 			const added = await study.addMaterial({ bytes: new Uint8Array(await file.arrayBuffer()), fileName: file.name, scope });
 			materials.push(added);
-			// Understood at once, in the background (visible in the activity dock).
-			if (added.created) digestMaterial(added.material.id, { engineFor: resolveEngine });
+			if (added.created) {
+				// Page 1 from memory when it is there, otherwise one cheap fetch; never fail an upload over metadata.
+				let firstPageText = "";
+				try {
+					const { result } = await study.lookupPages(added.material.sha256, { pages: [1] });
+					firstPageText = result.kind === "pages" ? result.pages.find((p) => p.n === 1)?.text ?? "" : "";
+				} catch { /* scanned or unreadable text: the name alone is enough */ }
+				try {
+					study.setMaterialMeta(added.material.id, guessLectureMeta(file.name, firstPageText));
+				} catch { /* metadata is optional; the file is already stored */ }
+				// Understood at once, in the background (visible in the activity dock).
+				digestMaterial(added.material.id, { engineFor: resolveEngine });
+			}
 		}
 		catch (error) {
 			if (!(error instanceof StudyInputError)) console.error("[study] material upload failed:", error);

@@ -81,6 +81,8 @@ export interface Material {
 	addedAt: string;
 	/** "text" = a markdown/plain-text file split into virtual pages (no page images); absent = PDF. */
 	kind?: "text";
+	/** Lecture metadata, guessed on upload and editable by the learner; absent on older files. */
+	meta?: { lecture?: number; date?: string /* YYYY-MM-DD */; kind?: "slides" | "handwritten" | "assignment" | "other"; title?: string };
 	/** The part of the file this scope uses (a file shared by two topics covers different pages in each). */
 	pages?: { from: number; to: number };
 }
@@ -235,6 +237,16 @@ export function addMaterial(lib: Library, input: NewMaterial, make?: () => Fresh
 	const f = fresh("mat", make);
 	const material: Material = { id: f.id, sha256: input.sha256, fileName, pageCount: input.pageCount, bytes: input.bytes, scope, addedAt: f.at, ...(input.kind ? { kind: input.kind } : {}) };
 	return { library: { ...lib, materials: [...lib.materials, material] }, material, created: true, shared };
+}
+
+/** Save (or, with an empty patch, clear) a material's lecture details. */
+export function setMaterialMeta(lib: Library, id: string, meta: Material["meta"]): Library {
+	if (!lib.materials.some((m) => m.id === id)) fail("That file no longer exists.");
+	const keep = meta && Object.values(meta).some((v) => v !== undefined) ? meta : undefined;
+	return { ...lib, materials: lib.materials.map((m) => {
+		if (m.id !== id) return m;
+		return keep ? { ...m, meta: keep } : (({ meta: _drop, ...rest }) => rest)(m);
+	}) };
 }
 
 /** Remove one material reference; the stored copy goes only when nothing else references it. */
