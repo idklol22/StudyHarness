@@ -63,7 +63,7 @@ export function createStudyStore(root: string, announce: () => void = () => {}) 
 			const raw = readJson<Partial<Library> | null>(libraryFile, null);
 			if (!raw) return emptyLibrary();
 			if (raw.version !== 1) throw new Error("This Study library was written by a newer version of the app.");
-			return { version: 1, subjects: raw.subjects ?? [], topics: raw.topics ?? [], materials: raw.materials ?? [], ...(raw.suggestions?.length ? { suggestions: raw.suggestions } : {}) };
+			return { version: 1, subjects: raw.subjects ?? [], topics: raw.topics ?? [], materials: raw.materials ?? [], ...(raw.suggestions?.length ? { suggestions: raw.suggestions } : {}), ...(raw.deadlines?.length ? { deadlines: raw.deadlines } : {}) };
 		},
 		writeLibrary(library: Library): void {
 			writeJson(libraryFile, library);
