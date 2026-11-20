@@ -47,6 +47,24 @@ export function Home({
 	const surfaceTarget = usePageSurfaceBoundary({ active: pathname === "/", viewKey: "/", bodyRef });
 	const chromeStyle = useSurfaceChromeStyle(surfaceTarget);
 	const [topic, setTopic] = useState("");
+	/* The node card lives over the graph, so it must know how tall the docked
+	 * composer is. There is no shared dock-height variable on Home (the one in
+	 * components/dock-height.ts belongs to the chat view's question dock), so
+	 * measure the whole dock — including its padding, pick bars and stats — and
+	 * publish it as --home-dock-h on the page root. The card reads that variable
+	 * so its max-height/bottom track the composer as it grows. */
+	const pageRootRef = useRef<HTMLDivElement>(null);
+	const dockRef = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		const root = pageRootRef.current;
+		const dock = dockRef.current;
+		if (!root || !dock) return;
+		const measure = () => root.style.setProperty("--home-dock-h", `${dock.getBoundingClientRect().height}px`);
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(dock);
+		return () => observer.disconnect();
+	}, []);
 	/* The topic MIRROR ("nothing gets lost" round, 2026-10-01 — same
 	 * mechanics as the chat composer, owner's consistency ruling): a
 	 * dictation flush lands via setState, invisible to a closure that
@@ -188,7 +206,7 @@ export function Home({
 	};
 
 	return (
-		<div className="relative h-dvh">
+		<div ref={pageRootRef} data-home-root className="relative h-dvh">
 			{/* Window-drag strip (merged chrome, owner 2026-09-17): a dedicated
 			    mask element, deliberately FIRST in the DOM. Electron's app-region
 			    mask resolves by DOM order — a no-drag element subtracts only drag
@@ -227,7 +245,7 @@ export function Home({
 			    OVER the graph (no gradient: the graph runs clean under it to the
 			    bottom edge). Matches chat.tsx's DOCK geometry (max-w-[46rem]
 			    px-4) so nothing shifts when a session starts (owner). */}
-			<div className="pointer-events-none absolute inset-x-0 bottom-0 pb-5">
+			<div ref={dockRef} className="pointer-events-none absolute inset-x-0 bottom-0 pb-5">
 				<div className="pointer-events-auto mx-auto w-full max-w-[46rem] px-4">
 					{mentionOpen && <MentionMenu options={mentionOpts} index={Math.min(mentionIndex, mentionOpts.length - 1)} onPick={pickMention} />}
 					<BoundContextPickerBar state={placement} showMissing={showMissing} />

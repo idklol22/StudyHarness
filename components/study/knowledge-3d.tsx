@@ -6,7 +6,7 @@
  * each other. Click a subject or topic to open its page, an idea to see its files and chats. Drag to rotate, scroll
  * to zoom. Without WebGL it falls back to the flat map.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUpRightIcon, CrosshairIcon, OrbitIcon, SlidersHorizontalIcon, Trash2Icon } from "lucide-react";
 import { useServerEvent } from "@/components/server-events";
@@ -16,6 +16,7 @@ import { Graph3DRenderer } from "@/components/graph-3d";
 import { tokenHex } from "@/components/graph-view";
 import { DEFAULT_RENDER_SETTINGS, findMapIdea, knowledgeGraph, subjectColor, type StudyMap } from "@/src/core";
 import { IdeaCard } from "./idea-card";
+import { knowledgeCardPlacement } from "./knowledge-card-placement";
 import { GraphTuningPanel, readTuning, saveTuning } from "./graph-tuning-panel";
 import { SubjectColor } from "./subject-color";
 import { DEFAULT_TUNING, hubId, type GraphTuning } from "@/components/graph-3d-layout";
@@ -49,6 +50,46 @@ export function Knowledge3D({ placement }: { placement?: PlacementState }) {
 	const [notice, setNotice] = useState("");
 	/** Bumped when the deferred WebGL renderer is ready, so data/tuning effects re-run. */
 	const [rendererReady, setRendererReady] = useState(0);
+	/* The card must clear the top bar and the docked chat composer. Read the
+	 * viewport and Home's --home-dock-h (published by a ResizeObserver on the
+	 * composer) and hand them to the pure placement helper. The mutation
+	 * observer makes a growing composer shrink the card live, no rerender of
+	 * Home needed. */
+	const [viewport, setViewport] = useState(() => ({
+		width: typeof window === "undefined" ? 1280 : window.innerWidth,
+		height: typeof window === "undefined" ? 800 : window.innerHeight,
+	}));
+	useEffect(() => {
+		const onResize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+		window.addEventListener("resize", onResize);
+		onResize();
+		return () => window.removeEventListener("resize", onResize);
+	}, []);
+	const [dockHeight, setDockHeight] = useState(0);
+	useEffect(() => {
+		const root = typeof document === "undefined" ? null : hostRef.current?.closest<HTMLElement>("[data-home-root]");
+		if (!root) return;
+		const read = () => {
+			const raw = getComputedStyle(root).getPropertyValue("--home-dock-h");
+			setDockHeight(Number.parseFloat(raw) || 0);
+		};
+		read();
+		const observer = new MutationObserver(read);
+		observer.observe(root, { attributes: true, attributeFilter: ["style"] });
+		return () => observer.disconnect();
+	}, []);
+	const cardGeometry = useMemo(
+		() => knowledgeCardPlacement({ viewportWidth: viewport.width, viewportHeight: viewport.height, dockHeight }),
+		[viewport.width, viewport.height, dockHeight],
+	);
+	const cardStyle: CSSProperties = {
+		top: cardGeometry.top ?? undefined,
+		bottom: cardGeometry.bottom ?? undefined,
+		left: cardGeometry.left,
+		width: cardGeometry.width,
+		maxHeight: cardGeometry.maxHeight,
+		overflowY: "auto",
+	};
 	useEffect(() => { setTuning(readTuning()); }, []);
 	useEffect(() => { rendererRef.current?.setTuning(tuning); }, [tuning, rendererReady]);
 	const changeTuning = (t: GraphTuning) => { setTuning(t); saveTuning(t); };
@@ -273,10 +314,10 @@ export function Knowledge3D({ placement }: { placement?: PlacementState }) {
 				</div>
 				</>
 			)}
-			{picked && <div className="lh-no-drag absolute bottom-3 left-3 z-10 flex max-h-[min(26rem,calc(100%-5rem))] w-[380px] max-w-[calc(100%-1.5rem)] flex-col gap-2"><IdeaCard picked={picked} onClose={() => setSelected(null)} /><button type="button" onClick={() => void removeSelected()} data-testid="knowledge-remove" className="inline-flex h-8 w-fit shrink-0 items-center gap-1 rounded-md border bg-card/95 px-3 text-xs text-muted-foreground shadow hover:text-destructive"><Trash2Icon className="size-3.5" />Remove idea</button></div>}
+			{picked && <div style={cardStyle} className="lh-no-drag absolute z-30 flex flex-col gap-2"><IdeaCard picked={picked} onClose={() => setSelected(null)} /><button type="button" onClick={() => void removeSelected()} data-testid="knowledge-remove" className="inline-flex h-8 w-fit shrink-0 items-center gap-1 rounded-md border bg-card/95 px-3 text-xs text-muted-foreground shadow hover:text-destructive"><Trash2Icon className="size-3.5" />Remove idea</button></div>}
 			{notice && <p role="alert" className="lh-no-drag absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-md border bg-card px-3 py-1.5 text-xs text-destructive shadow">{notice}</p>}
 			{scopeCard && (
-				<div className="lh-no-drag absolute bottom-3 left-3 z-10 flex max-h-[min(20rem,calc(100%-5rem))] w-[380px] max-w-[calc(100%-1.5rem)] flex-col overflow-y-auto rounded-xl border bg-card/95 p-4 text-sm shadow-xl backdrop-blur" data-testid="knowledge-scope-card">
+				<div style={cardStyle} className="lh-no-drag absolute z-30 flex flex-col rounded-xl border bg-card/95 p-4 text-sm shadow-xl backdrop-blur" data-testid="knowledge-scope-card">
 					<div className="mb-1 flex items-start justify-between gap-2">
 						<div className="min-w-0"><div className="truncate text-xs text-muted-foreground">{scopeCard.over}</div><div className="mt-0.5 text-base font-medium text-card-foreground">{scopeCard.title}</div></div>
 						<button type="button" aria-label="Close details" onClick={() => setSelected(null)} className="rounded-md px-2 py-1 text-muted-foreground hover:bg-accent hover:text-foreground">×</button>
