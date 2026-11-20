@@ -5,20 +5,22 @@
  * /api/study/materials/<id>/file and are painted by pdf.js with a selectable text layer; text materials reuse
  * the same shell and show their stored page text instead.
  */
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { ArrowLeftIcon, MinusIcon, PanelLeftIcon, PlusIcon, SearchIcon } from "lucide-react";
 import { HostMarkdown } from "@/components/host-markdown";
 import { TopBar } from "@/components/top-bar";
+import { shouldRenderMarkdown } from "@/lib/reader-markdown";
+import { clampScale, nextZoomStep, previousZoomStep, wheelDeltaToScale, zoomAnchorOffset, zoomPercent, ZOOM_STEPS } from "@/lib/reader-zoom";
 import type { Library } from "@/src/core";
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask, TextLayer } from "pdfjs-dist";
 
 type PdfLib = typeof import("pdfjs-dist");
 type Size = { width: number; height: number };
 
-const MIN_SCALE = 0.25;
-const MAX_SCALE = 4;
-const clampScale = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
+// Cursor-anchored wheel zoom must adjust the scroll offset before paint; the
+// guard keeps React quiet while this client boundary is pre-rendered on server.
+const useBrowserLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 const pageKey = (materialId: string) => `lh.reader.page.${materialId}`;
 
 function rememberedPage(materialId: string): number {
@@ -72,10 +74,23 @@ function Thumbnail({ doc, page, width, height, root }: { doc: PDFDocumentProxy; 
 	);
 }
 
-/** One PDF page: a device-pixel canvas under pdf.js's text layer. Rendered only when near the viewport. */
+/**
+ * One PDF page: a device-pixel canvas under pdf.js's text layer. Rendered only
+ * when near the viewport. While zooming, the committed (`renderScale`) canvas
+ * and its text layer are CSS-scaled together to the target; a debounced
+ * re-render at the new scale × devicePixelRatio then keeps them sharp and
+ * aligned.
+ */
 function PdfPage({ lib, doc, page, size, scale, active }: { lib: PdfLib; doc: PDFDocumentProxy; page: number; size: Size; scale: number; active: boolean }) {
 	const canvas = useRef<HTMLCanvasElement>(null);
 	const textLayer = useRef<HTMLDivElement>(null);
+	const [renderScale, setRenderScale] = useState(scale);
+
+	useEffect(() => {
+		if (renderScale === scale) return;
+		const id = window.setTimeout(() => setRenderScale(scale), 150);
+		return () => window.clearTimeout(id);
+	}, [scale, renderScale]);
 
 	useEffect(() => {
 		if (!active) return;
@@ -85,7 +100,7 @@ function PdfPage({ lib, doc, page, size, scale, active }: { lib: PdfLib; doc: PD
 		void (async () => {
 			const pdfPage: PDFPageProxy = await doc.getPage(page);
 			if (cancelled || !canvas.current || !textLayer.current) return;
-			const viewport = pdfPage.getViewport({ scale });
+			const viewport = pdfPage.getViewport({ scale: renderScale });
 			const dpr = window.devicePixelRatio || 1;
 			const el = canvas.current;
 			el.width = Math.max(1, Math.floor(viewport.width * dpr));
@@ -108,18 +123,22 @@ function PdfPage({ lib, doc, page, size, scale, active }: { lib: PdfLib; doc: PD
 			try { renderTask?.cancel(); } catch { /* already finished */ }
 			try { layer?.cancel(); } catch { /* already finished */ }
 		};
-	}, [active, doc, lib, page, scale]);
+	}, [active, doc, lib, page, renderScale]);
 
+	const factor = scale / renderScale;
 	return (
 		<div className="lh-pdf-page relative overflow-hidden bg-white" style={{ width: size.width * scale, height: size.height * scale }}>
-			<canvas ref={canvas} className="absolute inset-0 block bg-white" aria-label={`Page ${page}`} />
-			<div ref={textLayer} className="textLayer" style={{ "--total-scale-factor": scale } as CSSProperties} />
+			<div className="absolute left-0 top-0 origin-top-left" style={{ width: size.width * renderScale, height: size.height * renderScale, transform: `scale(${factor})` }}>
+				<canvas ref={canvas} className="absolute inset-0 block bg-white" aria-label={`Page ${page}`} />
+				<div ref={textLayer} className="textLayer" style={{ "--total-scale-factor": renderScale } as CSSProperties} />
+			</div>
 		</div>
 	);
 }
 
-/** A virtual page of a markdown/text material. */
-function TextPage({ materialId, page, cache, onText }: { materialId: string; page: number; cache: Map<number, string>; onText: (page: number, text: string) => void }) {
+/** A virtual page of a text material: Markdown through the app's renderer,
+ *  with a plain <pre> only for a .txt file that contains no Markdown syntax. */
+function TextPage({ materialId, fileName, page, cache, onText }: { materialId: string; fileName: string; page: number; cache: Map<number, string>; onText: (page: number, text: string) => void }) {
 	const [text, setText] = useState<string | null>(() => cache.get(page) ?? null);
 	useEffect(() => {
 		let cancelled = false;
@@ -138,7 +157,13 @@ function TextPage({ materialId, page, cache, onText }: { materialId: string; pag
 			.catch(() => { if (!cancelled) setText("Could not load this page."); });
 		return () => { cancelled = true; };
 	}, [cache, materialId, onText, page]);
-	return <div className="font-sans text-sm leading-relaxed" data-testid="reader-text-page">{text === null ? "Loading…" : <HostMarkdown text={text} />}</div>;
+	return (
+		<div className="font-sans text-sm leading-relaxed" data-testid="reader-text-page">
+			{text === null ? "Loading…" : shouldRenderMarkdown(fileName, text)
+				? <HostMarkdown text={text} />
+				: <pre className="whitespace-pre-wrap break-words">{text}</pre>}
+		</div>
+	);
 }
 
 /** The route page: the embeddable reader full-height under the app's top bar. */
@@ -158,6 +183,7 @@ export function PdfReaderView({ materialId, page: startPage, compact = false, ba
 	const [pdfTotal, setPdfTotal] = useState(0);
 	const [sizes, setSizes] = useState<Size[]>([]);
 	const [scale, setScale] = useState(1);
+	const [zoomMenuOpen, setZoomMenuOpen] = useState(false);
 	const [railOpen, setRailOpen] = useState(!compact);
 	const [rendered, setRendered] = useState<Set<number>>(() => new Set([startPage && startPage > 0 ? Math.floor(startPage) : rememberedPage(materialId)]));
 	const [current, setCurrent] = useState(() => startPage && startPage > 0 ? Math.floor(startPage) : rememberedPage(materialId));
@@ -178,6 +204,10 @@ export function PdfReaderView({ materialId, page: startPage, compact = false, ba
 	const raf = useRef<number | null>(null);
 	const textCache = useRef<Map<number, string>>(new Map());
 	const lastQuery = useRef("");
+	const zoomMenuRef = useRef<HTMLDivElement>(null);
+	const scaleRef = useRef(scale);
+	const pendingZoomScroll = useRef<{ left: number; top: number } | null>(null);
+	scaleRef.current = scale;
 
 	const material = library?.materials.find((m) => m.id === materialId);
 	const isText = material?.kind === "text";
@@ -369,14 +399,41 @@ export function PdfReaderView({ materialId, page: startPage, compact = false, ba
 		} finally { setSearching(false); }
 	}, [doc, goToPage, isText, materialId, searchIndex, searchMatches.length, searchQuery, total]);
 
+	const commitPage = () => {
+		const n = Number(pageInput);
+		if (Number.isInteger(n) && n > 0) goToPage(n);
+		else setPageInput(String(current));
+	};
+	const fitWidth = useCallback(() => {
+		const box = scrollBox.current;
+		const size = sizes[current - 1];
+		if (!box || !size) return;
+		setScale(clampScale((box.clientWidth - 64) / size.width));
+	}, [current, sizes]);
+	const fitPage = useCallback(() => {
+		const box = scrollBox.current;
+		const size = sizes[current - 1];
+		if (!box || !size) return;
+		setScale(clampScale(Math.min((box.clientWidth - 64) / size.width, (box.clientHeight - 64) / size.height)));
+	}, [current, sizes]);
+
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
 			const mod = event.ctrlKey || event.metaKey;
-			if (mod && event.key.toLowerCase() === "f") { event.preventDefault(); searchBox.current?.focus(); return; }
-			if (mod && ["=", "+", "-", "_"].includes(event.key)) {
+			if (event.key === "Escape" && zoomMenuOpen) {
 				event.preventDefault();
-				const out = event.key === "-" || event.key === "_";
-				setScale((s) => clampScale(out ? s / 1.2 : s * 1.2));
+				event.stopPropagation();
+				setZoomMenuOpen(false);
+				return;
+			}
+			if (mod && event.key.toLowerCase() === "f") { event.preventDefault(); searchBox.current?.focus(); return; }
+			if (mod && ["=", "+", "-", "_", "0"].includes(event.key)) {
+				event.preventDefault();
+				if (event.key === "0") fitWidth();
+				else {
+					const out = event.key === "-" || event.key === "_";
+					setScale((s) => out ? previousZoomStep(s) : nextZoomStep(s));
+				}
 				return;
 			}
 			const target = event.target as HTMLElement | null;
@@ -387,25 +444,52 @@ export function PdfReaderView({ materialId, page: startPage, compact = false, ba
 		const host: HTMLElement | Window | null = compact ? rootEl.current : window;
 		host?.addEventListener("keydown", onKey as EventListener);
 		return () => host?.removeEventListener("keydown", onKey as EventListener);
-	}, [compact, goToPage]);
+	}, [compact, fitWidth, goToPage, zoomMenuOpen]);
 
-	const commitPage = () => {
-		const n = Number(pageInput);
-		if (Number.isInteger(n) && n > 0) goToPage(n);
-		else setPageInput(String(current));
-	};
-	const fitWidth = () => {
+	// Ctrl/Cmd+wheel and trackpad pinch (a wheel event with ctrlKey) zoom toward
+	// the cursor. The listener must be non-passive to suppress browser zoom.
+	useEffect(() => {
+		const el = rootEl.current;
+		if (!el || !ready) return;
+		const onWheel = (event: WheelEvent) => {
+			if (!event.ctrlKey && !event.metaKey) return;
+			event.preventDefault();
+			const box = scrollBox.current;
+			if (!box) return;
+			const rect = box.getBoundingClientRect();
+			const before = scaleRef.current;
+			const next = wheelDeltaToScale(before, event.deltaY, event.deltaMode);
+			if (next === before) return;
+			pendingZoomScroll.current = {
+				left: zoomAnchorOffset(box.scrollLeft, event.clientX - rect.left, before, next),
+				top: zoomAnchorOffset(box.scrollTop, event.clientY - rect.top, before, next),
+			};
+			scaleRef.current = next;
+			setScale(next);
+		};
+		el.addEventListener("wheel", onWheel, { passive: false });
+		return () => el.removeEventListener("wheel", onWheel);
+	}, [ready]);
+
+	useBrowserLayoutEffect(() => {
+		const pending = pendingZoomScroll.current;
+		if (!pending) return;
+		pendingZoomScroll.current = null;
 		const box = scrollBox.current;
-		const size = sizes[current - 1];
-		if (!box || !size) return;
-		setScale(clampScale((box.clientWidth - 64) / size.width));
-	};
-	const fitPage = () => {
-		const box = scrollBox.current;
-		const size = sizes[current - 1];
-		if (!box || !size) return;
-		setScale(clampScale(Math.min((box.clientWidth - 64) / size.width, (box.clientHeight - 64) / size.height)));
-	};
+		if (!box) return;
+		box.scrollLeft = Math.max(0, pending.left);
+		box.scrollTop = Math.max(0, pending.top);
+	}, [scale]);
+
+	useEffect(() => {
+		if (!zoomMenuOpen) return;
+		const onDown = (event: PointerEvent) => {
+			if (!zoomMenuRef.current?.contains(event.target as Node)) setZoomMenuOpen(false);
+		};
+		document.addEventListener("pointerdown", onDown);
+		return () => document.removeEventListener("pointerdown", onDown);
+	}, [zoomMenuOpen]);
+
 	const back = backHref ?? "/";
 	const shownError = error ?? (library && !material ? "That file no longer exists." : null);
 	const thumbWidth = 130;
@@ -434,10 +518,42 @@ export function PdfReaderView({ materialId, page: startPage, compact = false, ba
 						</label>
 						{!isText && (
 							<>
-								<button type="button" aria-label="Zoom out" data-testid="reader-zoom-out" onClick={() => setScale((s) => clampScale(s / 1.2))} className="rounded border border-border p-1 text-muted-foreground hover:bg-accent hover:text-foreground"><MinusIcon className="size-3.5" /></button>
-								<button type="button" aria-label="Zoom in" data-testid="reader-zoom-in" onClick={() => setScale((s) => clampScale(s * 1.2))} className="rounded border border-border p-1 text-muted-foreground hover:bg-accent hover:text-foreground"><PlusIcon className="size-3.5" /></button>
+								<button type="button" aria-label="Zoom out" data-testid="reader-zoom-out" onClick={() => setScale((s) => previousZoomStep(s))} className="rounded border border-border p-1 text-muted-foreground hover:bg-accent hover:text-foreground"><MinusIcon className="size-3.5" /></button>
+								<button type="button" aria-label="Zoom in" data-testid="reader-zoom-in" onClick={() => setScale((s) => nextZoomStep(s))} className="rounded border border-border p-1 text-muted-foreground hover:bg-accent hover:text-foreground"><PlusIcon className="size-3.5" /></button>
+								<div ref={zoomMenuRef} className="relative shrink-0">
+									<button
+										type="button"
+										aria-label="Zoom level"
+										aria-haspopup="menu"
+										aria-expanded={zoomMenuOpen}
+										data-testid="reader-zoom-menu"
+										onClick={() => setZoomMenuOpen((open) => !open)}
+										className="min-w-12 rounded border border-border px-1.5 py-1 text-center tabular-nums text-muted-foreground hover:bg-accent hover:text-foreground"
+									>
+										{zoomPercent(scale)}%
+									</button>
+									{zoomMenuOpen && (
+										<div role="menu" aria-label="Zoom presets" data-testid="reader-zoom-menu-list" className="absolute right-0 top-full z-20 mt-1 max-h-72 w-28 overflow-y-auto rounded-md border border-border bg-card p-1 shadow-lg">
+											<button type="button" role="menuitem" data-testid="reader-zoom-fit-width" onClick={() => { fitWidth(); setZoomMenuOpen(false); }} className="block w-full rounded px-2 py-1 text-left hover:bg-accent">Fit width</button>
+											<button type="button" role="menuitem" data-testid="reader-zoom-fit-page" onClick={() => { fitPage(); setZoomMenuOpen(false); }} className="block w-full rounded px-2 py-1 text-left hover:bg-accent">Fit page</button>
+											<div className="my-1 border-t border-border" />
+											{ZOOM_STEPS.map((step) => (
+												<button
+													key={step}
+													type="button"
+													role="menuitem"
+													data-testid={`reader-zoom-${zoomPercent(step)}`}
+													onClick={() => { setScale(step); setZoomMenuOpen(false); }}
+													className={`block w-full rounded px-2 py-1 text-left tabular-nums hover:bg-accent ${step === scale ? "text-primary" : ""}`}
+												>
+													{zoomPercent(step)}%
+												</button>
+											))}
+										</div>
+									)}
+								</div>
 								<button type="button" data-testid="reader-fit-width" onClick={fitWidth} className="rounded border border-border px-2 py-1 text-muted-foreground hover:bg-accent hover:text-foreground">Fit width</button>
-								{!compact && <button type="button" data-testid="reader-fit-page" onClick={fitPage} className="rounded border border-border px-2 py-1 text-muted-foreground hover:bg-accent hover:text-foreground">Fit page</button>}
+								<button type="button" data-testid="reader-fit-page" onClick={fitPage} className="rounded border border-border px-2 py-1 text-muted-foreground hover:bg-accent hover:text-foreground">Fit page</button>
 							</>
 						)}
 						<label className="flex items-center gap-1 rounded border border-border px-2">
@@ -499,19 +615,19 @@ export function PdfReaderView({ materialId, page: startPage, compact = false, ba
 							</ul>
 						</aside>
 					)}
-					<div ref={scrollBox} onScroll={onScroll} data-testid="reader-pages" className="relative min-w-0 flex-1 overflow-auto">
-						<div className={`flex min-h-full flex-col items-center gap-4 ${compact ? "px-2 py-2" : "px-4 py-4"}`}>
+					<div ref={scrollBox} onScroll={onScroll} data-testid="reader-pages" className="relative min-w-0 flex-1 overflow-auto overscroll-contain">
+						<div className={`flex min-h-full min-w-max flex-col items-center gap-4 ${compact ? "px-2 py-2" : "px-4 py-4"}`}>
 							{Array.from({ length: total }, (_, i) => i + 1).map((n) => {
 								const size = sizes[n - 1];
 								const shown = rendered.has(n);
 								return (
 									<div key={n} data-page={n} className="relative flex w-full justify-center" aria-label={`Page ${n}`}>
 										{isText ? (
-											<div className="w-full max-w-3xl border border-border bg-card px-5 py-5 shadow-sm">
-												{shown ? <TextPage materialId={materialId} page={n} cache={textCache.current} onText={rememberText} /> : <div className="h-24" />}
+											<div className="w-full max-w-[760px] border border-border bg-card px-5 py-5 shadow-sm">
+												{shown ? <TextPage materialId={materialId} fileName={material?.fileName ?? ""} page={n} cache={textCache.current} onText={rememberText} /> : <div className="h-24" />}
 											</div>
 										) : (
-											<div className="w-fit max-w-full overflow-auto rounded-sm border border-border bg-card shadow-sm">
+											<div className="w-fit max-w-none overflow-hidden rounded-sm border border-border bg-card shadow-sm">
 												{shown && lib && doc && size
 													? <PdfPage lib={lib} doc={doc} page={n} size={size} scale={scale} active />
 													: <div style={{ width: size ? Math.max(1, size.width * scale) : 320, height: size ? Math.max(1, size.height * scale) : 440 }} className="flex items-center justify-center bg-white text-xs text-muted-foreground">{n}</div>}
