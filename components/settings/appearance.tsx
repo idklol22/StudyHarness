@@ -36,6 +36,7 @@ import {
 	FACTORY_SETTINGS,
 	resolveTheme,
 	themeVars,
+	tuneOf,
 	type AppearanceSettings,
 	type RenderedMode,
 	type Theme,
@@ -52,6 +53,7 @@ export function resolveAppearance(delta: AppearanceSettings | undefined) {
 		fontFamily: delta?.fontFamily ?? f.fontFamily,
 		proseFontSize: delta?.proseFontSize ?? f.proseFontSize,
 		codeLigatures: delta?.codeLigatures ?? f.codeLigatures,
+		backgroundAnimation: delta?.backgroundAnimation ?? f.backgroundAnimation,
 		sessionNameSerif: delta?.sessionNameSerif ?? f.sessionNameSerif,
 		mdRendering: {
 			headingWeight: delta?.mdRendering?.headingWeight ?? f.mdRendering.headingWeight,
@@ -78,7 +80,7 @@ export function appearanceVars(
 	a: ReturnType<typeof resolveAppearance>,
 	theme: Theme,
 ): Record<string, string> {
-	const vars: Record<string, string> = themeVars(effectiveColors(theme, a), theme.mode);
+	const vars: Record<string, string> = themeVars(effectiveColors(theme, a), theme.mode, tuneOf(theme));
 	if (a.fontFamily !== null) {
 		const bundled = BUNDLED_READING_FONTS[a.fontFamily];
 		vars["--font-prose"] = `"${a.fontFamily}", ${bundled ? `${bundled}, ` : ""}var(--font-plex), ui-sans-serif, system-ui, sans-serif`;
@@ -180,12 +182,21 @@ export function AppearanceProvider({
 		root.classList.toggle("light", mode === "light");
 	}, [mode, initialTheme.mode]);
 
+	// The scene / glass switches the stylesheet and <ThemeScene> key off.
+	const tune = useMemo(() => tuneOf(activeTheme), [activeTheme]);
+	useLayoutEffect(() => {
+		const root = document.documentElement;
+		root.dataset.theme = activeTheme.id;
+		root.dataset.scene = tune.scene;
+		root.dataset.glass = tune.glass ? "1" : "0";
+	}, [activeTheme.id, tune]);
+
 	// The vars apply on every change — stringified as the change signal.
 	const vars = useMemo(() => appearanceVars(appearance, activeTheme), [appearance, activeTheme]);
 	// A refreshed server layout can rewrite <html>'s class/style while the
 	// mounted provider retains a newer local save. Reapply that live state
 	// when the server-rendered palette changes, even within the same mode.
-	const serverKey = JSON.stringify(themeVars(effectiveColors(initialTheme, initialAppearance), initialTheme.mode));
+	const serverKey = JSON.stringify(themeVars(effectiveColors(initialTheme, initialAppearance), initialTheme.mode, tuneOf(initialTheme)));
 	const key = useMemo(() => JSON.stringify([vars, serverKey]), [vars, serverKey]);
 	// REMOVAL is half the job (owner repro, fix wave): a later write that
 	// OMITS a var (empty font = factory, serif toggle back on) must clear

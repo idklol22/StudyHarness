@@ -110,7 +110,7 @@ function PdfPage({ lib, doc, page, size, scale, active }: { lib: PdfLib; doc: PD
 	}, [active, doc, lib, page, scale]);
 
 	return (
-		<div className="relative overflow-hidden bg-white" style={{ width: size.width * scale, height: size.height * scale }}>
+		<div className="lh-pdf-page relative overflow-hidden bg-white" style={{ width: size.width * scale, height: size.height * scale }}>
 			<canvas ref={canvas} className="absolute inset-0 block bg-white" aria-label={`Page ${page}`} />
 			<div ref={textLayer} className="textLayer" style={{ "--total-scale-factor": scale } as CSSProperties} />
 		</div>

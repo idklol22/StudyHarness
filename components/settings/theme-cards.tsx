@@ -16,7 +16,7 @@
 import { useRef, useState } from "react";
 import { CheckIcon, DownloadIcon, Trash2Icon, UploadIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { exportThemeFile, type AppearanceSettings, type Theme } from "@/src/core";
+import { exportThemeFile, tuneOf, type AppearanceSettings, type Theme } from "@/src/core";
 
 /** The selected card's frame: a 2px gap in the dialog surface, then a 1px
  *  ring in the theme accent (the check by the name does the rest). */
@@ -26,29 +26,56 @@ function Dot({ color, edge }: { color: string; edge?: string }) {
 	return (
 		<span
 			aria-hidden
-			className="size-3 rounded-full"
+			className="size-2.5 rounded-full"
 			style={{ background: color, ...(edge ? { border: `1px solid ${edge}` } : {}) }}
 		/>
 	);
 }
 
-/** The literal-color miniature: never reads the page tokens. */
+/** The scene thumbnail: a literal-color CSS stand-in for the live scene. */
+function sceneThumb(theme: Theme): string | undefined {
+	const t = tuneOf(theme);
+	const ink = t.scenePeak;
+	switch (t.scene) {
+		case "dust": return `radial-gradient(circle at 18% 30%, ${ink}cc 0 1px, transparent 1.5px), radial-gradient(circle at 62% 70%, ${ink}aa 0 1px, transparent 1.5px), radial-gradient(circle at 85% 25%, ${ink}88 0 1.5px, transparent 2px), radial-gradient(circle at 40% 80%, ${ink}77 0 1px, transparent 1.5px)`;
+		case "smoke": return `radial-gradient(60% 80% at 30% 30%, ${ink}55, transparent 70%), radial-gradient(50% 70% at 80% 70%, ${ink}3a, transparent 70%)`;
+		case "clouds": return `radial-gradient(circle at 70% 70%, ${ink}cc 0 3px, transparent 3.5px), radial-gradient(circle at 30% 35%, ${ink}99 0 4px, transparent 4.5px)`;
+		case "swirl": return `repeating-radial-gradient(circle at 30% 45%, ${ink}cc 0 1px, transparent 1px 3px)`;
+		default: return undefined;
+	}
+}
+
+/** The literal-color miniature: never reads the page tokens. A mini window —
+ *  sidebar strip (surface), page (background), text sample + accent button,
+ *  status dots — with the scene thumbnail behind when the theme has one. */
 function Preview({ theme }: { theme: Theme }) {
 	const c = theme.colors;
+	const t = tuneOf(theme);
+	const thumb = sceneThumb(theme);
 	return (
 		<span
 			aria-hidden
-			className="flex h-11 items-center justify-between rounded-md border px-3"
-			style={{ background: c.background, borderColor: c.border }}
+			data-scene-thumb={t.scene}
+			className="relative flex h-14 overflow-hidden rounded-md border"
+			style={{ background: c.background, borderColor: t.borderStrong, boxShadow: theme.mode === "light" ? t.shadow : undefined }}
 		>
-			<span className="font-prose text-xl font-semibold" style={{ color: c.text }}>
-				Aa <i className="font-normal" style={{ color: c.accent }}>ai</i>
+			{thumb && <span className="absolute inset-0" style={{ background: thumb }} />}
+			<span className="relative flex w-1/4 flex-col gap-1 border-r p-1.5" style={{ background: c.surface, borderColor: c.border }}>
+				<i className="block h-1 rounded-full" style={{ background: c.textMuted }} />
+				<i className="block h-1 w-2/3 rounded-full" style={{ background: t.textFaint }} />
 			</span>
-			<span className="flex gap-1.5">
-				<Dot color={c.surface} edge={c.border} />
-				<Dot color={c.accent} />
-				<Dot color={c.error} />
-				<Dot color={c.success} />
+			<span className="relative flex flex-1 flex-col justify-between p-1.5">
+				<span className="font-prose text-sm leading-none font-semibold" style={{ color: c.text }}>
+					Aa <i className="font-normal" style={{ color: c.textMuted }}>ai</i>
+				</span>
+				<span className="flex items-center justify-between">
+					<i className="block rounded-sm px-1.5 text-[9px] leading-3 font-medium not-italic" style={{ background: c.accent, color: t.accentContrast }}>Go</i>
+					<span className="flex gap-1">
+						<Dot color={c.error} />
+						<Dot color={c.success} />
+						<Dot color={c.warning} />
+					</span>
+				</span>
 			</span>
 		</span>
 	);

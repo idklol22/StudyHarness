@@ -6,8 +6,14 @@
  *  The picker posts `{action:"set-color", id, color}` and calls `onChanged` so the caller
  *  can refetch its library/graph. */
 import { useState } from "react";
-import { subjectColorCss } from "@/src/core";
-export { subjectColorCss } from "@/src/core";
+import { SUBJECT_BASE_LIGHTNESS, SUBJECT_SATURATION } from "@/src/core";
+
+/** The subject swatch as CSS: the hue at the ACTIVE THEME's lightness
+ *  (--lh-subject-l, tuned per theme so every swatch reads >= 4.5:1 on the
+ *  theme's surfaces; tests/theme-contrast.test.ts). */
+export function subjectColorCss(hue: number): string {
+	return `hsl(${Math.round(hue) % 360} ${SUBJECT_SATURATION}% var(--lh-subject-l, ${SUBJECT_BASE_LIGHTNESS}%))`;
+}
 
 /** Muted swatches, deliberately low-saturation for the black/white UI. */
 export const SUBJECT_SWATCHES = [205, 150, 95, 35, 340, 280, 250, 20, 175, 310] as const;

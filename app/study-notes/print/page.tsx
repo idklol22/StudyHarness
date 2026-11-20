@@ -27,8 +27,8 @@ function Print() {
 	if (error) return <p role="alert" style={{ padding: 24 }}>{error}</p>;
 	if (!book) return <p style={{ padding: 24 }}>Loading…</p>;
 	return (
-		<div style={{ background: "#17181c" }}>
-			<style>{`@page { size: ${PAGE_W}px ${PAGE_H}px; margin: 0 } html, body { background: #17181c; -webkit-print-color-adjust: exact; print-color-adjust: exact } @media print { body { margin: 0 } [data-testid="note-page"] { break-after: page } }`}</style>
+		<div style={{ background: "var(--lh-np-paper)" }}>
+			<style>{`@page { size: ${PAGE_W}px ${PAGE_H}px; margin: 0 } html, body { background: var(--lh-np-paper); -webkit-print-color-adjust: exact; print-color-adjust: exact } @media print { body { margin: 0 } [data-testid="note-page"] { break-after: page } }`}</style>
 			{book.pages.map((p, i) => <NotePageView key={p.id} page={p} number={i + 1} notebook={book} scale={1} tool="view" imageUrl={pageImageUrl} />)}
 		</div>
 	);

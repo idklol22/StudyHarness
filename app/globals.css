@@ -71,6 +71,19 @@
 	--lh-error: #e5484d;
 	--lh-success: #46a758;
 	--lh-warning: #e5a03b;
+	/* Semantic role tokens (all-themes wave) — Mono's literals; every theme
+	   defines all of them (src/core/themes.ts themeVars). */
+	--lh-surface-2: #151515;
+	--lh-raised: #181818;
+	--lh-border-strong: #6e6e6e;
+	--lh-text-faint: #767676;
+	--lh-accent-contrast: #0a0a0a;
+	--lh-focus: #d4d4d4;
+	--lh-focus-width: 1.5px;
+	--lh-selection: rgba(212, 212, 212, 0.28);
+	--lh-scrim: rgba(10, 10, 10, 0.8);
+	--lh-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+	--lh-subject-l: 59%;
 	/* THE READING SIZE = the ladder's 16px rung (--text-lg). Can't be
 	   var()-linked: @theme inline inlines literals into utilities without
 	   emitting runtime vars — so this is the one documented duplication:
@@ -680,4 +693,154 @@ body {
 	background-color: var(--accent);
 	outline: 1px solid var(--border);
 	border-radius: 0.25rem;
+}
+
+/* ============================================================
+ * ALL-THEMES WAVE — selection, focus, scenes, glass, special surfaces.
+ * Everything below reads the semantic role tokens (--lh-*) that
+ * themeVars() sets per theme; nothing hard-codes a theme.
+ * ============================================================ */
+
+::selection {
+	background: var(--lh-selection);
+	color: var(--foreground);
+}
+
+/* The no-ring law stands, with ONE exception: the Contrast theme draws a
+   2px focus ring (accessibility theme, brief principle 2). */
+html[data-theme="contrast"] *:focus-visible {
+	outline: var(--lh-focus-width) solid var(--lh-focus);
+	outline-offset: 2px;
+}
+
+/* Raised surfaces (menus, popovers, dialogs) get the theme's shadow and,
+   in light themes, a stronger edge. */
+.light .shadow-lg,
+.light .shadow-xl {
+	box-shadow: var(--lh-shadow);
+}
+
+/* ---- Scenes: ONE fixed canvas behind the app, veiled for contrast ---- */
+#lh-scene {
+	position: fixed;
+	inset: 0;
+	z-index: -1;
+	pointer-events: none;
+	overflow: hidden;
+}
+#lh-scene canvas {
+	display: block;
+	width: 100%;
+	height: 100%;
+}
+#lh-scene canvas.lh-scene-pixel {
+	image-rendering: pixelated;
+}
+#lh-scene .lh-scene-veil {
+	position: absolute;
+	inset: 0;
+	background: var(--lh-scrim);
+}
+
+/* ---- Glass tiles: translucent, blurred; reading surfaces never use it ---- */
+[data-lh-glass] {
+	background: color-mix(in srgb, var(--card) 100%, transparent);
+}
+@supports (backdrop-filter: blur(1px)) {
+	html[data-glass="1"] [data-lh-glass] {
+		background: color-mix(in srgb, var(--card) 72%, transparent);
+		-webkit-backdrop-filter: blur(14px) saturate(1.15);
+		backdrop-filter: blur(14px) saturate(1.15);
+	}
+}
+/* A scene needs the page to let it through: the sidebar and the glass tiles
+   are the only chrome that is translucent; chat text sits on the veil. */
+html:not([data-scene="none"]) body {
+	background: transparent;
+}
+html:not([data-scene="none"]) {
+	background: var(--background);
+}
+
+/* Vivid dark themes with glass get an accent glow behind the tiles. */
+html[data-glass="1"][data-scene="none"] body {
+	background:
+		radial-gradient(1100px 650px at 88% -12%, color-mix(in srgb, var(--lh-accent) 13%, transparent), transparent 62%),
+		radial-gradient(900px 600px at -5% 110%, color-mix(in srgb, var(--lh-accent) 8%, transparent), transparent 60%),
+		var(--background);
+	background-attachment: fixed;
+}
+
+/* ---- PDF reader: pages stay white paper in every theme ---- */
+.lh-pdf-page {
+	background: #ffffff;
+	color: #111111;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28), 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+.light .lh-pdf-page {
+	box-shadow: 0 1px 2px rgba(20, 30, 60, 0.18), 0 6px 18px rgba(20, 30, 60, 0.14);
+}
+
+/* ---- Code blocks: a well one step off the page, a syntax palette per variant ---- */
+[data-streamdown="inline-code"],
+[data-streamdown="code-block"] {
+	background: var(--lh-surface-2);
+}
+
+/* ---- Notes notebook paper: dark paper on dark themes, cream on light ---- */
+:root {
+	--lh-np-paper: #17181c;
+	--lh-np-line: #262830;
+	--lh-np-margin: #7f3b3b;
+	--lh-np-heading: #f3f4f6;
+	--lh-np-rule-heading: #a16207;
+	--lh-np-ink: #93c5fd;
+	--lh-np-strong: #e5e7eb;
+	--lh-np-sub: #cbd5e1;
+	--lh-np-dash: #8b8b95;
+	--lh-np-arrow: #a1a1aa;
+	--lh-np-sticky-bg: #4a3f0b;
+	--lh-np-sticky-fg: #fef3c7;
+	--lh-np-sticky2-bg: #14532d;
+	--lh-np-sticky2-fg: #bbf7d0;
+	--lh-np-center-fill: #a16207;
+	--lh-np-decision-fill: #3b2a06;
+	--lh-np-fig-border: #3f3f46;
+	--lh-np-mark: #f87171;
+	--lh-np-t0: #93c5fd;
+	--lh-np-t1: #60a5fa;
+	--lh-np-t2: #34d399;
+	--lh-np-t3: #fbbf24;
+	--lh-np-t4: #f87171;
+	--lh-np-t5: #a78bfa;
+	--lh-np-t6: #22d3ee;
+	--lh-np-t7: #fb7185;
+}
+.light {
+	--lh-np-paper: #fbf8f0;
+	--lh-np-line: #e4ddcc;
+	--lh-np-margin: #e0a0a0;
+	--lh-np-heading: #1f2937;
+	--lh-np-rule-heading: #d97706;
+	--lh-np-ink: #1e40af;
+	--lh-np-strong: #1f2937;
+	--lh-np-sub: #334155;
+	--lh-np-dash: #6b7280;
+	--lh-np-arrow: #4b5563;
+	--lh-np-sticky-bg: #fde68a;
+	--lh-np-sticky-fg: #4a3200;
+	--lh-np-sticky2-bg: #bbf7d0;
+	--lh-np-sticky2-fg: #14532d;
+	--lh-np-center-fill: #fcd34d;
+	--lh-np-decision-fill: #fef3c7;
+	--lh-np-fig-border: #cbd5e1;
+	--lh-np-mark: #dc2626;
+	--lh-np-t0: #1d4ed8;
+	--lh-np-t1: #1d4ed8;
+	--lh-np-t2: #047857;
+	--lh-np-t3: #b45309;
+	--lh-np-t4: #b91c1c;
+	--lh-np-t5: #6d28d9;
+	--lh-np-t6: #0e7490;
+	--lh-np-t7: #be123c;
 }

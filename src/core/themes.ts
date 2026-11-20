@@ -13,6 +13,8 @@
  */
 
 import type { AppearanceSettings } from "./settings.ts";
+import { LETCODE_THEMES } from "./letcode-themes.ts";
+import { blendHex, contrastRatio, rgba, subjectLightness } from "./theme-contrast.ts";
 
 /** The variant on screen: the `dark`/`light` class on <html>. */
 export type ThemeMode = "dark" | "light";
@@ -72,6 +74,39 @@ export interface ThemeFile {
 export interface Theme extends ThemeFile {
 	id: string;
 	builtin: boolean;
+	/** Per-theme tuning of the semantic tokens beyond the 12 colors. Absent
+	 *  (imported themes) = derived from the 12 colors by deriveTune. */
+	tune?: ThemeTune;
+}
+
+/** The background scene a theme draws on the fixed canvas behind the app. */
+export type ThemeScene = "none" | "dust" | "smoke" | "clouds" | "swirl";
+
+/** The semantic role tokens that are not one of the 12 colors (brief:
+ *  --surface-2, --surface-raised, --border-strong, --text-faint,
+ *  --accent-contrast, --focus, --selection, --scrim, --shadow). Hand-tuned
+ *  per built-in theme; tests/theme-contrast.test.ts pins their readability. */
+export interface ThemeTune {
+	surface2: string;
+	raised: string;
+	borderStrong: string;
+	textFaint: string;
+	/** Text/icon ink drawn ON the accent color. */
+	accentContrast: string;
+	focus: string;
+	/** Focus ring width in px (2 for the Contrast theme). */
+	focusWidth: number;
+	/** CSS color of the text selection. */
+	selection: string;
+	/** Alpha of the veil (the background color) laid over the scene. */
+	scrimAlpha: number;
+	/** CSS box-shadow for raised surfaces and popovers. */
+	shadow: string;
+	scene: ThemeScene;
+	/** Glass tiles: translucent blurred surfaces (never reading surfaces). */
+	glass: boolean;
+	/** Brightest pixel the theme's scene can draw (scrim contrast test). */
+	scenePeak: string;
 }
 
 /** The theme a record without `appearance.theme` renders. */
@@ -125,8 +160,8 @@ export function isThemeId(value: unknown): value is string {
 	return typeof value === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value) && value.length <= 64;
 }
 
-function builtin(name: string, mode: ThemeMode, c: ThemeColors): Theme {
-	return { id: themeIdFromName(name), name, mode, colors: c, builtin: true };
+function builtin(name: string, mode: ThemeMode, c: ThemeColors, tune?: ThemeTune): Theme {
+	return { id: themeIdFromName(name), name, mode, colors: c, builtin: true, ...(tune ? { tune } : {}) };
 }
 
 /** The presets, in grid order. Default = the app's original dark palette
@@ -143,10 +178,16 @@ function builtin(name: string, mode: ThemeMode, c: ThemeColors): Theme {
  *  onedark. */
 export const BUILTIN_THEMES: readonly Theme[] = [
 	{
+		// "Mono" (all-themes wave): the black/white default keeps its stored id.
 		id: DEFAULT_THEME_ID,
-		name: "Default",
+		name: "Mono",
 		mode: "dark",
 		builtin: true,
+		tune: {
+			surface2: "#151515", raised: "#181818", borderStrong: "#6e6e6e", textFaint: "#767676", accentContrast: "#0a0a0a",
+			focus: "#d4d4d4", focusWidth: 1.5, selection: "rgba(212, 212, 212, 0.28)", scrimAlpha: 0.8,
+			shadow: "0 18px 50px rgba(0, 0, 0, 0.55)", scene: "none", glass: false, scenePeak: "#0a0a0a",
+		},
 		colors: {
 			// Minimal black & white (owner 2026-11-19): near-black page, white and shades of white, little colour.
 			background: "#0a0a0a", surface: "#121212", border: "#232323", text: "#f2f2f2", textMuted: "#8f8f8f",
@@ -154,6 +195,7 @@ export const BUILTIN_THEMES: readonly Theme[] = [
 			error: "#e5484d", success: "#46a758", warning: "#e5a03b",
 		},
 	},
+	...LETCODE_THEMES.map((t) => builtin(t.name, t.mode, t.colors, t.tune)),
 	// The inverse of the minimal black/white Default (Round 5): kept as an option, never the default.
 	builtin("Default Light", "light", {
 		background: "#fafafa", surface: "#f0f0f0", border: "#dedede", text: "#111111", textMuted: "#6b6b6b",
@@ -255,11 +297,43 @@ export function shiftHex(hex: string, add: number): string {
  *  darker on light (#1c1c1c → #2a2a2a, the original hand-picked hover). */
 const HOVER_STEP = 14;
 
-/** THE adapter: 12 theme colors → the CSS variables set on <html>.
- *  `--accent` stays the shadcn HOVER surface (derived from `surface`, so
- *  hovers never turn the highlight color); the theme's accent is
- *  `--lh-accent` (ring, toggles, the selected theme card). */
-export function themeVars(c: ThemeColors, mode: ThemeMode): Record<string, string> {
+/** The tuning a theme without its own gets, derived from its 12 colors so
+ *  imported themes still define every semantic token. */
+export function deriveTune(c: ThemeColors, mode: ThemeMode): ThemeTune {
+	const dark = mode === "dark";
+	const step = dark ? 1 : -1;
+	const onAccent = contrastRatio(c.background, c.accent) >= contrastRatio("#ffffff", c.accent) ? c.background : "#ffffff";
+	return {
+		surface2: shiftHex(c.surface, 8 * step),
+		raised: shiftHex(c.surface, 16 * step),
+		borderStrong: blendHex(c.text, c.border, 0.45),
+		textFaint: blendHex(c.textMuted, c.background, 0.7),
+		accentContrast: contrastRatio(onAccent, c.accent) >= contrastRatio("#000000", c.accent) ? onAccent : "#000000",
+		focus: c.accent,
+		focusWidth: 1.5,
+		selection: rgba(c.accent, dark ? 0.3 : 0.22),
+		scrimAlpha: 0.8,
+		shadow: dark ? "0 18px 50px rgba(0, 0, 0, 0.55)" : "0 14px 40px rgba(0, 0, 0, 0.16), 0 1px 3px rgba(0, 0, 0, 0.1)",
+		scene: "none",
+		glass: false,
+		scenePeak: c.background,
+	};
+}
+
+/** The tuning in force: the theme's own, else derived. */
+export function tuneOf(theme: { mode: ThemeMode; colors: ThemeColors; tune?: ThemeTune }): ThemeTune {
+	return theme.tune ?? deriveTune(theme.colors, theme.mode);
+}
+
+/** THE adapter: 12 theme colors (+ the tuning) → the CSS variables set on
+ *  <html>. `--accent` stays the shadcn HOVER surface (derived from
+ *  `surface`, so hovers never turn the highlight color); the theme's
+ *  accent is `--lh-accent` (ring, toggles, the selected theme card). The
+ *  semantic role tokens of the theme brief ride along as `--lh-*`:
+ *  surface-2, raised, border-strong, text-faint, accent-contrast, focus,
+ *  selection, scrim, shadow (+ subject-l, the subject swatch lightness). */
+export function themeVars(c: ThemeColors, mode: ThemeMode, tune?: ThemeTune): Record<string, string> {
+	const t = tune ?? deriveTune(c, mode);
 	return {
 		"--background": c.background,
 		"--foreground": c.text,
@@ -287,6 +361,17 @@ export function themeVars(c: ThemeColors, mode: ThemeMode): Record<string, strin
 		"--lh-error": c.error,
 		"--lh-success": c.success,
 		"--lh-warning": c.warning,
+		"--lh-surface-2": t.surface2,
+		"--lh-raised": t.raised,
+		"--lh-border-strong": t.borderStrong,
+		"--lh-text-faint": t.textFaint,
+		"--lh-accent-contrast": t.accentContrast,
+		"--lh-focus": t.focus,
+		"--lh-focus-width": `${t.focusWidth}px`,
+		"--lh-selection": t.selection,
+		"--lh-scrim": rgba(c.background, t.scrimAlpha),
+		"--lh-shadow": t.shadow,
+		"--lh-subject-l": `${subjectLightness([c.surface, c.background, t.surface2], mode)}%`,
 	};
 }
 

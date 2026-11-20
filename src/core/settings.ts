@@ -417,6 +417,8 @@ export interface AppearanceSettings {
 	proseFontSize?: number;
 	/** Permit normal font ligatures in code (including inline code and code editors). Default false; prose is unaffected. */
 	codeLigatures?: boolean;
+	/** Animate the background scene of scene themes (midnight dust, nimbus clouds, uzumaki swirl). Default true; reduced motion and a hidden tab stop it regardless. */
+	backgroundAnimation?: boolean;
 	/** Session names in CMU Serif (default true — today's look). */
 	sessionNameSerif?: boolean;
 	mdRendering?: MdRenderingSettings;
@@ -524,6 +526,7 @@ export interface FactorySettings {
 		fontFamily: string | null;
 		proseFontSize: number;
 		codeLigatures: boolean;
+		backgroundAnimation: boolean;
 		sessionNameSerif: boolean;
 		mdRendering: {
 			headingWeight: number;
@@ -547,6 +550,7 @@ export const FACTORY_SETTINGS: FactorySettings = {
 		fontFamily: null, // Source Sans 3
 		proseFontSize: 16,
 		codeLigatures: false,
+		backgroundAnimation: true,
 		sessionNameSerif: true,
 		mdRendering: { headingWeight: 600, boldColor: null, italicColor: null },
 	},
@@ -801,6 +805,8 @@ function sanitizeAppearance(raw: Record<string, unknown>): AppearanceSettings {
 	}
 	const codeLigatures = boolOrDrop(raw.codeLigatures);
 	if (codeLigatures !== undefined) out.codeLigatures = codeLigatures;
+	const backgroundAnimation = boolOrDrop(raw.backgroundAnimation);
+	if (backgroundAnimation !== undefined) out.backgroundAnimation = backgroundAnimation;
 	const sessionNameSerif = boolOrDrop(raw.sessionNameSerif);
 	if (sessionNameSerif !== undefined) out.sessionNameSerif = sessionNameSerif;
 	if (raw.mdRendering !== undefined) out.mdRendering = sanitizeMdRendering(raw.mdRendering);

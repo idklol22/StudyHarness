@@ -9,6 +9,8 @@ import { ServerEventsProvider } from "@/components/server-events";
 import { AppearanceProvider } from "@/components/settings/appearance";
 import UpdateBanner from "@/components/update-banner";
 import { PluginsProvider } from "@/components/plugins";
+import { ThemeScene } from "@/components/theme-scene";
+import { tuneOf } from "@/src/core";
 import { readThemeBoot } from "@/src/server";
 
 // IBM Plex Sans for the whole interface, prose and titles; Plex Mono only for code (owner 2026-11-19).
@@ -29,11 +31,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 	// prerendered route (settings) would bake the BUILD machine's record.
 	await connection();
 	const { appearance, theme, vars } = readThemeBoot();
+	const tune = tuneOf(theme);
 	return (
 		<html
 			lang="en"
 			className={`${theme.mode} ${ui.variable} ${prose.variable} ${hand.variable}`}
 			style={vars as React.CSSProperties}
+			data-theme={theme.id}
+			data-scene={tune.scene}
+			data-glass={tune.glass ? "1" : "0"}
 			suppressHydrationWarning
 		>
 			<body className="min-h-dvh antialiased">
@@ -42,6 +48,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 			<ServerEventsProvider>
 				<PluginsProvider>
 					<AppearanceProvider initialAppearance={appearance} initialTheme={theme}>
+						<ThemeScene />
 						<SidebarProvider>
 							<ActivityProvider>
 								<AppShell>{children}</AppShell>

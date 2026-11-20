@@ -136,14 +136,14 @@ export function SubjectOverview({ subjectId, topicId, library, chats, notebooks,
 	const deadlines = showDone ? allDeadlines : upcoming(library, subjectId, new Date(), topicId);
 	const recent = recentItems({ scope, library, chats, notebooks });
 
-	const card = "min-w-0 rounded-lg border bg-card p-3";
+	const card = "min-w-0 rounded-lg border bg-card p-3 shadow-sm";
 	const heading = "mb-2 text-[11px] font-medium uppercase tracking-widest text-muted-foreground";
 	const field = "h-8 min-w-0 rounded-md border border-border bg-background px-2 text-xs outline-none";
 
 	return (
 		<section className="mt-4 min-w-0" data-testid="overview-section">
 			{error && <p role="alert" className="mb-3 rounded-md border border-destructive/40 bg-card px-3 py-2 text-xs text-destructive">{error}</p>}
-			<div className={card} data-testid="overview-inbox">
+			<div className={card} data-lh-glass data-testid="overview-inbox">
 				<h2 className={heading}>Inbox</h2>
 				<div className="grid min-w-0 gap-2 sm:grid-cols-2">
 					<div
@@ -196,7 +196,7 @@ export function SubjectOverview({ subjectId, topicId, library, chats, notebooks,
 				</ul>
 			</div>
 			<div className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-2">
-				<div className={card} data-testid="overview-todo">
+				<div className={card} data-lh-glass data-testid="overview-todo">
 					<h2 className={heading}>To do</h2>
 					{todo.length === 0 ? (
 						<p className="text-sm text-muted-foreground" data-testid="overview-todo-empty">You&apos;re all caught up.</p>
@@ -205,7 +205,7 @@ export function SubjectOverview({ subjectId, topicId, library, chats, notebooks,
 					)}
 				</div>
 
-				<div className={card} data-testid="overview-coverage">
+				<div className={card} data-lh-glass data-testid="overview-coverage">
 					<h2 className={heading}>
 						Coverage <span className="normal-case tracking-normal">· {totals.readPages}/{totals.pages} pp read · {totals.notedPages}/{totals.pages} pp noted</span>
 					</h2>
@@ -227,7 +227,7 @@ export function SubjectOverview({ subjectId, topicId, library, chats, notebooks,
 					)}
 				</div>
 
-				<div className={card} id="deadlines" data-testid="overview-deadlines">
+				<div className={card} data-lh-glass id="deadlines" data-testid="overview-deadlines">
 					<div className="mb-2 flex flex-wrap items-center gap-2">
 						<h2 className={`${heading} mr-auto`}>Deadlines</h2>
 						<label className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -261,7 +261,7 @@ export function SubjectOverview({ subjectId, topicId, library, chats, notebooks,
 					</form>
 				</div>
 
-				<div className={card} data-testid="overview-recent">
+				<div className={card} data-lh-glass data-testid="overview-recent">
 					<h2 className={heading}>Recent</h2>
 					{recent.length === 0 ? <p className="text-sm text-muted-foreground">Nothing here yet.</p> : (
 						<ul className="flex flex-col gap-1">

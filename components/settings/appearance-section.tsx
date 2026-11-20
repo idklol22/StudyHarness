@@ -410,6 +410,13 @@ export function AppearanceSection({
 					onChange={(on) => onSectionChange({ ...appearance, codeLigatures: on })}
 				/>
 			</SettingsRow>
+			<SettingsRow label="Background animation" hint="Scene themes only" testid="row-background-animation">
+				<Toggle
+					checked={resolved.backgroundAnimation}
+					label="background animation"
+					onChange={(on) => onSectionChange({ ...appearance, backgroundAnimation: on })}
+				/>
+			</SettingsRow>
 			<SettingsRow label="Session names in serif" testid="row-session-serif">
 				<Toggle
 					checked={appearance?.sessionNameSerif ?? true}

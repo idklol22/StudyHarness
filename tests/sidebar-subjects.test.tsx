@@ -115,7 +115,7 @@ describe("Subjects panel markup", () => {
 		assert.match(html, /min-h-10/, "roomy (~40px) rows");
 		assert.match(html, /text-sm/, "14px names");
 		assert.match(html, /1 file · 2 topics · 3 chats/, "quiet counts");
-		assert.match(html, /hsl\(\d+ 26% 58%\)/, "the colour dot uses the shared subject colour");
+		assert.match(html, /hsl\(\d+ 26% var\(--lh-subject-l, 58%\)\)/, "the colour dot uses the shared subject colour");
 	});
 
 	it("quick actions are in the markup without any hover state", () => {

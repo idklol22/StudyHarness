@@ -19,6 +19,7 @@ import {
 	THEME_COLOR_KEYS,
 	themeIdFromName,
 	themeVars,
+	tuneOf,
 	type Theme,
 } from "../src/core/index.ts";
 
@@ -64,11 +65,12 @@ describe("presets", () => {
 			assert.ok(sanitizeThemeFile(t), t.id);
 			assert.ok(!ids.has(t.id), `duplicate ${t.id}`);
 			ids.add(t.id);
-			assert.equal(t.id, themeIdFromName(t.name));
+			if (t.id !== "default") assert.equal(t.id, themeIdFromName(t.name)); // Mono keeps the stored id "default"
 			assert.equal(t.builtin, true);
 		}
 		assert.deepEqual([...ids], [
-			"default", "default-light", "catppuccin-latte", "catppuccin-frappe", "catppuccin-macchiato", "catppuccin-mocha",
+			"default", "midnight", "smoke", "graphite", "contrast", "red", "orange", "ember", "emerald", "ocean", "sapphire", "citrus",
+			"blue", "nimbus", "uzumaki", "default-light", "catppuccin-latte", "catppuccin-frappe", "catppuccin-macchiato", "catppuccin-mocha",
 			"rose-pine", "rose-pine-dawn", "gruvbox-dark", "ivory", "pastel", "nvchad-onedark",
 		]);
 	});
@@ -96,7 +98,7 @@ describe("themeVars — the adapter", () => {
 		// Normalize CRLF checkouts so the pin is line-ending agnostic.
 		const css = fs.readFileSync(new URL("../app/globals.css", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 		const block = cssBlock(css, ":root,\n.dark");
-		for (const [token, value] of Object.entries(themeVars(DEFAULT_THEME.colors, "dark"))) {
+		for (const [token, value] of Object.entries(themeVars(DEFAULT_THEME.colors, "dark", DEFAULT_THEME.tune))) {
 			assert.equal(block.get(token), value, token);
 		}
 	});

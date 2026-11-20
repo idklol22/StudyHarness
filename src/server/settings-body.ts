@@ -291,6 +291,12 @@ export function parseAppearanceSettingsBody(body: unknown): SettingsBodyResult<A
 		}
 		settings.codeLigatures = raw.codeLigatures;
 	}
+	if (raw.backgroundAnimation !== undefined) {
+		if (typeof raw.backgroundAnimation !== "boolean") {
+			return { ok: false, error: "backgroundAnimation must be a boolean" };
+		}
+		settings.backgroundAnimation = raw.backgroundAnimation;
+	}
 	if (raw.sessionNameSerif !== undefined) {
 		if (typeof raw.sessionNameSerif !== "boolean") {
 			return { ok: false, error: "sessionNameSerif must be a boolean" };

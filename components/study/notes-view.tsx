@@ -17,64 +17,67 @@ const MIN_NOTE_PAGES = 8;
 const HAND = "var(--font-hand), 'Segoe Print', 'Bradley Hand', cursive";
 
 type Tool = "view" | "pen" | "highlighter" | "sticky";
-const INK = "#93c5fd";
+const INK = "var(--lh-np-ink)";
 const BOX: Record<string, { label: string; color: string }> = {
-	definition: { label: "Definition", color: "#60a5fa" }, exam: { label: "Exam!", color: "#f87171" }, revisit: { label: "Revisit", color: "#fbbf24" },
-	mistake: { label: "Mistake", color: "#fb7185" }, idea: { label: "Idea", color: "#34d399" },
+	definition: { label: "Definition", color: "var(--lh-np-t1)" }, exam: { label: "Exam!", color: "var(--lh-np-t4)" }, revisit: { label: "Revisit", color: "var(--lh-np-t3)" },
+	mistake: { label: "Mistake", color: "var(--lh-np-t7)" }, idea: { label: "Idea", color: "var(--lh-np-t2)" },
 };
+
+/** The pen's stored white-ish ink is drawn in the paper's own ink, so it reads on light paper too. */
+const inkOf = (stored: string) => (stored.toLowerCase() === "#f3f4f6" ? "var(--lh-np-heading)" : stored);
 
 function ElementView({ el, imageUrl }: { el: Element; imageUrl: (materialId: string, page: number) => string }) {
 	const box: React.CSSProperties = { position: "absolute", left: el.x, top: el.y, width: el.w, minHeight: el.h };
 	switch (el.type) {
-		case "heading": return <div style={{ ...box, fontSize: 30, fontWeight: 700, lineHeight: "36px", color: "#f3f4f6", borderBottom: "3px solid #a16207" }}>{el.text}</div>;
+		case "heading": return <div style={{ ...box, fontSize: 30, fontWeight: 700, lineHeight: "36px", color: "var(--lh-np-heading)", borderBottom: "3px solid var(--lh-np-rule-heading)" }}>{el.text}</div>;
 		case "text": return <div style={{ ...box, fontSize: 20, lineHeight: "26px", color: INK, whiteSpace: "pre-wrap" }}><RichText text={el.text} /></div>;
 		case "bullets": return <ul style={{ ...box, fontSize: 20, lineHeight: "26px", color: INK, listStyle: "none", margin: 0, padding: 0 }}>{el.items.map((t, i) => <li key={i} style={{ paddingLeft: 28, position: "relative" }}><span style={{ position: "absolute", left: 6 }}>•</span><RichText text={t} /></li>)}</ul>;
 		case "box": {
 			const k = BOX[el.kind] ?? BOX.idea!;
 			return (
-				<div style={{ ...box, border: `2.5px solid ${k.color}`, borderRadius: 14, padding: "10px 14px", fontSize: 20, lineHeight: "26px", color: "#e5e7eb", background: `${k.color}12` }}>
+				<div style={{ ...box, border: `2.5px solid ${k.color}`, borderRadius: 14, padding: "10px 14px", fontSize: 20, lineHeight: "26px", color: "var(--lh-np-strong)", background: `color-mix(in srgb, ${k.color} 8%, transparent)` }}>
 					<div style={{ color: k.color, fontWeight: 700, fontSize: 17 }}>{el.title ?? k.label}</div><RichText text={el.text} />
 				</div>
 			);
 		}
 		case "steps": return (
-			<div style={{ ...box, border: "2px dashed #71717a", borderRadius: 12, padding: "8px 12px", fontSize: 20, lineHeight: "26px", color: INK }}>
-				{el.title && <div style={{ fontWeight: 700, color: "#cbd5e1" }}>{el.title}</div>}
+			<div style={{ ...box, border: "2px dashed var(--lh-np-dash)", borderRadius: 12, padding: "8px 12px", fontSize: 20, lineHeight: "26px", color: INK }}>
+				{el.title && <div style={{ fontWeight: 700, color: "var(--lh-np-sub)" }}>{el.title}</div>}
 				<ol style={{ margin: 0, paddingLeft: 26 }}>{el.steps.map((s, i) => <li key={i} style={{ marginBottom: 4 }}><RichText text={s} /></li>)}</ol>
 			</div>
 		);
-		case "sticky": return <div style={{ ...box, transform: `rotate(${el.tilt}deg)`, background: "#4a3f0b", padding: "10px 12px", fontSize: 17, lineHeight: "23px", color: "#fef3c7", boxShadow: "2px 3px 6px rgba(0,0,0,.18)" }}><RichText text={el.text} /></div>;
+		case "sticky": return <div style={{ ...box, transform: `rotate(${el.tilt}deg)`, background: "var(--lh-np-sticky-bg)", padding: "10px 12px", fontSize: 17, lineHeight: "23px", color: "var(--lh-np-sticky-fg)", boxShadow: "2px 3px 6px rgba(0,0,0,.18)" }}><RichText text={el.text} /></div>;
 		case "math": return (
-			<div style={{ ...box, color: "#f3f4f6" }}>
+			<div style={{ ...box, color: "var(--lh-np-heading)" }}>
 				<div style={{ fontSize: 22, fontFamily: "initial", overflowX: "auto" }} dangerouslySetInnerHTML={{ __html: renderLatex(el.latex, true) }} />
 				{el.text && <div style={{ fontSize: 17, lineHeight: "23px", color: INK }}><RichText text={el.text} /></div>}
 			</div>
 		);
 		case "diagram": {
 			const shapes = drawDiagram(el.diagram, el.w);
-			const TONES = ["#93c5fd", "#34d399", "#fbbf24", "#fb7185", "#a78bfa", "#22d3ee"];
+			const TONES = ["var(--lh-np-t0)", "var(--lh-np-t2)", "var(--lh-np-t3)", "var(--lh-np-t7)", "var(--lh-np-t5)", "var(--lh-np-t6)"];
 			const arrowId = `ah-${el.id}`;
 			return (
 				<div style={{ ...box }}>
-					{el.title && <div style={{ fontSize: 20, fontWeight: 700, color: "#cbd5e1", lineHeight: "26px", marginBottom: 4 }}>{el.title}</div>}
+					{el.title && <div style={{ fontSize: 20, fontWeight: 700, color: "var(--lh-np-sub)", lineHeight: "26px", marginBottom: 4 }}>{el.title}</div>}
 					<svg width={el.w} height={shapes.h} viewBox={`0 0 ${el.w} ${shapes.h}`} role="img" aria-label={el.title ?? `${el.diagram.kind === "flow" ? "Flowchart" : "Mind map"}`} fontFamily={HAND} style={{ overflow: "visible" }}>
-						<defs><marker id={arrowId} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a1a1aa" /></marker></defs>
+						<defs><marker id={arrowId} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--lh-np-arrow)" /></marker></defs>
 						{shapes.arrows.map((a, i) => (
 							<g key={i}>
-								<polyline points={a.points.map((p) => p.join(",")).join(" ")} fill="none" stroke="#a1a1aa" strokeWidth={2} strokeLinecap="round" markerEnd={a.arrow ? `url(#${arrowId})` : undefined} />
-								{a.label && <text x={a.lx} y={a.ly} fontSize={14} fill="#a1a1aa">{a.label}</text>}
+								<polyline points={a.points.map((p) => p.join(",")).join(" ")} fill="none" stroke="var(--lh-np-arrow)" strokeWidth={2} strokeLinecap="round" markerEnd={a.arrow ? `url(#${arrowId})` : undefined} />
+								{a.label && <text x={a.lx} y={a.ly} fontSize={14} fill="var(--lh-np-arrow)">{a.label}</text>}
 							</g>
 						))}
 						{shapes.boxes.map((b, i) => {
-							const color = b.shape === "center" ? "#f3f4f6" : TONES[b.tone % TONES.length]!;
-							const fill = b.shape === "center" ? "#a16207" : b.shape === "decision" ? "#3b2a06" : `${color}14`;
+							const color = b.shape === "center" ? "var(--lh-np-heading)" : TONES[b.tone % TONES.length]!;
+							const fill = b.shape === "center" ? "var(--lh-np-center-fill)" : b.shape === "decision" ? "var(--lh-np-decision-fill)" : `color-mix(in srgb, ${color} 9%, transparent)`;
 							const size = b.shape === "leaf" ? 12 : b.shape === "branch" ? 14 : 15;
 							return (
 								<g key={i}>
 									{b.shape === "decision"
-										? <polygon points={`${b.x + b.w / 2},${b.y} ${b.x + b.w},${b.y + b.h / 2} ${b.x + b.w / 2},${b.y + b.h} ${b.x},${b.y + b.h / 2}`} fill={fill} stroke="#fbbf24" strokeWidth={2} />
+										? <polygon points={`${b.x + b.w / 2},${b.y} ${b.x + b.w},${b.y + b.h / 2} ${b.x + b.w / 2},${b.y + b.h} ${b.x},${b.y + b.h / 2}`} fill={fill} stroke="var(--lh-np-t3)" strokeWidth={2} />
 										: <rect x={b.x} y={b.y} width={b.w} height={b.h} rx={b.shape === "box" ? 10 : b.h / 2} fill={fill} stroke={color} strokeWidth={b.shape === "leaf" ? 1.5 : 2.2} />}
-									<text textAnchor="middle" fontSize={size} fill="#e5e7eb" fontWeight={b.shape === "center" ? 700 : 500}>
+									<text textAnchor="middle" fontSize={size} fill="var(--lh-np-strong)" fontWeight={b.shape === "center" ? 700 : 500}>
 										{b.lines.map((line, li) => <tspan key={li} x={b.x + b.w / 2} y={b.y + b.h / 2 + (li - (b.lines.length - 1) / 2) * (size + 2) + size * 0.35}>{line}</tspan>)}
 									</text>
 								</g>
@@ -88,16 +91,16 @@ function ElementView({ el, imageUrl }: { el: Element; imageUrl: (materialId: str
 			const figH = Math.round(el.w / el.aspect);
 			return (
 				<div style={{ ...box }}>
-					<div style={{ position: "relative", width: el.w, height: figH, border: "1px solid #3f3f46", background: "#fff", boxShadow: "1px 2px 5px rgba(0,0,0,.12)" }}>
+					<div style={{ position: "relative", width: el.w, height: figH, border: "1px solid var(--lh-np-fig-border)", background: "#fff", boxShadow: "1px 2px 5px rgba(0,0,0,.12)" }}>
 						{/* eslint-disable-next-line @next/next/no-img-element */}
 						<img src={imageUrl(el.materialId, el.page)} alt={el.caption ?? `Page ${el.page}`} width={el.w} height={figH} style={{ display: "block", width: "100%", height: "100%" }} />
-						<svg width={el.w} height={figH} viewBox={`0 0 ${el.w} ${figH}`} style={{ position: "absolute", inset: 0, overflow: "visible" }} fill="none" stroke="#f87171" strokeLinecap="round" strokeLinejoin="round">
+						<svg width={el.w} height={figH} viewBox={`0 0 ${el.w} ${figH}`} style={{ position: "absolute", inset: 0, overflow: "visible" }} fill="none" stroke="var(--lh-np-mark)" strokeLinecap="round" strokeLinejoin="round">
 							{el.marks.flatMap((m, mi) => markShapes(m, el.w, figH).map((s, si) => s.kind === "path"
-								? <path key={`${mi}-${si}`} d={s.d} strokeWidth={s.width ?? 3} fill={s.fill ?? "none"} fillOpacity={s.opacity} stroke={s.fill ? "none" : "#f87171"} />
-								: <text key={`${mi}-${si}`} x={s.x} y={s.y} fill="#f87171" stroke="none" fontSize={18} fontWeight={700} style={{ fontFamily: "inherit" }}>{s.text}</text>))}
+								? <path key={`${mi}-${si}`} d={s.d} strokeWidth={s.width ?? 3} fill={s.fill ?? "none"} fillOpacity={s.opacity} stroke={s.fill ? "none" : "var(--lh-np-mark)"} />
+								: <text key={`${mi}-${si}`} x={s.x} y={s.y} fill="var(--lh-np-mark)" stroke="none" fontSize={18} fontWeight={700} style={{ fontFamily: "inherit" }}>{s.text}</text>))}
 						</svg>
 					</div>
-					{el.caption && <div style={{ fontSize: 15, color: "#a1a1aa", marginTop: 4 }}><RichText text={el.caption} /></div>}
+					{el.caption && <div style={{ fontSize: 15, color: "var(--lh-np-arrow)", marginTop: 4 }}><RichText text={el.caption} /></div>}
 				</div>
 			);
 		}
@@ -120,20 +123,20 @@ export function NotePageView({ page, number, notebook, scale, tool, handlers, im
 		return [(e.clientX - r.left) / scale, (e.clientY - r.top) / scale];
 	};
 	const drawingTool = tool === "pen" || tool === "highlighter";
-	const color = tool === "highlighter" ? "#facc15" : "#f3f4f6";
+	const color = tool === "highlighter" ? "#facc15" : "#f3f4f6"; // stored as-is; drawn through inkOf
 	const width = tool === "highlighter" ? 18 : 2.5;
 	const path = (pts: Array<[number, number]>) => "M" + pts.map(([x, y]) => `${x},${y}`).join(" L");
 	return (
 		<div style={{ width: PAGE_W * scale, height: PAGE_H * scale }} className="mx-auto mb-6 shrink-0 overflow-hidden rounded-sm shadow-lg print:mb-0 print:shadow-none" data-testid="note-page">
 			<div
 				ref={ref}
-				style={{ fontFamily: HAND, width: PAGE_W, height: PAGE_H, transform: `scale(${scale})`, transformOrigin: "top left", position: "relative", background: "#17181c", backgroundImage: "repeating-linear-gradient(transparent 0 25px, #262830 25px 26px)", backgroundPositionY: 48, touchAction: drawingTool ? "none" : "auto" }}
+				style={{ fontFamily: HAND, width: PAGE_W, height: PAGE_H, transform: `scale(${scale})`, transformOrigin: "top left", position: "relative", background: "var(--lh-np-paper)", backgroundImage: "repeating-linear-gradient(transparent 0 25px, var(--lh-np-line) 25px 26px)", backgroundPositionY: 48, touchAction: drawingTool ? "none" : "auto" }}
 			>
-				<div style={{ position: "absolute", left: 40, top: 0, bottom: 0, width: 2, background: "#7f3b3b", opacity: 0.6 }} />
+				<div style={{ position: "absolute", left: 40, top: 0, bottom: 0, width: 2, background: "var(--lh-np-margin)", opacity: 0.6 }} />
 				{page.elements.map((el) => <ElementView key={el.id} el={el} imageUrl={imageUrl} />)}
-				<div style={{ position: "absolute", right: 24, bottom: 14, fontSize: 14, color: "#71717a" }}>{number}</div>
+				<div style={{ position: "absolute", right: 24, bottom: 14, fontSize: 14, color: "var(--lh-np-dash)" }}>{number}</div>
 				{layer?.stickies.map((s) => (
-					<button key={s.id} type="button" title="Click to remove" onClick={() => handlers?.onRemoveSticky(page.id, s.id)} style={{ position: "absolute", left: s.x, top: s.y, maxWidth: 200, background: "#14532d", padding: "8px 10px", fontSize: 16, lineHeight: "21px", textAlign: "left", color: "#bbf7d0", boxShadow: "2px 3px 6px rgba(0,0,0,.18)", cursor: handlers ? "pointer" : "default" }}>{s.text}</button>
+					<button key={s.id} type="button" title="Click to remove" onClick={() => handlers?.onRemoveSticky(page.id, s.id)} style={{ position: "absolute", left: s.x, top: s.y, maxWidth: 200, background: "var(--lh-np-sticky2-bg)", padding: "8px 10px", fontSize: 16, lineHeight: "21px", textAlign: "left", color: "var(--lh-np-sticky2-fg)", boxShadow: "2px 3px 6px rgba(0,0,0,.18)", cursor: handlers ? "pointer" : "default" }}>{s.text}</button>
 				))}
 				<svg
 					width={PAGE_W} height={PAGE_H} viewBox={`0 0 ${PAGE_W} ${PAGE_H}`}
@@ -149,8 +152,8 @@ export function NotePageView({ page, number, notebook, scale, tool, handlers, im
 					onPointerMove={(e) => { if (drawing) setDrawing((d) => (d ? [...d, at(e)] : d)); }}
 					onPointerUp={() => { if (drawing && handlers && drawing.length > 0) handlers.onStroke(page.id, { tool: tool as "pen" | "highlighter", color, width, points: drawing }); setDrawing(null); }}
 				>
-					{layer?.strokes.map((s, i) => <path key={i} d={path(s.points)} stroke={s.color} strokeWidth={s.width} opacity={s.tool === "highlighter" ? 0.4 : 1} />)}
-					{drawing && <path d={path(drawing)} stroke={color} strokeWidth={width} opacity={tool === "highlighter" ? 0.4 : 1} />}
+					{layer?.strokes.map((s, i) => <path key={i} d={path(s.points)} stroke={inkOf(s.color)} strokeWidth={s.width} opacity={s.tool === "highlighter" ? 0.4 : 1} />)}
+					{drawing && <path d={path(drawing)} stroke={inkOf(color)} strokeWidth={width} opacity={tool === "highlighter" ? 0.4 : 1} />}
 				</svg>
 			</div>
 		</div>

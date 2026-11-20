@@ -24,7 +24,7 @@ const { PUT: putSection } = await import("../app/api/settings/[section]/route.ts
 const { GET: getThemes, POST: postTheme } = await import("../app/api/themes/route.ts");
 const { DELETE: deleteTheme } = await import("../app/api/themes/[id]/route.ts");
 const { readSettingsRecord, writeSettingsRecord, readThemeBoot, themeStore } = await import("../src/server/index.ts");
-const { BUILTIN_THEMES, exportThemeFile, themeVars, effectiveColors } = await import("../src/core/index.ts");
+const { BUILTIN_THEMES, exportThemeFile, themeVars, effectiveColors, tuneOf } = await import("../src/core/index.ts");
 const { AppearanceProvider, appearanceVars, resolveAppearance } = await import("../components/settings/appearance.tsx");
 const { AppearanceSection } = await import("../components/settings/appearance-section.tsx");
 type Theme = import("../src/core/index.ts").Theme;
@@ -208,6 +208,6 @@ describe("export reflects what I see", () => {
 		assert.equal(res.status, 201);
 		const { theme } = (await res.json()) as { theme: Theme };
 		assert.equal(theme.id, "catppuccin-mocha-2", "the preset's id stays reserved");
-		assert.deepEqual(themeVars(effectiveColors(theme, undefined), theme.mode), readThemeBoot().vars);
+		assert.deepEqual(themeVars(effectiveColors(theme, undefined), theme.mode, tuneOf(theme)), readThemeBoot().vars);
 	});
 });
