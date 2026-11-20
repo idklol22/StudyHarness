@@ -9,8 +9,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createSubject, createTopic, emptyLibrary, type Library } from "../src/core/study/model.ts";
-import { contextChipLabel, ContextChip, ContextChipPopover } from "../components/study/context-chip.tsx";
-import { emptyChoice } from "../components/study/placement.ts";
+import { contextChipLabel } from "../components/study/context-chip.tsx";
+import { PlacementPills, MentionMenu } from "../components/study/placement-pills.tsx";
+import { emptyChoice, mentionOptions, mentionQuery, stripMention, orderedSubjects } from "../components/study/placement.ts";
 import type { PlacementState } from "../components/study/placement-picker.tsx";
 
 function library(): { lib: Library; ml: string; dp: string; alg: string } {
@@ -58,68 +59,79 @@ describe("contextChipLabel — the chip's pure text", () => {
 	});
 });
 
-describe("context chip markup", () => {
-	it("the chip carries its label and test hooks; the missing hint is opt-in", () => {
-		const { lib, ml } = library();
-		const html = renderToStaticMarkup(<ContextChip state={state({ library: lib, choice: { subjectId: ml, topicId: "", startMode: "scratch" } })} />);
-		assert.match(html, /data-testid="context-chip"/);
-		assert.match(html, /aria-expanded="false"/);
-		assert.match(html, /Machine Learning/);
-		assert.ok(!html.includes("context-chip-hint"));
-		const missing = renderToStaticMarkup(<ContextChip state={state({ missing: "Choose how to start." })} showMissing />);
-		assert.match(missing, /data-testid="context-chip-hint"/);
-		assert.match(missing, /Choose how to start\./);
+describe("placement pills markup", () => {
+	it("renders a pill per subject, the selected one pressed, and + New subject", () => {
+		const { lib, ml, alg } = library();
+		const html = renderToStaticMarkup(<PlacementPills state={state({ library: lib, choice: { subjectId: ml, topicId: "", startMode: "" } })} />);
+		assert.match(html, new RegExp(`data-testid="subject-pill-${ml}"[^>]*aria-pressed="true"`));
+		assert.match(html, new RegExp(`data-testid="subject-pill-${alg}"[^>]*aria-pressed="false"`));
+		assert.match(html, /[+] New subject/);
+		assert.ok(!html.includes("context-chip-popover"));
 	});
 
-	it("the popover lists subjects with search and New subject, topics with Whole subject and New topic", () => {
-		const html = renderToStaticMarkup(<ContextChipPopover state={state()} />);
-		assert.match(html, /data-testid="context-chip-popover"/);
-		assert.match(html, /data-testid="context-chip-subject-search"/);
-		assert.match(html, /Machine Learning/);
-		assert.match(html, /Algorithms/);
-		assert.match(html, /data-testid="context-chip-new-subject"/);
-		assert.match(html, /\+ New subject/);
-		assert.match(html, /data-testid="context-chip-whole-subject"/);
-		assert.match(html, /Whole subject/);
-		assert.match(html, /Dynamic programming/);
-		assert.match(html, /data-testid="context-chip-new-topic"/);
-		assert.match(html, /\+ New topic/);
+	it("the topic row appears only with a subject, Whole subject first, plus + New topic", () => {
+		const withSubject = renderToStaticMarkup(<PlacementPills state={state()} />);
+		assert.match(withSubject, /data-testid="topic-pills"/);
+		assert.match(withSubject, /Whole subject/);
+		assert.match(withSubject, /Dynamic programming/);
+		assert.match(withSubject, /[+] New topic/);
+		const none = renderToStaticMarkup(<PlacementPills state={state({ choice: emptyChoice })} />);
+		assert.ok(!none.includes("topic-pills"));
 	});
 
-	it("no start-mode choice is shown: a new chat just starts", () => {
-		const html = renderToStaticMarkup(<ContextChipPopover state={state()} />);
-		assert.ok(!html.includes("context-chip-start-mode"));
-		assert.ok(!html.includes("Check what I know first"));
+	it("with no subjects only + New subject and a hint show", () => {
+		const html = renderToStaticMarkup(<PlacementPills state={state({ library: emptyLibrary(), choice: emptyChoice })} />);
+		assert.match(html, /[+] New subject/);
+		assert.match(html, /pills-empty-hint/);
+		assert.ok(!html.includes("subject-pill-more"));
 	});
 
-	it("practice shows no start-mode choice", () => {
-		const html = renderToStaticMarkup(<ContextChipPopover state={state()} practice />);
-		assert.ok(!html.includes("context-chip-start-mode"));
+	it("more than six subjects overflow into More…, keeping the selected one visible", () => {
+		let lib = emptyLibrary();
+		const ids: string[] = [];
+		for (let i = 0; i < 8; i++) { const r = createSubject(lib, `Subject ${i}`); lib = r.library; ids.push(r.subject.id); }
+		const html = renderToStaticMarkup(<PlacementPills state={state({ library: lib, choice: { subjectId: ids[0]!, topicId: "", startMode: "" } })} />);
+		assert.match(html, /subject-pill-more/);
+		assert.ok(html.includes(`subject-pill-${ids[0]}`));
+		assert.equal((html.match(/data-testid="subject-pill-sub/g) ?? []).length, 6);
 	});
 
-	it("Add files links to this scope's #files page, with the topic when one is picked", () => {
+	it("the remembered subject is ordered first", () => {
+		const { lib, ml, alg } = library();
+		assert.equal(orderedSubjects(lib, ml)[0]!.id, ml);
+		assert.equal(orderedSubjects(lib, alg)[0]!.id, alg);
+	});
+});
+
+describe("@ mention rules", () => {
+	it("detects a trailing @query only", () => {
+		assert.equal(mentionQuery("hello @alg"), "alg");
+		assert.equal(mentionQuery("@"), "");
+		assert.equal(mentionQuery("mail a@b.com"), null);
+		assert.equal(mentionQuery("@alg then more"), null);
+		assert.equal(mentionQuery("plain text"), null);
+	});
+
+	it("filters subjects and Subject › Topic entries", () => {
 		const { lib, ml, dp } = library();
-		const whole = renderToStaticMarkup(<ContextChipPopover state={state({ library: lib, choice: { subjectId: ml, topicId: "", startMode: "" } })} />);
-		assert.match(whole, /data-testid="context-chip-add-files"/);
-		assert.match(whole, new RegExp(`href="/subjects/${ml}#files"`));
-		assert.match(whole, /Add files to Machine Learning instead/);
-		const topic = renderToStaticMarkup(<ContextChipPopover state={state({ library: lib, choice: { subjectId: ml, topicId: dp, startMode: "" } })} />);
-		assert.match(topic, new RegExp(`href="/subjects/${ml}/${dp}#files"`));
-		assert.match(topic, /Add files to Machine Learning instead/);
+		assert.equal(mentionOptions(lib, "").length, 3);
+		assert.deepEqual(mentionOptions(lib, "dynamic").map((o) => [o.subjectId, o.topicId]), [[ml, dp]]);
+		assert.equal(mentionOptions(lib, "dynamic")[0]!.label, "Machine Learning › Dynamic programming");
+		assert.deepEqual(mentionOptions(lib, "machine").map((o) => o.label), ["Machine Learning", "Machine Learning › Dynamic programming"]);
+		assert.deepEqual(mentionOptions(lib, "zzz"), []);
 	});
 
-	it("the create forms and the missing hint are available on demand", () => {
-		const html = renderToStaticMarkup(<ContextChipPopover state={state({ error: "Could not create the subject.", missing: "Choose a subject for this chat." })} showMissing />);
-		assert.match(html, /data-testid="context-chip-error"/);
-		assert.match(html, /Could not create the subject\./);
-		assert.match(html, /data-testid="context-chip-hint"/);
-		assert.match(html, /Choose a subject for this chat\./);
+	it("stripMention removes the @query and keeps the rest", () => {
+		assert.equal(stripMention("explain this @alg"), "explain this ");
+		assert.equal(stripMention("@alg"), "");
 	});
 
-	it("with no subject chosen yet, there is no topic list or Add-files link", () => {
-		const html = renderToStaticMarkup(<ContextChipPopover state={state({ library: emptyLibrary(), choice: emptyChoice })} />);
-		assert.ok(!html.includes("context-chip-topics"));
-		assert.ok(!html.includes("context-chip-add-files"));
-		assert.match(html, /No subjects found\./);
+	it("the menu renders options and marks the active one", () => {
+		const { lib } = library();
+		const opts = mentionOptions(lib, "");
+		const html = renderToStaticMarkup(<MentionMenu options={opts} index={1} onPick={() => {}} />);
+		assert.match(html, /data-testid="mention-menu"/);
+		assert.equal((html.match(/aria-selected="true"/g) ?? []).length, 1);
+		assert.equal(renderToStaticMarkup(<MentionMenu options={[]} index={0} onPick={() => {}} />), "");
 	});
 });

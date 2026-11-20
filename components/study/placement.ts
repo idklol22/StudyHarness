@@ -49,3 +49,40 @@ export function placementLabel(library: Library, p: Pick<ChatPlacement, "subject
 }
 
 export const LAST_CHOICE_KEY = "lh.study.last-placement.v1";
+
+/** Subjects for the pills: the remembered (last used) one first, then newest first. */
+export function orderedSubjects(library: Library, lastSubjectId = "") {
+	return [...library.subjects].sort((a, b) => (b.id === lastSubjectId ? 1 : 0) - (a.id === lastSubjectId ? 1 : 0) || b.createdAt.localeCompare(a.createdAt));
+}
+
+/** Topics of a subject for the pills: the remembered topic first, then newest first. */
+export function orderedTopics(library: Library, subjectId: string, lastTopicId = "") {
+	return [...topicsOf(library, subjectId)].sort((a, b) => (b.id === lastTopicId ? 1 : 0) - (a.id === lastTopicId ? 1 : 0) || b.createdAt.localeCompare(a.createdAt));
+}
+
+/** The `@query` being typed at the END of the composer text, or null when no mention is open. */
+export function mentionQuery(text: string): string | null {
+	const m = /(?:^|\s)@([^\s@]*)$/.exec(text);
+	return m ? m[1]! : null;
+}
+
+export interface MentionOption { key: string; subjectId: string; topicId: string; label: string }
+
+/** Subjects and "Subject › Topic" entries matching the query (case-insensitive), capped for a small menu. */
+export function mentionOptions(library: Library, query: string, limit = 8): MentionOption[] {
+	const q = query.trim().toLowerCase();
+	const out: MentionOption[] = [];
+	for (const s of orderedSubjects(library)) {
+		const entries: MentionOption[] = [
+			{ key: s.id, subjectId: s.id, topicId: "", label: s.name },
+			...topicsOf(library, s.id).map((t) => ({ key: `${s.id}/${t.id}`, subjectId: s.id, topicId: t.id, label: `${s.name} › ${t.name}` })),
+		];
+		for (const e of entries) if (!q || e.label.toLowerCase().includes(q)) out.push(e);
+	}
+	return out.slice(0, limit);
+}
+
+/** The text with the trailing `@query` removed (the placement now carries it). */
+export function stripMention(text: string): string {
+	return text.replace(/(^|\s)@[^\s@]*$/, "$1");
+}

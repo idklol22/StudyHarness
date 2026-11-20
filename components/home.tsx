@@ -20,7 +20,8 @@ import { PathInput } from "@/components/path-input";
 import { AttachFilesButton } from "@/components/attach-files-button";
 import { SessionStarter } from "@/components/start-session";
 import { useStudyPlacement } from "@/components/study/placement-picker";
-import { ContextChip } from "@/components/study/context-chip";
+import { BoundPlacementPills, MentionMenu } from "@/components/study/placement-pills";
+import { mentionOptions, mentionQuery, stripMention, type MentionOption } from "@/components/study/placement";
 import type { TurnUsage } from "@/src/core";
 
 /**
@@ -106,6 +107,20 @@ export function Home({
 	// Where the chat lives in the Study library and how it starts (Study overhaul): asked every time.
 	const placement = useStudyPlacement(mode === "practice");
 	const [showMissing, setShowMissing] = useState(false);
+	// @ mention (owner 2026-11-20): `@query` at the end of the draft opens a subject/topic menu.
+	const [mentionIndex, setMentionIndex] = useState(0);
+	const [mentionDismissed, setMentionDismissed] = useState<string | null>(null);
+	const query = mentionQuery(topic);
+	const mentionOpts = useMemo(() => (query === null ? [] : mentionOptions(placement.library, query)), [query, placement.library]);
+	const mentionOpen = mentionOpts.length > 0 && mentionDismissed !== topic;
+	const pickMention = (o: MentionOption) => {
+		placement.setSubject(o.subjectId);
+		if (o.topicId) placement.setTopic(o.topicId);
+		const next = stripMention(topicRef.current);
+		topicRef.current = next;
+		setTopic(next);
+		setMentionIndex(0);
+	};
 	const [practiceProps, setPracticeProps] = useState<{ id: string; name: string; statement: string }[]>([]);
 	const [chainSelectOpen, setChainSelectOpen] = useState(false);
 	// The chain table is CONTROLLED off this id set (the lifted pick).
@@ -214,7 +229,8 @@ export function Home({
 			    px-4) so nothing shifts when a session starts (owner). */}
 			<div className="pointer-events-none absolute inset-x-0 bottom-0 pb-5">
 				<div className="pointer-events-auto mx-auto w-full max-w-[46rem] px-4">
-					<ContextChip state={placement} practice={mode === "practice"} showMissing={showMissing} />
+					{mentionOpen && <MentionMenu options={mentionOpts} index={Math.min(mentionIndex, mentionOpts.length - 1)} onPick={pickMention} />}
+					<BoundPlacementPills state={placement} showMissing={showMissing} />
 					{/* The pick bar (owner vision, 2026-10-04): the chain
 					    table's selection is PERSISTENT — picked
 					    propositions show here as a count + Clear in EITHER
@@ -273,6 +289,26 @@ export function Home({
 								e.stopPropagation();
 								dictation.cancel();
 								return;
+							}
+							if (mentionOpen) {
+								const at = Math.min(mentionIndex, mentionOpts.length - 1);
+								if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+									e.preventDefault();
+									setMentionIndex((at + (e.key === "ArrowDown" ? 1 : mentionOpts.length - 1)) % mentionOpts.length);
+									return;
+								}
+								if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") {
+									e.preventDefault();
+									pickMention(mentionOpts[at]!);
+									return;
+								}
+								if (e.key === "Escape") {
+									controller?.claimEscape(e);
+									e.preventDefault();
+									e.stopPropagation();
+									setMentionDismissed(topic);
+									return;
+								}
 							}
 							if (e.key === "Enter" && !e.shiftKey) {
 								e.preventDefault();
