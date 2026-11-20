@@ -1648,8 +1648,8 @@ export function Chat({
 		    chip) spans from the left sidebar's edge to the panel's edge. The
 		    dock overlays the column bottom (outside the scroller); a spacer in
 		    the transcript reserves its height. */}
-		<div className="flex h-dvh">
-			<div className="flex min-w-0 flex-1 flex-col">
+		<div className="flex h-dvh overflow-hidden">
+			<div className="flex min-h-0 min-w-0 flex-1 flex-col">
 				{/* The top bar is its own block (owner, top-fade round 4): in flow
 				    above the scroller on the plain page background — no gradient. Its
 				    bottom outline (border-b border-border) matches the one that

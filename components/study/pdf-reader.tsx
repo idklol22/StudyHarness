@@ -110,7 +110,7 @@ function PdfPage({ lib, doc, page, size, scale, active }: { lib: PdfLib; doc: PD
 	}, [active, doc, lib, page, scale]);
 
 	return (
-		<div className="relative bg-white" style={{ width: size.width * scale, height: size.height * scale }}>
+		<div className="relative overflow-hidden bg-white" style={{ width: size.width * scale, height: size.height * scale }}>
 			<canvas ref={canvas} className="absolute inset-0 block bg-white" aria-label={`Page ${page}`} />
 			<div ref={textLayer} className="textLayer" style={{ "--total-scale-factor": scale } as CSSProperties} />
 		</div>
@@ -459,7 +459,7 @@ export function PdfReaderView({ materialId, page: startPage, compact = false, ba
 	);
 
 	return (
-		<div ref={rootEl} tabIndex={compact ? -1 : undefined} className={`flex min-w-0 flex-col bg-background outline-none ${compact ? "h-full min-h-0" : "h-dvh"}`} data-testid="pdf-reader">
+		<div ref={rootEl} tabIndex={compact ? -1 : undefined} className={`flex min-w-0 flex-col overflow-hidden bg-background outline-none ${compact ? "h-full min-h-0" : "h-dvh"}`} data-testid="pdf-reader">
 			{compact ? <div className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-b border-border px-2 py-1">{toolbar}</div> : <TopBar>{toolbar}</TopBar>}
 
 			{shownError ? (
@@ -497,13 +497,13 @@ export function PdfReaderView({ materialId, page: startPage, compact = false, ba
 							</ul>
 						</aside>
 					)}
-					<div ref={scrollBox} onScroll={onScroll} data-testid="reader-pages" className="min-w-0 flex-1 overflow-auto">
+					<div ref={scrollBox} onScroll={onScroll} data-testid="reader-pages" className="relative min-w-0 flex-1 overflow-auto">
 						<div className={`flex min-h-full flex-col items-center gap-4 ${compact ? "px-3 py-3" : "px-8 py-6"}`}>
 							{Array.from({ length: total }, (_, i) => i + 1).map((n) => {
 								const size = sizes[n - 1];
 								const shown = rendered.has(n);
 								return (
-									<div key={n} data-page={n} className="flex w-full justify-center" aria-label={`Page ${n}`}>
+									<div key={n} data-page={n} className="relative flex w-full justify-center" aria-label={`Page ${n}`}>
 										{isText ? (
 											<div className="w-full max-w-3xl border border-border bg-card px-8 py-8 shadow-sm">
 												{shown ? <TextPage materialId={materialId} page={n} cache={textCache.current} onText={rememberText} /> : <div className="h-24" />}

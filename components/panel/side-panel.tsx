@@ -161,8 +161,8 @@ export function SidePanel() {
 			onKeyDown={onKeyDown}
 			style={narrow ? undefined : { width: `${clampPanelFraction(fraction, total) * 100}%` }}
 			className={narrow
-				? "fixed inset-y-0 right-0 z-40 flex w-full min-w-0 flex-col border-l border-border bg-background shadow-lg"
-				: "relative flex min-w-[320px] shrink-0 flex-col border-l border-border bg-background"}
+				? "fixed inset-y-0 right-0 z-40 flex min-h-0 w-full min-w-0 flex-col overflow-hidden border-l border-border bg-background shadow-lg"
+				: "relative flex h-full min-h-0 min-w-[320px] shrink-0 flex-col overflow-hidden border-l border-border bg-background"}
 		>
 			{!narrow && (
 				<div role="separator" aria-orientation="vertical" aria-label="Resize side panel" data-testid="side-panel-divider" onPointerDown={startDrag}
@@ -188,11 +188,11 @@ export function SidePanel() {
 				{full && <Link href={full} title="Open full page" aria-label="Open full page" className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"><ExternalLinkIcon className="size-4" /></Link>}
 				<button type="button" title="Close panel (Esc)" aria-label="Close side panel" onClick={panel.clear} className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"><XIcon className="size-4" /></button>
 			</div>
-			<div className="min-h-0 flex-1">
+			<div className="min-h-0 min-w-0 flex-1 overflow-hidden">
 				{panel.items.map((item) => {
 					const key = itemKey(item);
 					return (
-						<div key={key} role="tabpanel" hidden={key !== itemKey(active)} className="h-full min-h-0">
+						<div key={key} role="tabpanel" hidden={key !== itemKey(active)} className="h-full min-h-0 min-w-0 overflow-hidden">
 							<PanelBody item={item} />
 						</div>
 					);
